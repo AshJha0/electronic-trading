@@ -1,0 +1,30 @@
+{
+  "total_shares": 1000000.0,
+  "n_intervals": 5,
+  "tau": 1.0,
+  "side": "sell",
+  "lambda_grid": [
+    0.0,
+    1e-08,
+    1e-07,
+    5e-07,
+    1e-06,
+    2e-06,
+    5e-06,
+    1e-05
+  ],
+  "decision_price": 100.0,
+  "arrival_price": 99.5,
+  "close_price": 98.8,
+  "is_total_qty": 1000.0,
+  "is_fill_qtys": [
+    300.0,
+    400.0,
+    200.0
+  ],
+  "is_fill_prices": [
+    99.4,
+    99.2,
+    99.1
+  ]
+}

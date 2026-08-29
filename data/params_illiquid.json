@@ -1,0 +1,20 @@
+{
+  "ac_total_shares": 500000.0,
+  "ac_n_intervals": 10,
+  "ac_tau": 0.5,
+  "ac_sigma": 1.5,
+  "ac_eta": 1e-05,
+  "ac_gamma_p": 5e-07,
+  "ac_lambda_ra": 5e-06,
+  "as_s0": 50.0,
+  "as_sigma": 3.0,
+  "as_horizon": 1.0,
+  "as_dt": 0.005,
+  "as_gamma": 0.5,
+  "as_k": 0.8,
+  "as_a_rate": 20.0,
+  "as_q_max": 10,
+  "as_eta_liq": 1.0,
+  "pov_market_volume_rate": 400000.0,
+  "pov_participation": 0.1
+}

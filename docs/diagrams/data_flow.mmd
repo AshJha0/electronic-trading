@@ -1,0 +1,38 @@
+flowchart TB
+    subgraph DATA["data/ (shared, committed)"]
+        PJ["params_liquid.json<br/>params_illiquid.json<br/>params_fx.json"]
+        PO["parent_order.json<br/>(X, lambda grid, IS fills)"]
+        GEN["generate_data.py<br/>(seeded, asserts AC closed forms vs MC)"]
+        GOLD["golden/golden.json<br/>18 cases: exact + statistical"]
+        GEN --> PJ
+        GEN --> PO
+        GEN --> GOLD
+    end
+
+    subgraph CORE["etrade core (identical in Python / C++ / Rust / Java)"]
+        ACP["ACParams<br/>validate: eta_tilde > 0, X >= 0, ..."]
+        AC["almgren_chriss<br/>kappa, trajectory, trade list,<br/>E/Var sums, frontier,<br/>TWAP / POV / instant, MC check"]
+        ASP["ASParams<br/>validate: gamma > 0, T/dt integral, ..."]
+        AS["avellaneda_stoikov<br/>reservation price, spread, quotes,<br/>intensity, fill prob,<br/>pinned simulation loop"]
+        AN["analytics<br/>IS decomposition, participation,<br/>native OLS impact regression"]
+        ACP --> AC
+        ASP --> AS
+    end
+
+    PJ --> ACP
+    PJ --> ASP
+    PO --> AC
+    PO --> AN
+
+    subgraph OUT["outputs"]
+        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit)"]
+        TESTS["4 language test suites<br/>exact cases: 1e-10..1e-12<br/>statistical cases: 4-SE band"]
+    end
+
+    AC --> DEMO
+    AS --> DEMO
+    AN --> DEMO
+    AC --> TESTS
+    AS --> TESTS
+    AN --> TESTS
+    GOLD --> TESTS

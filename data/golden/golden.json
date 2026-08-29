@@ -1,0 +1,384 @@
+{
+  "cases": [
+    {
+      "name": "ac_liquid_solution",
+      "kind": "exact",
+      "inputs": {
+        "ac_total_shares": 1000000.0,
+        "ac_n_intervals": 5,
+        "ac_tau": 1.0,
+        "ac_sigma": 0.95,
+        "ac_eta": 2.5e-06,
+        "ac_gamma_p": 2.5e-07,
+        "ac_lambda_ra": 2e-06,
+        "x_index": 2.0
+      },
+      "expect": {
+        "kappa": 0.8462971345012561,
+        "half_life": 1.1816180856967273,
+        "x_j": 182932.81426176784,
+        "n_1": 571401.1542529825,
+        "e_cost": 1078215.167049785,
+        "var_cost": 201931287150.5245
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "ac_illiquid_solution",
+      "kind": "exact",
+      "inputs": {
+        "ac_total_shares": 500000.0,
+        "ac_n_intervals": 10,
+        "ac_tau": 0.5,
+        "ac_sigma": 1.5,
+        "ac_eta": 1e-05,
+        "ac_gamma_p": 5e-07,
+        "ac_lambda_ra": 5e-06,
+        "x_index": 4.0
+      },
+      "expect": {
+        "kappa": 1.0550751745482203,
+        "half_life": 0.9477997626360574,
+        "x_j": 60503.493369841744,
+        "n_1": 204986.38544312457,
+        "e_cost": 1336275.3431703649,
+        "var_cost": 150093042616.09827
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "ac_twap_liquid",
+      "kind": "exact",
+      "inputs": {
+        "ac_total_shares": 1000000.0,
+        "ac_n_intervals": 5,
+        "ac_tau": 1.0,
+        "ac_sigma": 0.95,
+        "ac_eta": 2.5e-06,
+        "ac_gamma_p": 2.5e-07,
+        "ac_lambda_ra": 2e-06
+      },
+      "expect": {
+        "e_cost": 600000.0,
+        "var_cost": 1083000000000.0
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "ac_pov_liquid",
+      "kind": "exact",
+      "inputs": {
+        "ac_total_shares": 1000000.0,
+        "ac_n_intervals": 5,
+        "ac_tau": 1.0,
+        "ac_sigma": 0.95,
+        "ac_eta": 2.5e-06,
+        "ac_gamma_p": 2.5e-07,
+        "ac_lambda_ra": 2e-06,
+        "pov_market_volume_rate": 2500000.0,
+        "pov_participation": 0.15
+      },
+      "expect": {
+        "e_cost": 941406.25,
+        "var_cost": 408945312500.0,
+        "n_intervals_used": 3.0
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "ac_frontier_point_liquid",
+      "kind": "exact",
+      "inputs": {
+        "ac_total_shares": 1000000.0,
+        "ac_n_intervals": 5,
+        "ac_tau": 1.0,
+        "ac_sigma": 0.95,
+        "ac_eta": 2.5e-06,
+        "ac_gamma_p": 2.5e-07,
+        "ac_lambda_ra": 5e-07
+      },
+      "expect": {
+        "e_cost": 705632.8121801235,
+        "std_cost": 750597.4765015928,
+        "kappa": 0.43251083974518506
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "ac_lambda_zero_limit_liquid",
+      "kind": "exact",
+      "inputs": {
+        "ac_total_shares": 1000000.0,
+        "ac_n_intervals": 5,
+        "ac_tau": 1.0,
+        "ac_sigma": 0.95,
+        "ac_eta": 2.5e-06,
+        "ac_gamma_p": 2.5e-07,
+        "ac_lambda_ra": 0.0
+      },
+      "expect": {
+        "max_abs_diff_vs_twap": 0.0
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "ac_instant_liquidation_liquid",
+      "kind": "exact",
+      "inputs": {
+        "ac_total_shares": 1000000.0,
+        "ac_n_intervals": 5,
+        "ac_tau": 1.0,
+        "ac_sigma": 0.95,
+        "ac_eta": 2.5e-06,
+        "ac_gamma_p": 2.5e-07,
+        "ac_lambda_ra": 2e-06
+      },
+      "expect": {
+        "e_cost": 2500000.0,
+        "var_cost": 0.0
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "ac_mc_liquid",
+      "kind": "statistical",
+      "inputs": {
+        "ac_total_shares": 1000000.0,
+        "ac_n_intervals": 5,
+        "ac_tau": 1.0,
+        "ac_sigma": 0.95,
+        "ac_eta": 2.5e-06,
+        "ac_gamma_p": 2.5e-07,
+        "ac_lambda_ra": 2e-06,
+        "seed": 123.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "mean_cost": 1075336.370931149,
+        "mean_cost_se": 3176.9675076246313,
+        "var_cost": 201862450890.05325,
+        "var_cost_se": 2018674976.4057941
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "as_reservation_liquid",
+      "kind": "exact",
+      "inputs": {
+        "as_s0": 100.0,
+        "as_sigma": 2.0,
+        "as_horizon": 1.0,
+        "as_dt": 0.005,
+        "as_gamma": 0.1,
+        "as_k": 1.5,
+        "as_a_rate": 140.0,
+        "as_q_max": 20,
+        "as_eta_liq": 0.5,
+        "s": 100.0,
+        "q": 3.0,
+        "t": 0.3
+      },
+      "expect": {
+        "reservation_price": 99.16
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "as_spread_liquid",
+      "kind": "exact",
+      "inputs": {
+        "as_s0": 100.0,
+        "as_sigma": 2.0,
+        "as_horizon": 1.0,
+        "as_dt": 0.005,
+        "as_gamma": 0.1,
+        "as_k": 1.5,
+        "as_a_rate": 140.0,
+        "as_q_max": 20,
+        "as_eta_liq": 0.5,
+        "t": 0.3
+      },
+      "expect": {
+        "spread": 1.5707704227514234,
+        "spread_terminal": 1.2907704227514234
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "as_fill_prob_liquid",
+      "kind": "exact",
+      "inputs": {
+        "as_s0": 100.0,
+        "as_sigma": 2.0,
+        "as_horizon": 1.0,
+        "as_dt": 0.005,
+        "as_gamma": 0.1,
+        "as_k": 1.5,
+        "as_a_rate": 140.0,
+        "as_q_max": 20,
+        "as_eta_liq": 0.5,
+        "delta": 0.6
+      },
+      "expect": {
+        "intensity": 56.919752363683884,
+        "fill_probability": 0.24768394830642568
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "as_sim_liquid",
+      "kind": "statistical",
+      "inputs": {
+        "as_s0": 100.0,
+        "as_sigma": 2.0,
+        "as_horizon": 1.0,
+        "as_dt": 0.005,
+        "as_gamma": 0.1,
+        "as_k": 1.5,
+        "as_a_rate": 140.0,
+        "as_q_max": 20,
+        "as_eta_liq": 0.5,
+        "seed": 42.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "mean_pnl": 55.99205805727791,
+        "mean_pnl_se": 0.045127160280039845,
+        "std_pnl": 6.381944209941679,
+        "std_pnl_se": 0.031910518822651245,
+        "mean_abs_q": 1.06301375,
+        "mean_abs_q_se": 0.0017314180441098124,
+        "mean_max_abs_q": 4.0876,
+        "mean_max_abs_q_se": 0.009313197559508718,
+        "mean_fills": 77.17785,
+        "mean_fills_se": 0.04943493865206041
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "as_sim_fx",
+      "kind": "statistical",
+      "inputs": {
+        "as_s0": 1.1,
+        "as_sigma": 0.004,
+        "as_horizon": 1.0,
+        "as_dt": 0.005,
+        "as_gamma": 100.0,
+        "as_k": 2000.0,
+        "as_a_rate": 500.0,
+        "as_q_max": 50,
+        "as_eta_liq": 0.0002,
+        "seed": 7.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "mean_pnl": 0.09173955711448781,
+        "mean_pnl_se": 5.1675080443412344e-05,
+        "std_pnl": 0.007307959959979443,
+        "std_pnl_se": 3.65407133291497e-05,
+        "mean_abs_q": 0.4508237499999999,
+        "mean_abs_q_se": 0.00041662340674766157
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "as_fixed_comparison_liquid",
+      "kind": "statistical",
+      "inputs": {
+        "as_s0": 100.0,
+        "as_sigma": 2.0,
+        "as_horizon": 1.0,
+        "as_dt": 0.005,
+        "as_gamma": 0.1,
+        "as_k": 1.5,
+        "as_a_rate": 140.0,
+        "as_q_max": 20,
+        "as_eta_liq": 0.5,
+        "seed": 42.0,
+        "n_paths_ref": 20000.0,
+        "fixed_spread": 1.4907704227514234
+      },
+      "expect": {
+        "as_rms_q": 1.4504243363272136,
+        "as_rms_q_se": 0.0025004324301218283,
+        "fixed_rms_q": 5.021107536595791,
+        "fixed_rms_q_se": 0.018837354779634066
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "is_decomposition_sell",
+      "kind": "exact",
+      "inputs": {
+        "decision_price": 100.0,
+        "arrival_price": 99.5,
+        "close_price": 98.8,
+        "total_qty": 1000.0,
+        "q1": 300.0,
+        "p1": 99.4,
+        "q2": 400.0,
+        "p2": 99.2,
+        "q3": 200.0,
+        "p3": 99.1
+      },
+      "expect": {
+        "total": 799.9999999999986,
+        "delay": 450.0,
+        "trading": 229.9999999999983,
+        "opportunity": 120.00000000000028
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "is_decomposition_buy",
+      "kind": "exact",
+      "inputs": {
+        "decision_price": 100.0,
+        "arrival_price": 100.5,
+        "close_price": 101.2,
+        "total_qty": 1000.0,
+        "q1": 300.0,
+        "p1": 100.6,
+        "q2": 400.0,
+        "p2": 100.8,
+        "q3": 200.0,
+        "p3": 100.9
+      },
+      "expect": {
+        "total": 799.9999999999986,
+        "delay": 450.0,
+        "trading": 229.9999999999983,
+        "opportunity": 120.00000000000028
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "participation_rate",
+      "kind": "exact",
+      "inputs": {
+        "executed_volume": 120000.0,
+        "market_volume": 1500000.0
+      },
+      "expect": {
+        "participation": 0.08
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "impact_regression",
+      "kind": "exact",
+      "inputs": {
+        "n_obs": 25.0,
+        "true_intercept": 0.5,
+        "true_slope": 8.0,
+        "noise_amp": 0.05
+      },
+      "expect": {
+        "slope": 7.970665291179456,
+        "intercept": 0.503539513916228,
+        "r_squared": 0.9934209775967902
+      },
+      "tol": 1e-10
+    }
+  ]
+}

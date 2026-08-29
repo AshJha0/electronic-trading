@@ -1,0 +1,159 @@
+/// \file demo.cpp
+/// \brief End-to-end demo of the etrade C++ library.
+///
+/// Prints: Almgren-Chriss optimal trajectories across risk aversions, the
+/// efficient frontier of execution, TWAP/POV/instantaneous baselines with an
+/// MC cross-check, Avellaneda-Stoikov market-making simulations (A-S vs
+/// fixed-spread agent, liquid and FX-like parameter sets), and an
+/// implementation-shortfall decomposition with a market-impact regression.
+///
+/// Parameter values mirror data/params_liquid.json, data/params_fx.json and
+/// data/parent_order.json (hardcoded so the demo runs from any directory).
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <vector>
+
+#include "etrade/almgren_chriss.hpp"
+#include "etrade/analytics.hpp"
+#include "etrade/avellaneda_stoikov.hpp"
+
+namespace {
+
+void hdr(const char* title) {
+    std::printf("\n=== %s ", title);
+    for (int i = static_cast<int>(std::strlen(title)); i < 66; ++i) {
+        std::printf("=");
+    }
+    std::printf("\n");
+}
+
+void ac_section() {
+    // data/params_liquid.json
+    const etrade::ACParams p(1e6, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6);
+    hdr("Almgren-Chriss optimal trajectories (sell 1.0e6 shares, N=5)");
+    std::printf("%10s %9s %10s | holdings x_j (thousands)\n", "lambda_ra",
+                "kappa", "half-life");
+    for (double lam : {0.0, 5e-7, 2e-6, 1e-5}) {
+        const etrade::ACParams pl = p.with_lambda(lam);
+        const auto x = etrade::ac_trajectory(pl);
+        const double hl = etrade::half_life(pl);
+        if (std::isfinite(hl)) {
+            std::printf("%10.1e %9.4f %10.3f |", lam, etrade::ac_kappa(pl), hl);
+        } else {
+            std::printf("%10.1e %9.4f %10s |", lam, etrade::ac_kappa(pl), "inf");
+        }
+        for (double v : x) std::printf(" %8.1f", v / 1e3);
+        std::printf("\n");
+    }
+
+    hdr("Efficient frontier of execution (E[cost] vs sqrt(Var[cost]))");
+    const std::vector<double> grid = {0.0,  1e-8, 1e-7, 5e-7,
+                                      1e-6, 2e-6, 5e-6, 1e-5};
+    std::printf("%10s %14s %14s %9s\n", "lambda_ra", "E[cost] $",
+                "sqrt(Var) $", "kappa");
+    for (const auto& fp : etrade::efficient_frontier(p, grid)) {
+        std::printf("%10.1e %14.0f %14.0f %9.4f\n", fp.lambda_ra, fp.e_cost,
+                    fp.std_cost, fp.kappa);
+    }
+
+    hdr("Baselines: optimal vs TWAP vs POV vs instantaneous");
+    const auto twap = etrade::twap_holdings(p.total_shares, p.n_intervals);
+    const auto pov = etrade::pov_holdings(p.total_shares, p.tau, 2.5e6, 0.15);
+    const auto [e_i, v_i] = etrade::instantaneous_cost(p);
+    std::printf("%12s %14s %14s\n", "strategy", "E[cost] $", "sqrt(Var) $");
+    std::printf("%12s %14.0f %14.0f\n", "AC optimal", etrade::expected_cost(p),
+                std::sqrt(etrade::variance_cost(p)));
+    std::printf("%12s %14.0f %14.0f\n", "TWAP",
+                etrade::expected_cost(p, twap),
+                std::sqrt(etrade::variance_cost(p, twap)));
+    std::printf("%12s %14.0f %14.0f\n", "POV 15%",
+                etrade::expected_cost(p, pov),
+                std::sqrt(etrade::variance_cost(p, pov)));
+    std::printf("%12s %14.0f %14.0f\n", "Instant", e_i, std::sqrt(v_i));
+    const etrade::ISSimResult mc = etrade::simulate_is(p, 20000, 123);
+    std::printf("MC check (20k paths): E=%.0f (closed %.0f, se %.0f); "
+                "Var/1e9=%.1f (closed %.1f)\n",
+                mc.mean, etrade::expected_cost(p), mc.se_mean, mc.var / 1e9,
+                etrade::variance_cost(p) / 1e9);
+}
+
+void as_section(const etrade::ASParams& ap, const char* label,
+                std::uint64_t seed) {
+    hdr(label);
+    std::printf("params: s0=%g sigma=%g gamma=%g k=%g A=%g T=%g dt=%g "
+                "q_max=%d\n",
+                ap.s0, ap.sigma, ap.gamma, ap.k, ap.a_rate, ap.horizon, ap.dt,
+                ap.q_max);
+    const auto [bid, ask] = etrade::quotes(ap, ap.s0, 3.0, 0.0);
+    std::printf("example quote at t=0, q=+3: bid=%.4f ask=%.4f (mid %g, "
+                "reservation %.4f)\n",
+                bid, ask, ap.s0, etrade::reservation_price(ap, ap.s0, 3.0, 0.0));
+    const int n_paths = 2000;
+    const auto r_as = etrade::simulate(ap, n_paths, seed, etrade::Agent::kAS);
+    const auto r_fx =
+        etrade::simulate(ap, n_paths, seed, etrade::Agent::kFixed);
+    std::printf("%14s %10s %9s %7s %8s %11s %7s %7s\n", "agent", "mean PnL",
+                "std PnL", "Sharpe", "mean|q|", "mean max|q|", "rms q",
+                "fills");
+    struct Row { const char* name; const etrade::ASSimResult* r; };
+    for (const Row& row : {Row{"A-S", &r_as}, Row{"fixed-spread", &r_fx}}) {
+        std::printf("%14s %10.4f %9.4f %7.2f %8.3f %11.3f %7.3f %7.1f\n",
+                    row.name, row.r->mean_pnl(), row.r->std_pnl(),
+                    row.r->sharpe(), row.r->mean_abs_q(),
+                    row.r->mean_max_abs_q(), row.r->rms_q(),
+                    row.r->mean_fills());
+    }
+    std::printf("inventory control: A-S rms q = %.3f vs fixed %.3f "
+                "(similar PnL, much tighter inventory)\n",
+                r_as.rms_q(), r_fx.rms_q());
+    const auto stress =
+        etrade::simulate(ap, n_paths, seed, etrade::Agent::kAS,
+                         etrade::kDefaultFixedSpread, 2.0, 0.5);
+    std::printf("stress (vol x2 after T/2): std PnL %.4f -> %.4f\n",
+                r_as.std_pnl(), stress.std_pnl());
+}
+
+void analytics_section() {
+    hdr("Implementation-shortfall decomposition (sell parent order)");
+    // data/parent_order.json
+    const auto d = etrade::decompose_shortfall(
+        etrade::Side::kSell, 100.0, 99.5, 98.8, 1000.0, {300.0, 400.0, 200.0},
+        {99.4, 99.2, 99.1});
+    std::printf("decision 100.00, arrival 99.50, close 98.80; "
+                "executed %.0f/1000\n",
+                d.executed_qty);
+    std::printf("  %12s: %10.2f $\n", "delay", d.delay);
+    std::printf("  %12s: %10.2f $\n", "trading", d.trading);
+    std::printf("  %12s: %10.2f $\n", "opportunity", d.opportunity);
+    std::printf("  %12s: %10.2f $\n", "TOTAL", d.total);
+    std::printf("participation rate example: 120k / 1.5m = %.2f%%\n",
+                100.0 * etrade::participation_rate(120000.0, 1.5e6));
+
+    hdr("Market-impact regression (cost/share vs participation, native OLS)");
+    const auto [part, cost] = etrade::synthetic_impact_fills(25, 0.5, 8.0, 0.05);
+    const auto reg = etrade::estimate_impact(part, cost);
+    std::printf("fitted: cost = %.4f + %.4f * participation (true 0.50 + "
+                "8.00), R^2 = %.4f, n = %d\n",
+                reg.intercept, reg.slope, reg.r_squared, reg.n_obs);
+}
+
+}  // namespace
+
+int main() {
+    std::printf("etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov "
+                "market making (C++)\n");
+    ac_section();
+    // data/params_liquid.json / data/params_fx.json
+    const etrade::ASParams liquid(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 20,
+                                  0.5);
+    const etrade::ASParams fx(1.1, 0.004, 1.0, 0.005, 100.0, 2000.0, 500.0, 50,
+                              0.0002);
+    as_section(liquid, "Avellaneda-Stoikov market making (liquid large-cap)",
+               42);
+    as_section(fx, "Avellaneda-Stoikov market making (FX-like: tight spread)",
+               7);
+    analytics_section();
+    std::printf("\ndone.\n");
+    return 0;
+}

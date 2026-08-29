@@ -1,0 +1,19 @@
+sequenceDiagram
+    participant Sim as Simulator (per step i, t = i*dt)
+    participant Agent as Quoting agent ("as" / "fixed")
+    participant RNG as RNG (pinned draw order)
+    participant Mkt as Market state (s, q, cash)
+
+    Note over Sim,Mkt: one step of the pinned loop (Section 2.2 of API_SPEC)
+    Sim->>Agent: 1. quote(s, q, T - t)
+    Agent-->>Sim: r, spread  (as: r = s - q*gamma*sigma^2*(T-t);<br/>fixed: r = s, fixed spread)
+    Sim->>Sim: ask = r + spread/2, bid = r - spread/2
+    Sim->>Sim: cap rule: quote bid iff q < q_max, ask iff q > -q_max
+    Sim->>RNG: 2. draw u_ask, then u_bid (ALWAYS both, even if a side suppressed)
+    RNG-->>Sim: u_ask, u_bid ~ U(0,1)
+    Sim->>Sim: side fills iff quoted and u < 1 - exp(-A*exp(-k*delta)*dt)
+    Sim->>Mkt: 3. ask fill: q -= 1, cash += ask;  bid fill: q += 1, cash -= bid
+    Sim->>RNG: 4. draw z ~ N(0,1)
+    RNG-->>Sim: z
+    Sim->>Mkt: s += sigma_t*sqrt(dt)*z  (sigma_t stressed for t >= stress_time_frac*T)
+    Note over Sim,Mkt: after last step: PnL = cash + q*S_T - eta_liq*|q|

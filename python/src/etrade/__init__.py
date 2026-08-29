@@ -1,0 +1,81 @@
+"""etrade — electronic trading models: Almgren-Chriss optimal execution,
+Avellaneda-Stoikov market making, and execution analytics.
+
+See API_SPEC.md at the project root for the pinned cross-language contract.
+"""
+
+from .almgren_chriss import (
+    KAPPA_T_LIMIT,
+    ACParams,
+    FrontierPoint,
+    ISSimResult,
+    ac_kappa,
+    ac_trade_list,
+    ac_trajectory,
+    efficient_frontier,
+    expected_cost,
+    half_life,
+    instantaneous_cost,
+    pov_holdings,
+    simulate_is,
+    trades_from_holdings,
+    twap_holdings,
+    variance_cost,
+)
+from .analytics import (
+    ISDecomposition,
+    OLSResult,
+    decompose_shortfall,
+    estimate_impact,
+    ols,
+    participation_rate,
+    synthetic_impact_fills,
+)
+from .avellaneda_stoikov import (
+    ASParams,
+    ASSimResult,
+    average_as_spread,
+    fill_probability,
+    intensity,
+    optimal_spread,
+    quotes,
+    reservation_price,
+    simulate,
+)
+
+__all__ = [
+    "KAPPA_T_LIMIT",
+    "ACParams",
+    "FrontierPoint",
+    "ISSimResult",
+    "ac_kappa",
+    "ac_trade_list",
+    "ac_trajectory",
+    "efficient_frontier",
+    "expected_cost",
+    "half_life",
+    "instantaneous_cost",
+    "pov_holdings",
+    "simulate_is",
+    "trades_from_holdings",
+    "twap_holdings",
+    "variance_cost",
+    "ISDecomposition",
+    "OLSResult",
+    "decompose_shortfall",
+    "estimate_impact",
+    "ols",
+    "participation_rate",
+    "synthetic_impact_fills",
+    "ASParams",
+    "ASSimResult",
+    "average_as_spread",
+    "fill_probability",
+    "intensity",
+    "optimal_spread",
+    "quotes",
+    "reservation_price",
+    "simulate",
+]
+
+__version__ = "1.0.0"

@@ -1,0 +1,103 @@
+classDiagram
+    class ACParams {
+        +float total_shares
+        +int n_intervals
+        +float tau
+        +float sigma
+        +float eta
+        +float gamma_p
+        +float lambda_ra
+        +horizon() float
+        +eta_tilde() float
+        +with_lambda(lambda_ra) ACParams
+    }
+    class almgren_chriss {
+        +ac_kappa(p) float
+        +half_life(p) float
+        +ac_trajectory(p) array
+        +ac_trade_list(p) array
+        +twap_holdings(X, N) array
+        +pov_holdings(X, tau, V, p) array
+        +expected_cost(p, holdings) float
+        +variance_cost(p, holdings) float
+        +instantaneous_cost(p) tuple
+        +efficient_frontier(p, lambdas) FrontierPoint[]
+        +simulate_is(p, holdings, n_paths, seed) ISSimResult
+    }
+    class FrontierPoint {
+        +float lambda_ra
+        +float kappa
+        +float e_cost
+        +float var_cost
+        +float std_cost
+    }
+    class ISSimResult {
+        +float mean
+        +float var
+        +float se_mean
+        +float se_var
+        +int n_paths
+    }
+    class ASParams {
+        +float s0
+        +float sigma
+        +float horizon
+        +float dt
+        +float gamma
+        +float k
+        +float a_rate
+        +int q_max
+        +float eta_liq
+        +n_steps() int
+    }
+    class avellaneda_stoikov {
+        +reservation_price(p, s, q, t) float
+        +optimal_spread(p, t) float
+        +quotes(p, s, q, t) tuple
+        +intensity(p, delta) float
+        +fill_probability(p, delta) float
+        +average_as_spread(p) float
+        +simulate(p, n_paths, seed, agent, ...) ASSimResult
+    }
+    class ASSimResult {
+        +array pnl
+        +array rms_q_path
+        +float mean_pnl
+        +float std_pnl
+        +float sharpe
+        +float mean_abs_q
+        +float mean_max_abs_q
+        +float rms_q
+        +float mean_fills
+        +bool cap_violated
+        +se(stat) float
+    }
+    class analytics {
+        +decompose_shortfall(side, Pd, P0, PT, X, qtys, prices) ISDecomposition
+        +participation_rate(exec, mkt) float
+        +ols(x, y) OLSResult
+        +synthetic_impact_fills(n, a, b, amp) tuple
+        +estimate_impact(parts, costs) OLSResult
+    }
+    class ISDecomposition {
+        +float total
+        +float delay
+        +float trading
+        +float opportunity
+        +float executed_qty
+        +float remaining_qty
+    }
+    class OLSResult {
+        +float slope
+        +float intercept
+        +float r_squared
+        +int n_obs
+    }
+
+    almgren_chriss ..> ACParams : validates on construction
+    almgren_chriss --> FrontierPoint
+    almgren_chriss --> ISSimResult
+    avellaneda_stoikov ..> ASParams : validates on construction
+    avellaneda_stoikov --> ASSimResult
+    analytics --> ISDecomposition
+    analytics --> OLSResult
