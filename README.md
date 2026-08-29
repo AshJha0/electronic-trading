@@ -1,4 +1,4 @@
-# P12 — Electronic Trading (`etrade`)
+# Electronic Trading (`etrade`)
 
 Optimal execution and market making, implemented four times over from the same
 pinned contract: **Almgren-Chriss (2000)** discrete optimal execution,
