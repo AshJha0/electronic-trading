@@ -14,16 +14,23 @@
 ///     Var[IS] = sigma^2 * tau * sum_{j=1..N} x_j^2
 ///
 /// with `eta_tilde = eta - gamma_p*tau/2` (must be > 0 — paper footnote).
-/// The mean-variance-optimal trajectory is the sinh solution
+/// The sums coincide with the paper's hyperbolic closed forms (with the
+/// discrete kappa) to machine precision; they are used because they also
+/// cover TWAP/POV/arbitrary schedules.  The paper's fixed-cost term
+/// `epsilon*sum|n_j|` is omitted (schedule-independent for a one-sided
+/// program).  The mean-variance-optimal trajectory is the sinh solution
 ///
 ///     x_j = X * sinh(kappa*(T - t_j)) / sinh(kappa*T),
 ///     kappa = arccosh(1 + kappa_tilde^2*tau^2/2) / tau,
 ///     kappa_tilde^2 = lambda_ra*sigma^2/eta_tilde,
 ///
-/// degenerating to the exact linear TWAP schedule `x_j = X*(N-j)/N` when
-/// `kappa*T < kKappaTLimit` (covers `lambda_ra == 0` and `sigma == 0` with
-/// no 0/0).  Prices may go negative under the arithmetic walk — a documented
-/// model property, never an error.
+/// evaluated (pinned, API_SPEC 1.4) as `kappa = log1p(x + sqrt(x*(2+x)))/tau`
+/// with `x = kappa_tilde^2*tau^2/2` (no cancellation for small x) and
+/// `x_j = X*exp(-kappa*t_j)*expm1(-2*kappa*(T-t_j))/expm1(-2*kappa*T)` (no
+/// sinh overflow for large kappa*T), degenerating to the exact linear TWAP
+/// schedule `x_j = X*(N-j)/N` when `kappa*T < kKappaTLimit` (covers
+/// `lambda_ra == 0` and `sigma == 0` with no 0/0).  Prices may go negative
+/// under the arithmetic walk — a documented model property, never an error.
 #pragma once
 
 #include <cstdint>
@@ -35,6 +42,15 @@ namespace etrade {
 /// Threshold on kappa*T below which the exact linear (TWAP) branch is used.
 inline constexpr double kKappaTLimit = 1e-6;
 
+/// Upper bound on the number of AC trading intervals N (pinned, API_SPEC 0).
+inline constexpr int kMaxAcIntervals = 10'000'000;
+
+/// Upper bound on the number of POV intervals M = ceil(X/clip) (pinned).
+inline constexpr int kMaxPovIntervals = 10'000'000;
+
+/// Upper bound on Monte Carlo path counts (pinned, API_SPEC 0).
+inline constexpr int kMaxPaths = 10'000'000;
+
 /// Parameters of the discrete Almgren-Chriss problem (sell \c X shares).
 ///
 /// The constructor validates every field (std::invalid_argument) and the
@@ -42,7 +58,7 @@ inline constexpr double kKappaTLimit = 1e-6;
 /// (std::domain_error on violation, including equality).
 struct ACParams {
     double total_shares;  ///< X >= 0, shares to sell (0 = empty trajectory).
-    int n_intervals;      ///< N >= 1, number of trading intervals.
+    int n_intervals;      ///< N in [1, kMaxAcIntervals], number of trading intervals.
     double tau;           ///< Interval length (> 0).
     double sigma;         ///< Arithmetic vol per sqrt(time unit) (>= 0).
     double eta;           ///< Linear temporary impact coefficient (> 0).
@@ -67,39 +83,50 @@ struct ACParams {
 /// `lambda_ra*sigma^2 == 0`.
 double ac_kappa(const ACParams& params);
 
-/// Characteristic decay time theta = 1/kappa; +infinity in the TWAP limit
-/// (kappa == 0) — reported as infinity, not an error.
+/// Characteristic decay time theta = 1/kappa (the paper's e-folding time,
+/// not ln(2)/kappa); +infinity in the TWAP limit (kappa == 0) — reported as
+/// infinity, not an error.
 double half_life(const ACParams& params);
 
-/// Optimal holdings path x_0..x_N (length N+1, x_0 = X, x_N = 0 exactly).
+/// Alias of half_life() under the paper's name (theta = 1/kappa).
+double characteristic_time(const ACParams& params);
+
+/// Optimal holdings path x_0..x_N (length N+1, x_0 = X exactly, x_N = 0
+/// exactly, every entry finite for any valid parameters).
 std::vector<double> ac_trajectory(const ACParams& params);
 
 /// Optimal trade list n_1..n_N (shares sold per interval, sums to X).
 std::vector<double> ac_trade_list(const ACParams& params);
 
-/// Trade list n_j = x_{j-1} - x_j from a holdings path (length >= 2).
+/// Trade list n_j = x_{j-1} - x_j from a finite holdings path (length >= 2).
 std::vector<double> trades_from_holdings(const std::vector<double>& holdings);
 
-/// Linear TWAP holdings path x_j = X*(N-j)/N (length N+1).
+/// Linear TWAP holdings path x_j = X*(N-j)/N (length N+1).  Requires finite
+/// `total_shares >= 0` and `1 <= n_intervals <= kMaxAcIntervals`.
 std::vector<double> twap_holdings(double total_shares, int n_intervals);
 
 /// POV (percentage-of-volume) holdings path: sells
 /// `participation*market_volume_rate*tau` shares per interval until done
 /// (last clip partial, `x_M = 0` exactly); number of intervals
-/// `M = ceil(X/clip - 1e-12)`.  Requires `market_volume_rate > 0` and
-/// `participation` in the open interval (0, 1).
+/// `M = ceil(X/clip - 1e-12)`.  Requires finite inputs,
+/// `market_volume_rate > 0`, `participation` in the open interval (0, 1)
+/// and `X/clip <= kMaxPovIntervals` (a clip too small for the order is an
+/// input error, never a huge allocation).
 std::vector<double> pov_holdings(double total_shares, double tau,
                                  double market_volume_rate, double participation);
 
 /// E[IS] of a fully liquidating schedule through the exact discrete sum
-/// `0.5*gamma_p*X^2 + (eta_tilde/tau)*sum n_j^2`.  The path must satisfy
-/// `|x_N| <= 1e-9 * max(1, |x_0|)`.
+/// `0.5*gamma_p*X^2 + (eta_tilde/tau)*sum n_j^2`.  The path must be finite,
+/// of length >= 2, and satisfy `|x_N| <= 1e-9 * max(1, |x_0|)`.  The order
+/// size X in the permanent-impact term is the schedule's `x_0`, not
+/// `params.total_shares` (pinned).
 double expected_cost(const ACParams& params, const std::vector<double>& holdings);
 
 /// E[IS] of the optimal trajectory.
 double expected_cost(const ACParams& params);
 
-/// Var[IS] = sigma^2 * tau * sum_{j=1..N} x_j^2 (exact discrete sum).
+/// Var[IS] = sigma^2 * tau * sum_{j=1..N} x_j^2 (exact discrete sum).  The
+/// path must be finite and of length >= 2.
 double variance_cost(const ACParams& params, const std::vector<double>& holdings);
 
 /// Var[IS] of the optimal trajectory.
@@ -118,8 +145,9 @@ struct FrontierPoint {
     double std_cost;   ///< sqrt(Var[IS]).
 };
 
-/// Sweep a risk-aversion grid (non-empty, each entry >= 0) and return
-/// `(lambda, kappa, E, Var, sqrt(Var))` per point.
+/// Sweep a risk-aversion grid (non-empty, each entry finite and >= 0; order
+/// preserved, duplicates allowed) and return `(lambda, kappa, E, Var,
+/// sqrt(Var))` per point.
 std::vector<FrontierPoint> efficient_frontier(const ACParams& params,
                                               const std::vector<double>& lambdas);
 
@@ -135,8 +163,12 @@ struct ISSimResult {
 /// Simulate IS of a schedule under the arithmetic random walk (S_0 = 0; IS
 /// is independent of S_0).  Per path, loop j = 1..N: execute n_j at
 /// `S_{j-1} - eta*n_j/tau`, then `S_j = S_{j-1} + sigma*sqrt(tau)*xi_j -
-/// gamma_p*n_j`.  Uses std::mt19937_64 (own stream — matches the Python
-/// closed forms statistically, not bit-for-bit).  Deterministic per seed.
+/// gamma_p*n_j`.  The schedule must fully liquidate (same check as
+/// expected_cost) and `2 <= n_paths <= kMaxPaths`.  Uses std::mt19937_64
+/// with std::normal_distribution (own stream — matches the Python closed
+/// forms statistically, not bit-for-bit; deterministic per seed within one
+/// standard-library implementation, since std::normal_distribution's
+/// algorithm is implementation-defined).
 ISSimResult simulate_is(const ACParams& params, const std::vector<double>& holdings,
                         int n_paths = 10000, std::uint64_t seed = 0);
 

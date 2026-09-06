@@ -126,7 +126,9 @@ pub fn decompose_shortfall(
 }
 
 /// Executed volume as a fraction of market volume over the same window.
-/// Requires `executed_volume >= 0` and `market_volume > 0`.
+/// Requires `executed_volume >= 0`, `market_volume > 0` and
+/// `executed_volume <= market_volume` (market volume includes own fills; a
+/// rate above 1 is an input error).
 pub fn participation_rate(executed_volume: f64, market_volume: f64) -> Result<f64, EtradeError> {
     require(
         executed_volume.is_finite() && executed_volume >= 0.0,
@@ -135,6 +137,10 @@ pub fn participation_rate(executed_volume: f64, market_volume: f64) -> Result<f6
     require(
         market_volume.is_finite() && market_volume > 0.0,
         "market_volume must be > 0",
+    )?;
+    require(
+        executed_volume <= market_volume,
+        "executed volume exceeds market volume - market volume must include own fills",
     )?;
     Ok(executed_volume / market_volume)
 }

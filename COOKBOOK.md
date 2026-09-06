@@ -2,10 +2,30 @@
 
 Task-oriented recipes in all four languages. Python snippets run as-is
 against the reference package (`cd python && PYTHONPATH=src python3`, then
-paste; `import etrade as et` is assumed once per session). Native snippets
-follow the `API_SPEC.md` contract and naming conventions (C++ namespace
-`etrade`, Rust crate `etrade`, Java package `com.quant.etrade`); exact
-signatures are in each port's public headers / `lib.rs` / javadoc.
+paste; `import etrade as et` is assumed once per session). Every C++, Rust
+and Java snippet below has been compiled and run against the shipped
+library (C++17 with `-I cpp/include` linking `libetrade.a`; Rust as a
+`main()` body returning `Result<(), Box<dyn std::error::Error>>` so `?`
+works; Java inside a class in package `com.quant.etrade` or with the
+imports shown). The Rust snippets assume
+
+```rust
+use etrade::{ACParams, ASParams, Agent, SimConfig, Side};
+```
+
+once per file, and the Java ones
+
+```java
+import com.quant.etrade.*;
+import com.quant.etrade.AlmgrenChriss.FrontierPoint;
+import com.quant.etrade.AlmgrenChriss.ISSimResult;
+import com.quant.etrade.Analytics.ISDecomposition;
+import com.quant.etrade.Analytics.OLSResult;
+```
+
+Sample simulation numbers in comments are the Python demo's 2,000-path
+values; the native ports reproduce them statistically (4-SE bands), not
+bit-for-bit.
 
 Parameter values throughout are the liquid large-cap set
 (`data/params_liquid.json`): X = 1e6 shares, N = 5, tau = 1, sigma = 0.95,
@@ -26,8 +46,8 @@ import etrade as et
 
 p = et.ACParams(total_shares=1_000_000.0, n_intervals=5, tau=1.0,
                 sigma=0.95, eta=2.5e-6, gamma_p=2.5e-7, lambda_ra=2e-6)
-print(et.ac_kappa(p))        # 0.8462971345012561
-print(et.half_life(p))       # 1.1816180856967273
+print(et.ac_kappa(p))        # 0.8462971345012562
+print(et.half_life(p))       # 1.181618085696727
 print(et.ac_trajectory(p))   # [1000000, 428598.85, 182932.81, 76303.52, 27600.15, 0]
 print(et.ac_trade_list(p))   # [571401.15, 245666.03, ...]  sums to X
 ```
@@ -38,7 +58,7 @@ print(et.ac_trade_list(p))   # [571401.15, 245666.03, ...]  sums to X
 #include <etrade/almgren_chriss.hpp>
 
 etrade::ACParams p{1'000'000.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6};
-double kappa = etrade::ac_kappa(p);            // 0.8462971345012561
+double kappa = etrade::ac_kappa(p);            // 0.8462971345012562
 double theta = etrade::half_life(p);           // 1.1816...
 std::vector<double> x = etrade::ac_trajectory(p);   // size N+1, x[0]=X, x[N]=0
 std::vector<double> n = etrade::ac_trade_list(p);   // size N, sums to X
@@ -47,13 +67,11 @@ std::vector<double> n = etrade::ac_trade_list(p);   // size N, sums to X
 **Rust**
 
 ```rust
-use etrade::AcParams;
-
-let p = AcParams::new(1_000_000.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6)?;
-let kappa = etrade::ac_kappa(&p);              // 0.8462971345012561
+let p = ACParams::new(1_000_000.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6)?;
+let kappa = etrade::ac_kappa(&p);              // 0.8462971345012562
 let theta = etrade::half_life(&p);             // 1.1816... (f64::INFINITY if kappa == 0)
-let x: Vec<f64> = etrade::ac_trajectory(&p);   // len N+1
-let n: Vec<f64> = etrade::ac_trade_list(&p);   // len N
+let x: Vec<f64> = etrade::ac_trajectory(&p);   // len N+1, x[0] == X, x[N] == 0
+let n: Vec<f64> = etrade::ac_trade_list(&p);   // len N, sums to X
 ```
 
 **Java**
@@ -63,7 +81,7 @@ import com.quant.etrade.ACParams;
 import com.quant.etrade.AlmgrenChriss;
 
 ACParams p = new ACParams(1_000_000.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6);
-double kappa = AlmgrenChriss.kappa(p);         // 0.8462971345012561
+double kappa = AlmgrenChriss.kappa(p);         // 0.8462971345012562
 double theta = AlmgrenChriss.halfLife(p);      // 1.1816... (Double.POSITIVE_INFINITY if 0)
 double[] x = AlmgrenChriss.trajectory(p);      // length N+1
 double[] n = AlmgrenChriss.tradeList(p);       // length N
@@ -94,13 +112,15 @@ double e_tw = etrade::expected_cost(p, twap);            // 600000.0
 double v_tw = etrade::variance_cost(p, twap);            // 1.083e12
 ```
 
-**Rust**
+**Rust** (fields are private — use the accessor methods; both cost
+functions return `Result`)
 
 ```rust
-let (e_opt, v_opt) = (etrade::expected_cost(&p, None)?, etrade::variance_cost(&p, None));
-let twap = etrade::twap_holdings(p.total_shares, p.n_intervals)?;
+let e_opt = etrade::expected_cost(&p, None)?;
+let v_opt = etrade::variance_cost(&p, None)?;
+let twap = etrade::twap_holdings(p.total_shares(), p.n_intervals())?;
 let e_tw = etrade::expected_cost(&p, Some(&twap))?;      // 600000.0
-let v_tw = etrade::variance_cost(&p, Some(&twap));       // 1.083e12
+let v_tw = etrade::variance_cost(&p, Some(&twap))?;      // 1.083e12
 ```
 
 **Java**
@@ -161,7 +181,9 @@ for (FrontierPoint fp : AlmgrenChriss.efficientFrontier(p, grid))
 ## 4. How do I build and cost a POV (percentage-of-volume) schedule?
 
 POV determines its own duration: clip `c = p*V*tau`, `M = ceil(X/c)`
-intervals, last clip partial. Cost it with the same E/Var functions.
+intervals, last clip partial. Cost it with the same E/Var functions. A clip
+too small for the order (`X/c > 10,000,000`) is an input error, not a huge
+allocation.
 
 **Python**
 
@@ -188,7 +210,7 @@ double v = etrade::variance_cost(p, pov);      // 4.08945e11
 let pov = etrade::pov_holdings(1_000_000.0, 1.0, 2_500_000.0, 0.15)?;
 let intervals = pov.len() - 1;                     // 3
 let e = etrade::expected_cost(&p, Some(&pov))?;    // 941406.25
-let v = etrade::variance_cost(&p, Some(&pov));     // 4.08945e11
+let v = etrade::variance_cost(&p, Some(&pov))?;    // 4.08945e11
 ```
 
 **Java**
@@ -205,7 +227,8 @@ double v = AlmgrenChriss.varianceCost(p, pov);     // 4.08945e11
 ## 5. How do I verify the closed forms with Monte Carlo?
 
 Simulate the arithmetic walk and check the sample mean/variance land within
-a few standard errors of the closed forms.
+a few standard errors of the closed forms. The schedule must fully liquidate
+(a partial schedule is an input error, as for `expected_cost`).
 
 **Python**
 
@@ -229,7 +252,7 @@ assert(std::abs(mc.var - etrade::variance_cost(p)) < 4.0 * mc.se_var);
 ```rust
 let mc = etrade::simulate_is(&p, None, 20_000, 123)?;
 assert!((mc.mean - etrade::expected_cost(&p, None)?).abs() < 4.0 * mc.se_mean);
-assert!((mc.var - etrade::variance_cost(&p, None)).abs() < 4.0 * mc.se_var);
+assert!((mc.var - etrade::variance_cost(&p, None)?).abs() < 4.0 * mc.se_var);
 ```
 
 **Java**
@@ -241,14 +264,15 @@ assert Math.abs(mc.var() - AlmgrenChriss.varianceCost(p)) < 4 * mc.seVar();
 ```
 
 Note: only Python's PCG64 sample values are stored in `golden.json`; other
-languages use their own RNG and must agree *statistically* (4-SE band).
+languages use their own RNG (C++ `std::mt19937_64`, Rust `ChaCha12Rng`,
+Java `SplittableRandom`) and must agree *statistically* (4-SE band).
 
 ---
 
 ## 6. How do I quote like Avellaneda-Stoikov?
 
 Reservation price, optimal spread, and the (bid, ask) pair for a given
-state `(s, q, t)`.
+state `(s, q, t)`; `s` and `q` must be finite and `t` in `[0, T]`.
 
 **Python**
 
@@ -272,7 +296,7 @@ auto [bid, ask] = etrade::quotes(ap, 100.0, 3.0, 0.3);
 **Rust**
 
 ```rust
-let ap = AsParams::new(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 20, 0.5)?;
+let ap = ASParams::new(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 20, 0.5)?;
 let r  = etrade::reservation_price(&ap, 100.0, 3.0, 0.3)?;    // 99.16
 let sp = etrade::optimal_spread(&ap, 0.3)?;                   // 1.57077...
 let (bid, ask) = etrade::quotes(&ap, 100.0, 3.0, 0.3)?;
@@ -284,7 +308,9 @@ let (bid, ask) = etrade::quotes(&ap, 100.0, 3.0, 0.3)?;
 ASParams ap = new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 20, 0.5);
 double r  = AvellanedaStoikov.reservationPrice(ap, 100.0, 3.0, 0.3);  // 99.16
 double sp = AvellanedaStoikov.optimalSpread(ap, 0.3);                 // 1.57077...
-double[] ba = AvellanedaStoikov.quotes(ap, 100.0, 3.0, 0.3);          // {bid, ask}
+AvellanedaStoikov.Quotes qq = AvellanedaStoikov.quotes(ap, 100.0, 3.0, 0.3);
+double bid = qq.bid();                                                // 98.3746...
+double ask = qq.ask();                                                // 99.9454...
 ```
 
 ---
@@ -328,43 +354,51 @@ double pf  = AvellanedaStoikov.fillProbability(ap, 0.6);  // 0.2476839...
 
 Same parameters, same seed, two agents. The fixed agent defaults to the
 time-averaged A-S spread, so the comparison isolates the value of skew.
+`mean_fills` is the total number of fills per path, both sides counted.
 
 **Python**
 
 ```python
 res_as = et.simulate(ap, n_paths=2000, seed=42, agent="as")
 res_fx = et.simulate(ap, n_paths=2000, seed=42, agent="fixed")
-print(res_as.mean_pnl, res_as.std_pnl, res_as.rms_q)   # ~55.9, ~6.4, ~1.45
-print(res_fx.mean_pnl, res_fx.std_pnl, res_fx.rms_q)   # ~57.8, ~12.8, ~4.96
+print(res_as.mean_pnl, res_as.std_pnl, res_as.rms_q, res_as.mean_fills)  # ~55.9, ~6.4, ~1.45, ~85.6
+print(res_fx.mean_pnl, res_fx.std_pnl, res_fx.rms_q, res_fx.mean_fills)  # ~57.8, ~12.8, ~4.96, ~81.8
 assert res_as.rms_q < res_fx.rms_q                      # inventory control works
 assert not res_as.cap_violated                          # |q| <= q_max always
 ```
 
-**C++**
+**C++** (the agent is an enum; the fixed spread defaults to the NaN
+sentinel `kDefaultFixedSpread`, which selects `average_as_spread(ap)`)
 
 ```cpp
-etrade::ASSimResult a = etrade::simulate(ap, 2000, 42, "as");
-etrade::ASSimResult f = etrade::simulate(ap, 2000, 42, "fixed");
+etrade::ASSimResult a = etrade::simulate(ap, 2000, 42, etrade::Agent::kAS);
+etrade::ASSimResult f = etrade::simulate(ap, 2000, 42, etrade::Agent::kFixed);
 assert(a.rms_q() < f.rms_q());
 assert(!a.cap_violated);
+double fills = a.mean_fills();                 // ~85 (both sides counted)
 ```
 
-**Rust**
+**Rust** (configuration goes through `SimConfig`; `fixed_spread: None`
+selects `average_as_spread`)
 
 ```rust
-let a = etrade::simulate(&ap, 2000, 42, "as", None, 1.0, 0.5)?;
-let f = etrade::simulate(&ap, 2000, 42, "fixed", None, 1.0, 0.5)?;
+let a = etrade::simulate(&ap, 2000, 42, &SimConfig::default())?;
+let fixed = SimConfig { agent: Agent::Fixed, ..SimConfig::default() };
+let f = etrade::simulate(&ap, 2000, 42, &fixed)?;
 assert!(a.rms_q() < f.rms_q());
 assert!(!a.cap_violated);
+let fills = a.mean_fills();                    // ~85 (both sides counted)
 ```
 
-**Java**
+**Java** (the agent is an enum; there is no NaN sentinel — the short
+overloads use `averageAsSpread(ap)` for the fixed agent)
 
 ```java
-ASSimResult a = AvellanedaStoikov.simulate(ap, 2000, 42L, "as");
-ASSimResult f = AvellanedaStoikov.simulate(ap, 2000, 42L, "fixed");
-assert a.rmsQ() < f.rmsQ();
-assert !a.capViolated();
+ASSimResult a = AvellanedaStoikov.simulate(ap, 2000, 42L, AvellanedaStoikov.Agent.AS);
+ASSimResult f = AvellanedaStoikov.simulate(ap, 2000, 42L, AvellanedaStoikov.Agent.FIXED);
+if (!(a.rmsQ() < f.rmsQ())) throw new AssertionError("inventory control");
+if (a.capViolated()) throw new AssertionError("cap");
+double fills = a.meanFills();                  // ~85 (both sides counted)
 ```
 
 ---
@@ -387,25 +421,32 @@ print(base.std_pnl, "->", stress.std_pnl)      # ~6.37 -> ~7.90
 **C++**
 
 ```cpp
-auto base   = etrade::simulate(ap, 2000, 42, "as");
-auto stress = etrade::simulate(ap, 2000, 42, "as",
-                               /*fixed_spread=*/std::nullopt,
-                               /*stress_factor=*/2.0, /*stress_time_frac=*/0.5);
+etrade::ASSimResult base   = etrade::simulate(ap, 2000, 42, etrade::Agent::kAS);
+etrade::ASSimResult stress = etrade::simulate(ap, 2000, 42, etrade::Agent::kAS,
+                                              etrade::kDefaultFixedSpread,
+                                              /*stress_factor=*/2.0,
+                                              /*stress_time_frac=*/0.5);
+assert(stress.std_pnl() > base.std_pnl());
 ```
 
 **Rust**
 
 ```rust
-let base   = etrade::simulate(&ap, 2000, 42, "as", None, 1.0, 0.5)?;
-let stress = etrade::simulate(&ap, 2000, 42, "as", None, 2.0, 0.5)?;
+let base = etrade::simulate(&ap, 2000, 42, &SimConfig::default())?;
+let shock = SimConfig { stress_factor: 2.0, stress_time_frac: 0.5, ..SimConfig::default() };
+let stress = etrade::simulate(&ap, 2000, 42, &shock)?;
+assert!(stress.std_pnl() > base.std_pnl());
 ```
 
-**Java**
+**Java** (the full overload needs an explicit fixed spread — pass
+`averageAsSpread(ap)`; `Double.NaN` is rejected)
 
 ```java
-ASSimResult base   = AvellanedaStoikov.simulate(ap, 2000, 42L, "as");
-ASSimResult stress = AvellanedaStoikov.simulate(ap, 2000, 42L, "as",
-                                                Double.NaN, 2.0, 0.5);
+ASSimResult base   = AvellanedaStoikov.simulate(ap, 2000, 42L);
+ASSimResult stress = AvellanedaStoikov.simulate(ap, 2000, 42L, AvellanedaStoikov.Agent.AS,
+                                                AvellanedaStoikov.averageAsSpread(ap),
+                                                2.0, 0.5);
+if (!(stress.stdPnl() > base.stdPnl())) throw new AssertionError("stress");
 ```
 
 ---
@@ -426,19 +467,19 @@ print(d.delay, d.trading, d.opportunity, d.total)   # 450.0 230.0 120.0 800.0
 assert abs(d.total - (d.delay + d.trading + d.opportunity)) < 1e-10
 ```
 
-**C++**
+**C++** (the side is an enum)
 
 ```cpp
 etrade::ISDecomposition d = etrade::decompose_shortfall(
-    "sell", 100.0, 99.5, 98.8, 1000.0,
+    etrade::Side::kSell, 100.0, 99.5, 98.8, 1000.0,
     {300.0, 400.0, 200.0}, {99.4, 99.2, 99.1});
 // d.delay == 450, d.trading == 230, d.opportunity == 120, d.total == 800
 ```
 
-**Rust**
+**Rust** (the side is an enum; `"sell".parse::<Side>()?` also works)
 
 ```rust
-let d = etrade::decompose_shortfall("sell", 100.0, 99.5, 98.8, 1000.0,
+let d = etrade::decompose_shortfall(Side::Sell, 100.0, 99.5, 98.8, 1000.0,
                                     &[300.0, 400.0, 200.0],
                                     &[99.4, 99.2, 99.1])?;
 assert!((d.total - (d.delay + d.trading + d.opportunity)).abs() < 1e-10);
@@ -459,6 +500,8 @@ ISDecomposition d = Analytics.decomposeShortfall(
 
 Regress per-share cost on participation rate with the tiny native OLS. The
 pinned synthetic fills are deterministic and identical in every language.
+`participation_rate` requires `executed <= market` (market volume includes
+your own fills), so a rate above 1 is an input error.
 
 **Python**
 
@@ -526,7 +569,7 @@ try {
 `Result<_, EtradeError>`; no panics on bad input:
 
 ```rust
-match AcParams::new(1e6, 5, 1.0, 0.95, 1e-7, 1e-6, 0.0) {
+match ACParams::new(1e6, 5, 1.0, 0.95, 1e-7, 1e-6, 0.0) {
     Err(e) => eprintln!("rejected: {e}"),
     Ok(_) => unreachable!(),
 }
@@ -537,11 +580,19 @@ match AcParams::new(1e6, 5, 1.0, 0.95, 1e-7, 1e-6, 0.0) {
 ```java
 try {
     new ACParams(1e6, 5, 1.0, 0.95, 1e-7, 1e-6, 0.0);
-} catch (IllegalArgumentException e) {
-    System.err.println("rejected: " + e.getMessage());
+} catch (IllegalArgumentException ex) {
+    System.err.println("rejected: " + ex.getMessage());
 }
 ```
 
+Other input errors, identical in every language: any NaN/inf (parameters,
+holdings paths, quote state `s`/`q`, volumes, `fixed_spread`), a schedule
+that does not liquidate (`expected_cost` *and* `simulate_is`), an empty or
+non-finite `lambda_ra` grid, participation above 1, and any size beyond the
+pinned bounds (`n_intervals`, POV clips `X/clip`, steps `T/dt`, `n_paths`
+all capped at 10,000,000 — checked before anything is allocated).
+
 Documented **non-errors** in every language: negative prices (arithmetic
 walks), `kappa = 0` (TWAP branch, half-life = infinity), a quote through
-the mid (`delta < 0`), and `q_max = 0` (no quoting, zero PnL).
+the mid (`delta < 0`), `q_max = 0` (no quoting, zero PnL), and `x_j`
+underflowing to exactly 0 far out on a very urgent schedule.

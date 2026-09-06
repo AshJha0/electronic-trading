@@ -171,3 +171,95 @@ TEST(ASValidation, RejectsBadQueriesAndSimArgs) {
 }
 
 }  // namespace
+
+// ---------------------------------------------------------------------------
+// Robustness tests (review findings CRIT-1, MAJ-8, MIN-16, T-8, T-11, T-14)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+TEST(ASRobustness, MeanFillsCountsBothSides) {
+    // Saturated book: P(fill) rounds to 1 on both sides every step, so the
+    // fill count is exactly 2*n_steps (400), not the number of steps (200).
+    const ASParams sat(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 1e6, 10000, 0.0);
+    const auto r = etrade::simulate(sat, 50, 1);
+    EXPECT_DOUBLE_EQ(r.mean_fills(), 2.0 * sat.n_steps());
+    for (double f : r.fills_path) EXPECT_DOUBLE_EQ(f, 400.0);
+    // Liquid set: total fills bounded by 2 per step, integral, and at least
+    // the peak inventory (every unit of |q| needs a fill).
+    const auto l = etrade::simulate(liquid(), 400, 8);
+    for (int i = 0; i < l.n_paths(); ++i) {
+        EXPECT_LE(l.fills_path[i], 2.0 * liquid().n_steps());
+        EXPECT_GE(l.fills_path[i], l.max_abs_q_path[i]);
+        EXPECT_DOUBLE_EQ(l.fills_path[i], std::round(l.fills_path[i]));
+    }
+    EXPECT_GT(l.se("mean_fills"), 0.0);
+}
+
+TEST(ASRobustness, FixedSpreadMustBeFiniteAndPositive) {
+    const ASParams p = liquid();
+    const double inf = std::numeric_limits<double>::infinity();
+    EXPECT_THROW(etrade::simulate(p, 10, 0, etrade::Agent::kFixed, inf), std::invalid_argument);
+    EXPECT_THROW(etrade::simulate(p, 10, 0, etrade::Agent::kFixed, 0.0), std::invalid_argument);
+    EXPECT_THROW(etrade::simulate(p, 10, 0, etrade::Agent::kAS,
+                                  etrade::kDefaultFixedSpread, 1.0, std::nan("")),
+                 std::invalid_argument);
+    EXPECT_THROW(etrade::simulate(p, 10, 0, etrade::Agent::kAS,
+                                  etrade::kDefaultFixedSpread, inf, 0.5),
+                 std::invalid_argument);
+    EXPECT_THROW(etrade::simulate(p, etrade::kMaxAsPaths + 1, 0), std::invalid_argument);
+}
+
+TEST(ASRobustness, StressEdgeFractions) {
+    const ASParams p = liquid();
+    const auto base = etrade::simulate(p, 300, 9);
+    // frac = 1.0: no step has t >= T, so bitwise identical to unstressed.
+    const auto late = etrade::simulate(p, 300, 9, etrade::Agent::kAS,
+                                       etrade::kDefaultFixedSpread, 5.0, 1.0);
+    // factor = 1.0 at any fraction: identical.
+    const auto unit = etrade::simulate(p, 300, 9, etrade::Agent::kAS,
+                                       etrade::kDefaultFixedSpread, 1.0, 0.0);
+    for (int i = 0; i < base.n_paths(); ++i) {
+        ASSERT_EQ(base.pnl[i], late.pnl[i]);
+        ASSERT_EQ(base.pnl[i], unit.pnl[i]);
+    }
+    // frac = 0.0 with factor 5: every step stressed, dispersion up.
+    const auto early = etrade::simulate(p, 300, 9, etrade::Agent::kAS,
+                                        etrade::kDefaultFixedSpread, 5.0, 0.0);
+    EXPECT_GT(early.std_pnl(), base.std_pnl());
+}
+
+TEST(ASRobustness, QuotesRejectNonFiniteState) {
+    const ASParams p = liquid();
+    const double nan = std::nan("");
+    const double inf = std::numeric_limits<double>::infinity();
+    EXPECT_THROW(etrade::reservation_price(p, nan, 0.0, 0.0), std::invalid_argument);
+    EXPECT_THROW(etrade::reservation_price(p, 100.0, inf, 0.0), std::invalid_argument);
+    EXPECT_THROW(etrade::quotes(p, 100.0, inf, 0.0), std::invalid_argument);
+    EXPECT_THROW(etrade::quotes(p, -inf, 0.0, 0.0), std::invalid_argument);
+    EXPECT_THROW(etrade::reservation_price(p, 100.0, 0.0, nan), std::invalid_argument);
+    EXPECT_THROW(etrade::fill_probability(p, nan), std::invalid_argument);
+}
+
+TEST(ASRobustness, NStepsIntegralityFloat) {
+    const ASParams p3(100.0, 2.0, 1.0, 1.0 / 3.0, 0.1, 1.5, 140.0, 20, 0.5);
+    EXPECT_EQ(p3.n_steps(), 3);
+    EXPECT_THROW(ASParams(100.0, 2.0, 1.0, 0.3, 0.1, 1.5, 140.0, 20, 0.5),
+                 std::invalid_argument);
+    const ASParams p1(100.0, 2.0, 1.0, 1.0, 0.1, 1.5, 140.0, 20, 0.5);  // dt = T
+    EXPECT_EQ(p1.n_steps(), 1);
+    const auto r = etrade::simulate(p1, 200, 4);
+    for (int i = 0; i < r.n_paths(); ++i) {
+        // one step: the time average of |q| is the single post-update value
+        EXPECT_DOUBLE_EQ(r.mean_abs_q_path[i], r.max_abs_q_path[i]);
+        EXPECT_DOUBLE_EQ(r.rms_q_path[i], r.max_abs_q_path[i]);
+        EXPECT_LE(r.fills_path[i], 2.0);
+    }
+    EXPECT_DOUBLE_EQ(r.mean_abs_q(), r.mean_max_abs_q());
+    // step-count bound
+    EXPECT_THROW(ASParams(100.0, 2.0, 1.0, 1.0 / (10.0 * etrade::kMaxAsSteps), 0.1, 1.5,
+                          140.0, 20, 0.5),
+                 std::invalid_argument);
+}
+
+}  // namespace

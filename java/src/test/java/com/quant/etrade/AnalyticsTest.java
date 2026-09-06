@@ -130,4 +130,54 @@ public final class AnalyticsTest {
         assertThrows(IllegalArgumentException.class,       // nObs < 2
                 () -> Analytics.syntheticImpactFills(1, 0.5, 8.0, 0.05));
     }
+
+    // -----------------------------------------------------------------------
+    // Robustness tests (T-9, T-13)
+    // -----------------------------------------------------------------------
+
+    @Test
+    public void decompositionPriceShiftInvariance() {
+        // Adding c to every price leaves every component unchanged (Q + R = X).
+        double c = 37.5;
+        double[] qty = {300.0, 400.0, 200.0};
+        double[] px = {99.4, 99.2, 99.1};
+        double[] pxC = {99.4 + c, 99.2 + c, 99.1 + c};
+        for (String side : new String[] {"sell", "buy"}) {
+            Analytics.ISDecomposition d0 = Analytics.decomposeShortfall(side, 100.0, 99.5,
+                    98.8, 1000.0, qty, px);
+            Analytics.ISDecomposition d1 = Analytics.decomposeShortfall(side, 100.0 + c,
+                    99.5 + c, 98.8 + c, 1000.0, qty, pxC);
+            assertEquals(d0.total(), d1.total(), 1e-9);
+            assertEquals(d0.delay(), d1.delay(), 1e-9);
+            assertEquals(d0.trading(), d1.trading(), 1e-9);
+            assertEquals(d0.opportunity(), d1.opportunity(), 1e-9);
+        }
+    }
+
+    @Test
+    public void decompositionEmptyFills() {
+        Analytics.ISDecomposition d = Analytics.decomposeShortfall("sell", 100.0, 99.0, 98.0,
+                500.0, new double[0], new double[0]);
+        assertEquals(0.0, d.delay(), 0.0);
+        assertEquals(0.0, d.trading(), 0.0);
+        assertEquals(1000.0, d.opportunity(), 1e-12);   // 500 * (100 - 98)
+        assertEquals(1000.0, d.total(), 1e-12);
+        assertEquals(0.0, d.executedQty(), 0.0);
+        assertEquals(500.0, d.remainingQty(), 0.0);
+        Analytics.ISDecomposition b = Analytics.decomposeShortfall("buy", 100.0, 99.0, 98.0,
+                500.0, new double[0], new double[0]);
+        assertEquals(-1000.0, b.opportunity(), 1e-12);  // price fell: a gain for a buyer
+    }
+
+    @Test
+    public void participationRateAboveOneIsError() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> Analytics.participationRate(2e6, 1.5e6));
+        assertTrue(e.getMessage().contains("exceeds market volume"));
+        assertEquals(1.0, Analytics.participationRate(1.5e6, 1.5e6), 0.0);   // boundary
+        assertThrows(IllegalArgumentException.class,
+                () -> Analytics.participationRate(Double.NaN, 1.0));
+        assertThrows(IllegalArgumentException.class,
+                () -> Analytics.participationRate(1.0, Double.POSITIVE_INFINITY));
+    }
 }

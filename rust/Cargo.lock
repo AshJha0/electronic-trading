@@ -16,9 +16,10 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "etrade"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "rand",
+ "rand_chacha",
  "rand_distr",
  "serde_json",
 ]

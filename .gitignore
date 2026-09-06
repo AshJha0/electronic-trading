@@ -1,0 +1,7 @@
+# build artefacts (never commit)
+cpp/build/
+rust/target/
+java/out/
+__pycache__/
+*.pyc
+.pytest_cache/

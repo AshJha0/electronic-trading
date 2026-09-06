@@ -50,7 +50,9 @@ ISDecomposition decompose_shortfall(Side side, double decision_price,
                                     const std::vector<double>& fill_prices);
 
 /// Executed volume as a fraction of market volume over the same window.
-/// Requires `executed_volume >= 0` and `market_volume > 0`.
+/// Requires `executed_volume >= 0`, `market_volume > 0` and
+/// `executed_volume <= market_volume` (market volume includes own fills; a
+/// rate above 1 is an input error).
 double participation_rate(double executed_volume, double market_volume);
 
 /// Simple linear regression y = intercept + slope * x.

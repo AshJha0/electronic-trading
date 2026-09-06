@@ -11,15 +11,20 @@ Three independent modules per language, mirrored one-to-one across ports:
 
 | Module | Owns | Depends on |
 |---|---|---|
-| `almgren_chriss` | `ACParams` validation, `kappa`, sinh/TWAP trajectory, trade lists, exact discrete E/Var sums, TWAP/POV/instantaneous baselines, efficient frontier, Monte Carlo IS check | RNG (MC only) |
+| `almgren_chriss` | `ACParams` validation (incl. size bounds), `kappa` (`log1p` form), `exp/expm1`-form sinh trajectory with exact TWAP branch, trade lists, exact discrete E/Var sums, TWAP/POV/instantaneous baselines, efficient frontier, Monte Carlo IS check | RNG (MC only) |
 | `avellaneda_stoikov` | `ASParams` validation, reservation price / optimal spread / quotes closed forms, intensity and fill probability, the pinned path simulation with inventory cap, stress vol and terminal liquidation, per-path and aggregate statistics | RNG (simulation only) |
 | `analytics` | Perold IS decomposition (buy/sell), participation rate, native closed-form OLS, pinned RNG-free synthetic impact fills | nothing stochastic |
 
 The modules do not import each other. Parameter objects are immutable value
 types (frozen dataclasses in Python, plain structs/records elsewhere) that
 validate **at construction**, so every downstream function can assume valid
-inputs and stay branch-free. The only shared state anywhere is the RNG
-inside a single simulation call.
+inputs and stay branch-free. Functions that take user data (holdings paths,
+grids, quote state, volumes) validate it at entry — finiteness, lengths,
+liquidation, and the pinned size bounds of `API_SPEC.md` Section 0, checked
+*before* any cast or allocation so that an absurd request (a POV clip of
+1e-9 shares, `usize::MAX` paths) is an input error rather than undefined
+behaviour, an integer overflow, an out-of-memory abort or a panic. The only
+shared state anywhere is the RNG inside a single simulation call.
 
 ### Data flow
 
@@ -29,16 +34,16 @@ flowchart TB
         PJ["params_liquid.json<br/>params_illiquid.json<br/>params_fx.json"]
         PO["parent_order.json<br/>(X, lambda grid, IS fills)"]
         GEN["generate_data.py<br/>(seeded, asserts AC closed forms vs MC)"]
-        GOLD["golden/golden.json<br/>18 cases: exact + statistical"]
+        GOLD["golden/golden.json<br/>19 cases: exact + statistical"]
         GEN --> PJ
         GEN --> PO
         GEN --> GOLD
     end
 
     subgraph CORE["etrade core (identical in Python / C++ / Rust / Java)"]
-        ACP["ACParams<br/>validate: eta_tilde > 0, X >= 0, ..."]
+        ACP["ACParams<br/>validate: eta_tilde > 0, X >= 0,<br/>N <= MAX_AC_INTERVALS, ..."]
         AC["almgren_chriss<br/>kappa, trajectory, trade list,<br/>E/Var sums, frontier,<br/>TWAP / POV / instant, MC check"]
-        ASP["ASParams<br/>validate: gamma > 0, T/dt integral, ..."]
+        ASP["ASParams<br/>validate: gamma > 0, T/dt integral,<br/>T/dt <= MAX_AS_STEPS, ..."]
         AS["avellaneda_stoikov<br/>reservation price, spread, quotes,<br/>intensity, fill prob,<br/>pinned simulation loop"]
         AN["analytics<br/>IS decomposition, participation,<br/>native OLS impact regression"]
         ACP --> AC
@@ -88,6 +93,7 @@ classDiagram
     class almgren_chriss {
         +ac_kappa(p) float
         +half_life(p) float
+        +characteristic_time(p) float
         +ac_trajectory(p) array
         +ac_trade_list(p) array
         +twap_holdings(X, N) array
@@ -194,13 +200,13 @@ sequenceDiagram
 
     Note over Sim,Mkt: one step of the pinned loop (Section 2.2 of API_SPEC)
     Sim->>Agent: 1. quote(s, q, T - t)
-    Agent-->>Sim: r, spread  (as: r = s - q*gamma*sigma^2*(T-t);<br/>fixed: r = s, fixed spread)
+    Agent-->>Sim: r, spread  (as: r = s - q*gamma*sigma^2*(T-t),<br/>fixed: r = s, fixed spread)
     Sim->>Sim: ask = r + spread/2, bid = r - spread/2
     Sim->>Sim: cap rule: quote bid iff q < q_max, ask iff q > -q_max
     Sim->>RNG: 2. draw u_ask, then u_bid (ALWAYS both, even if a side suppressed)
     RNG-->>Sim: u_ask, u_bid ~ U(0,1)
     Sim->>Sim: side fills iff quoted and u < 1 - exp(-A*exp(-k*delta)*dt)
-    Sim->>Mkt: 3. ask fill: q -= 1, cash += ask;  bid fill: q += 1, cash -= bid
+    Sim->>Mkt: 3. ask fill: q -= 1, cash += ask, fills += 1 --- bid fill: q += 1, cash -= bid, fills += 1
     Sim->>RNG: 4. draw z ~ N(0,1)
     RNG-->>Sim: z
     Sim->>Mkt: s += sigma_t*sqrt(dt)*z  (sigma_t stressed for t >= stress_time_frac*T)
@@ -230,47 +236,86 @@ Design points:
 
 ## 3. Numerical design decisions and trade-offs
 
-1. **Exact discrete sums, never continuous approximations.** `E[IS]` and
-   `Var[IS]` are always evaluated through
+1. **Exact discrete sums as the single code path.** `E[IS]` and `Var[IS]`
+   are always evaluated through
    `(1/2)gamma_p X^2 + (eta_tilde/tau) sum n_j^2` and
-   `sigma^2 tau sum x_j^2`. The paper's hyperbolic closed forms are
-   continuous-time approximations that deviate at small N far above the
-   1e-10 golden tolerance. One code path for optimal, TWAP and POV
-   schedules also means one set of invariants to test.
-2. **`arccosh` for kappa.** `kappa = arccosh(1 + kappa_tilde^2 tau^2/2)/tau`
-   is the exact root of the discrete characteristic equation — no iterative
-   solve, no tolerance to pin, and it degrades gracefully to
-   `kappa ~ kappa_tilde` as `tau -> 0`.
-3. **Explicit TWAP limit branch.** The sinh ratio is 0/0 at `kappa = 0`, so
+   `sigma^2 tau sum x_j^2`. For the optimal trajectory these coincide with
+   the paper's hyperbolic closed forms (evaluated with the discrete kappa)
+   to machine precision — rel. diff 2e-16 on the liquid set, asserted at
+   1e-12 by every suite as a literature check. The sums are pinned because
+   one code path covers optimal, TWAP, POV and hand-built schedules, so
+   there is one set of invariants to test. Only the *continuous* kappa
+   substituted into the closed forms is an approximation.
+2. **`log1p` form for kappa.** `kappa = arccosh(1 + x)/tau` with
+   `x = kappa_tilde^2 tau^2/2` is the exact root of the discrete
+   characteristic equation — no iterative solve, no tolerance to pin. It is
+   evaluated as `log1p(x + sqrt(x(2 + x)))/tau`, which is the same function
+   but exact to 1 ulp for small `x`; the literal `acosh(1 + x)` loses
+   `~eps/x` relative digits by cancellation, i.e. it degrades *worst*
+   exactly as `tau -> 0` (measured: `x = 2e-9` gives 1.2e-8 relative error,
+   above the 1e-10 golden tolerance; `x = 5e-16` gives 6%). Golden case
+   `ac_kappa_small_tau` pins this.
+3. **`exp/expm1` form for the sinh ratio.** `sinh(kappa(T-t_j))/sinh(kappa T)`
+   overflows to `inf/inf = NaN` at `kappa T > 710` — a 1-second grid over a
+   day at moderate urgency. It is evaluated as
+   `exp(-kappa t_j) expm1(-2 kappa (T-t_j)) / expm1(-2 kappa T)`, identical
+   for every `kappa > 0`, finite for every valid input, with the ratio formed
+   first so `x_0 == X` exactly. Far out on a very urgent schedule `exp`
+   underflows and `x_j` is exactly 0 — correct, and documented.
+4. **Explicit TWAP limit branch.** The ratio is 0/0 at `kappa = 0`, so
    `kappa*T < KAPPA_T_LIMIT = 1e-6` switches to the exact linear schedule.
    The threshold is pinned in the spec (a port choosing 1e-8 would still
    pass goldens today, but the branch point is observable in principle, so
    it is contract, not implementation detail). Continuity across the branch
    is a dedicated test.
-4. **`x_N = 0` exactly.** The last holding is forced to zero after
+5. **`x_N = 0` exactly.** The last holding is forced to zero after
    evaluating either branch, so "fully liquidates" is exact rather than
    epsilon-true, and the liquidation check `|x_N| <= 1e-9 max(1, X)` on
-   user-supplied schedules never trips on our own output.
-5. **`log1p` / `expm1` everywhere they matter.** The A-S markup
+   user-supplied schedules (in `expected_cost` *and* `simulate_is`) never
+   trips on our own output.
+6. **`log1p` / `expm1` everywhere they matter.** The A-S markup
    `(2/gamma) ln(1 + gamma/k)` and fill probability `1 - exp(-lambda dt)`
    are computed as `log1p` and `-expm1`; with FX-scale inputs
    (`gamma/k = 0.05`, `lambda*dt ~ 1e-3`) naive forms lose enough digits to
-   break 1e-12 goldens.
-6. **ddof = 1 sample moments, pinned SE formulas.** SE of a per-path-mean
+   break 1e-12 goldens. The exact thinned probability is also a documented
+   divergence from the paper's first-order `lambda dt` (see LEARN 6.4).
+7. **Fills are counted per side.** `mean_fills` is the total number of
+   fills (a both-sides step counts two). The original Python reference
+   summed numpy *bool* arrays — a logical OR — and the ports had copied the
+   OR to match the golden; that undercounted by ~10% on the liquid set
+   (77.2 vs 85.5). The fix is pinned in `API_SPEC.md` 2.2, the golden was
+   regenerated, and a saturated-book test (P(fill) = 1 on both sides →
+   fills = 2·n_steps exactly) plus an independent scalar re-implementation
+   of the loop in the Python suite keep the OR from coming back.
+8. **Pinned size bounds.** `MAX_AC_INTERVALS`, `MAX_POV_INTERVALS`,
+   `MAX_AS_STEPS`, `MAX_PATHS` (all 10 million) are checked on the *double*
+   ratio before any `ceil`/cast/`new`/`Vec::with_capacity`. Without them
+   `pov_holdings(1e6, 1, 1, 1e-9)` was a `MemoryError` in Python,
+   float→int UB in C++, a capacity-overflow abort in Rust and a
+   `NegativeArraySizeException` in Java.
+9. **ddof = 1 sample moments, pinned SE formulas.** SE of a per-path-mean
    statistic is `sample std / sqrt(M)`; `SE(std_pnl)` and `SE(var)` use the
    normal approximation (`std/sqrt(2(M-1))`, `var*sqrt(2/(M-1))`). Pinning
    the SE formulas is what makes the 4-SE acceptance band well defined
    across languages.
-7. **Money in whole currency units, shares in floats.** No basis-point or
-   per-share normalisation inside the core: E and Var come out in currency,
-   letting the golden values assert the raw sums. Reporting layers (demo)
-   do the pretty-printing.
-8. **RNG policy.** Determinism is per-language, agreement is statistical.
-   Python: `numpy.random.default_rng(seed)` (PCG64); C++
-   `std::mt19937_64`; Rust `rand`; Java `Random`/splittable. Each language
-   tests "same seed twice = identical results"; the golden file stores
-   Python's 20k-path references *with standard errors* so any port with
-   `M >= 2000` paths can verify `|stat - ref| <= 4 sqrt(se_ref^2 + se_own^2)`.
+10. **Money in whole currency units, shares in floats.** No basis-point or
+    per-share normalisation inside the core: E and Var come out in currency,
+    letting the golden values assert the raw sums. Reporting layers (demo)
+    do the pretty-printing.
+11. **RNG policy.** Determinism is per-language, agreement is statistical.
+    Python: `numpy.random.default_rng(seed)` (PCG64, stream versioned by
+    NumPy); C++: `std::mt19937_64` with `std::uniform_real_distribution` /
+    `std::normal_distribution` — deterministic per standard library only,
+    since the distribution algorithms are implementation-defined (libstdc++,
+    libc++ and MSVC differ for the same seed); Rust:
+    `rand_chacha::ChaCha12Rng::seed_from_u64` pinned explicitly (the `rand`
+    crate documents `StdRng` as free to change between releases); Java:
+    `SplittableRandom` (specified algorithm, `nextGaussian` since Java 17,
+    faster and better-distributed than the 48-bit LCG `java.util.Random`).
+    Each language tests "same seed twice = identical results"; the golden
+    file stores Python's 20k-path references *with standard errors* so any
+    port with `M >= 2000` paths can verify
+    `|stat - ref| <= 4 sqrt(se_ref^2 + se_own^2)`.
 
 ## 4. Error-handling strategy per language
 
@@ -284,24 +329,34 @@ entry, reported with a specific message, and never clamped or deferred:
 | Rust | `Result<_, EtradeError>` | manual thiserror-style enum; no panics on bad input; `?` propagation in demo/tests |
 | Java | `throw IllegalArgumentException(msg)` | checked eagerly in constructors and static entry points |
 
-The checked conditions are enumerated in `API_SPEC.md` Section 6. Just as
-important is the pinned list of **non-errors**: negative prices (arithmetic
-walk), `kappa = 0` (half-life reported as infinity), signed quote distances
-(`delta < 0` when skew pushes a quote through the mid), and `q_max = 0`
-(quotes nothing, PnL identically zero). Turning any of these into an
+The checked conditions are enumerated in `API_SPEC.md` Section 6 and are
+identical in the four ports: NaN/inf anywhere (parameters, holdings paths,
+grids, quote state `s`/`q`, volumes, `fixed_spread`, stress settings),
+sign/range violations, empty grids, non-liquidating schedules (for `E` and
+the MC check alike), participation above 1, integer-typed arguments that
+are not integers (Python rejects `bool` and accepts NumPy integers), and
+the size bounds of Section 0. Just as important is the pinned list of
+**non-errors**: negative prices (arithmetic walk), `kappa = 0` (half-life
+reported as infinity), signed quote distances (`delta < 0` when skew pushes
+a quote through the mid), `q_max = 0` (quotes nothing, PnL identically
+zero), `x_j` underflowing to exactly 0 far out on a very urgent schedule,
+and a participation rate of exactly 1. Turning any of these into an
 exception is a port bug that the tests catch.
 
 ## 5. Testing strategy
 
-Four layers, replicated per language (~25+ assertions each):
+Five layers, replicated per language (Python 107 tests, C++ 76, Rust 47,
+Java 70 — 300 in total):
 
-1. **Golden values** (`data/golden/golden.json`, 18 cases).
+1. **Golden values** (`data/golden/golden.json`, 19 cases; every suite
+   asserts the count exactly and that every case is handled).
    *Exact* cases (tol 1e-10..1e-12, relative for large magnitudes via
    `tol*max(1,|expected|)`) pin the closed forms: AC solutions on two
-   parameter sets, TWAP/POV/instant costs, a frontier point, the
-   `lambda_ra = 0` = TWAP identity, A-S reservation/spread/fill
-   probability, both IS decompositions, participation, and the impact
-   regression on the pinned RNG-free synthetic fills.
+   parameter sets, `kappa` at millisecond `tau` (`ac_kappa_small_tau`),
+   TWAP/POV/instant costs, a frontier point, the `lambda_ra = 0` = TWAP
+   identity, A-S reservation/spread/fill probability, both IS
+   decompositions, participation, and the impact regression on the pinned
+   RNG-free synthetic fills.
    *Statistical* cases carry the Python 20,000-path reference plus SE per
    statistic; ports compare within the combined 4-SE band using their own
    RNG.
@@ -313,12 +368,27 @@ Four layers, replicated per language (~25+ assertions each):
    reservation price below mid when long; inventory cap invariant on every
    step; A-S rms inventory below fixed-spread rms inventory with margin;
    IS components summing to the total exactly.
-3. **Monte Carlo vs closed forms**: AC sample mean/variance within 3-4 SE
-   of the exact sums; the A-S comparison run on a reduced path count in
-   tests to stay under the per-language 60 s budget.
-4. **Error paths and determinism**: every validation rule of Section 6 has
-   a negative test; every simulation is run twice with the same seed and
-   asserted bitwise-identical within the language.
+3. **Literature and numerics**: the paper's closed-form E and V equal the
+   discrete sums at 1e-12 on all three parameter sets; the trajectory is
+   finite, monotone and sums to X at `kappa T ~ 846` and `~2683` (where
+   `sinh` overflows), with `x_1/X = exp(-kappa tau)` to 1e-9; `kappa`
+   matches the series `kappa_tilde(1 - kappa_tilde^2 tau^2/24)` to 1e-9 at
+   `tau = 1e-3`; the `expm1` form equals the textbook sinh ratio to 1e-14
+   at moderate `kappa T`; POV interval counts at the `ceil` boundary
+   (`X/clip = 2` exactly → 2, one share-thousandth more → 3).
+4. **Monte Carlo vs closed forms**: AC sample mean/variance within 4 SE of
+   the exact sums for the optimal *and* the TWAP schedule in every
+   language; the A-S comparison run on a reduced path count in tests.
+5. **Error paths and determinism**: every validation rule of Section 6 has
+   a negative test (non-finite inputs, size bounds, non-liquidating
+   schedules, participation above 1, non-finite quote state, NaN/inf
+   `fixed_spread` and stress settings, the `T/dt` integrality edge cases
+   `dt = T/3` and `dt = T`); stress with `stress_time_frac = 1` or
+   `stress_factor = 1` is bitwise identical to the unstressed run; every
+   simulation is run twice with the same seed and asserted
+   bitwise-identical within the language; the A-S fill count is checked
+   against a saturated book (exactly `2·n_steps`) and, in Python, against an
+   independent scalar re-implementation of the pinned loop.
 
 ## 6. Performance notes
 
@@ -326,10 +396,11 @@ Four layers, replicated per language (~25+ assertions each):
   sweep is O(N * grid) — microseconds. Nothing to optimise.
 - The A-S simulation dominates runtime: O(n_paths * n_steps) with two
   uniforms, one normal, and a handful of exp calls per path-step. Python
-  vectorises across paths (20,000 x 200 steps in ~1 s); native ports loop
-  per path and are comfortably faster single-threaded; none parallelise —
-  determinism and portability outrank speed here (2-CPU budget, tests
-  < 60 s per language with reduced path counts).
+  vectorises across paths; native ports loop per path; none parallelise —
+  determinism and portability outrank speed here. No timing is asserted or
+  enforced anywhere; as a rough indication only, on a shared 2-core box the
+  Python demo (three 2,000-path A-S runs plus a 20,000-path AC check) runs
+  in a few seconds and each language's test suite in well under a minute.
 - `exp` is the hot function in the A-S loop. The intensity for a suppressed
   side is still computed (branch-free style) in the reference; ports may
   skip it *only* where it cannot change results or draw order.

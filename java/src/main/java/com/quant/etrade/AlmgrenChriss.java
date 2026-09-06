@@ -2,7 +2,7 @@ package com.quant.etrade;
 
 import static com.quant.etrade.Validation.require;
 
-import java.util.Random;
+import java.util.SplittableRandom;
 
 /**
  * Almgren-Chriss discrete-time optimal execution (Almgren &amp; Chriss, 2000).
@@ -25,24 +25,45 @@ import java.util.Random;
  *   Var[IS] = sigma^2 * tau * sum_(j=1..N) x_j^2
  * </pre>
  *
+ * The sums coincide with the paper's hyperbolic closed forms (with the
+ * discrete kappa) to machine precision; they are used because they also cover
+ * TWAP/POV/arbitrary schedules.  The paper's fixed-cost term
+ * {@code epsilon*sum|n_j|} is omitted (schedule-independent for a one-sided
+ * program).
+ *
  * <p>The mean-variance objective {@code E + lambdaRa*Var} is minimised by the
  * sinh trajectory {@code x_j = X*sinh(kappa*(T-t_j))/sinh(kappa*T)} where the
  * discrete rate {@code kappa} solves
  * {@code (2/tau^2)*(cosh(kappa*tau)-1) = kappaTilde^2} with
- * {@code kappaTilde^2 = lambdaRa*sigma^2/etaTilde}.  As {@code lambdaRa -> 0}
- * the trajectory degenerates to the linear TWAP schedule; to avoid 0/0 the
+ * {@code kappaTilde^2 = lambdaRa*sigma^2/etaTilde}.  Pinned evaluation
+ * (API_SPEC 1.4): {@code kappa = log1p(x + sqrt(x*(2+x)))/tau} with
+ * {@code x = kappaTilde^2*tau^2/2} (no cancellation for small x), and
+ * {@code x_j = X*exp(-kappa*t_j)*expm1(-2*kappa*(T-t_j))/expm1(-2*kappa*T)}
+ * (no sinh overflow for large kappa*T).  As {@code lambdaRa -> 0} the
+ * trajectory degenerates to the linear TWAP schedule; to avoid 0/0 the
  * implementation switches to the exact linear branch when
  * {@code kappa*T < KAPPA_T_LIMIT} (covers {@code lambdaRa == 0} and
- * {@code sigma == 0}); the sinh branch is continuous at the threshold to well
+ * {@code sigma == 0}); the branch is continuous at the threshold to well
  * below golden tolerance.
  *
- * <p>Prices may go negative under the arithmetic walk — a documented model
- * property, never an error.
+ * <p>Every size (intervals, POV clips, paths) is bounded by a pinned constant
+ * before any allocation, so bad input is an {@link IllegalArgumentException},
+ * never an overflow or an out-of-memory error.  Prices may go negative under
+ * the arithmetic walk — a documented model property, never an error.
  */
 public final class AlmgrenChriss {
 
     /** Threshold on {@code kappa*T} below which the exact linear (TWAP) branch is used. */
     public static final double KAPPA_T_LIMIT = 1e-6;
+
+    /** Upper bound on the number of AC trading intervals N (pinned, API_SPEC 0). */
+    public static final int MAX_AC_INTERVALS = 10_000_000;
+
+    /** Upper bound on the number of POV intervals {@code M = ceil(X/clip)} (pinned). */
+    public static final int MAX_POV_INTERVALS = 10_000_000;
+
+    /** Upper bound on Monte Carlo path counts (pinned, API_SPEC 0). */
+    public static final int MAX_PATHS = 10_000_000;
 
     private AlmgrenChriss() {
     }
@@ -99,7 +120,8 @@ public final class AlmgrenChriss {
     }
 
     /**
-     * Characteristic decay time {@code theta = 1/kappa} of the optimal trajectory.
+     * Characteristic decay time {@code theta = 1/kappa} of the optimal trajectory
+     * (the paper's e-folding time, not {@code ln(2)/kappa}).
      *
      * @param params model parameters
      * @return the half-life; {@link Double#POSITIVE_INFINITY} in the TWAP limit
@@ -110,9 +132,20 @@ public final class AlmgrenChriss {
     }
 
     /**
-     * Optimal holdings path {@code x_0..x_N} (length N+1, {@code x_0 = X},
-     * {@code x_N = 0} exactly).  Uses the sinh solution; switches to the exact
-     * linear (TWAP) branch when {@code kappa*T < KAPPA_T_LIMIT}.
+     * Alias of {@link #halfLife} under the paper's name ({@code theta = 1/kappa}).
+     *
+     * @param params model parameters
+     * @return {@code 1/kappa}, or {@link Double#POSITIVE_INFINITY} in the TWAP limit
+     */
+    public static double characteristicTime(ACParams params) {
+        return halfLife(params);
+    }
+
+    /**
+     * Optimal holdings path {@code x_0..x_N} (length N+1, {@code x_0 = X} exactly,
+     * {@code x_N = 0} exactly, every entry finite).  Uses the sinh solution in the
+     * overflow-free exp/expm1 ratio form; switches to the exact linear (TWAP)
+     * branch when {@code kappa*T < KAPPA_T_LIMIT}.
      *
      * @param params model parameters
      * @return holdings array of length {@code nIntervals + 1}
@@ -131,9 +164,13 @@ public final class AlmgrenChriss {
                 x[j] = x0 * (n - j) / n;    // exact TWAP limit, no 0/0
             }
         } else {
-            double denom = Math.sinh(k * bigT);
+            // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT):
+            // overflow-free; ratio formed first so that x_0 == X exactly.
+            double denom = Math.expm1(-2.0 * k * bigT);
             for (int j = 0; j <= n; j++) {
-                x[j] = x0 * Math.sinh(k * (bigT - j * params.tau())) / denom;
+                double tj = j * params.tau();
+                double ratio = Math.expm1(-2.0 * k * (bigT - tj)) / denom;
+                x[j] = x0 * Math.exp(-k * tj) * ratio;
             }
         }
         x[n] = 0.0;
@@ -150,15 +187,30 @@ public final class AlmgrenChriss {
         return tradesFromHoldings(trajectory(params));
     }
 
+    /** Validates a user-supplied holdings path: non-null, length {@code >= 2}, finite. */
+    private static void requireHoldings(double[] holdings) {
+        require(holdings != null && holdings.length >= 2,
+                "holdings must be an array of length >= 2");
+        for (double v : holdings) {
+            require(Double.isFinite(v), "holdings must be finite");
+        }
+    }
+
+    /** Pinned liquidation check {@code |x_N| <= 1e-9 * max(1, |x_0|)}. */
+    private static void requireLiquidating(double[] holdings) {
+        require(Math.abs(holdings[holdings.length - 1])
+                        <= 1e-9 * Math.max(1.0, Math.abs(holdings[0])),
+                "holdings path must fully liquidate (x_N = 0)");
+    }
+
     /**
-     * Trade list {@code n_j = x_(j-1) - x_j} from a holdings path.
+     * Trade list {@code n_j = x_(j-1) - x_j} from a finite holdings path.
      *
-     * @param holdings holdings path, length {@code >= 2}
+     * @param holdings holdings path, length {@code >= 2}, finite
      * @return trades array of length {@code holdings.length - 1}
      */
     public static double[] tradesFromHoldings(double[] holdings) {
-        require(holdings != null && holdings.length >= 2,
-                "holdings must be an array of length >= 2");
+        requireHoldings(holdings);
         double[] n = new double[holdings.length - 1];
         for (int j = 0; j < n.length; j++) {
             n[j] = holdings[j] - holdings[j + 1];
@@ -169,13 +221,15 @@ public final class AlmgrenChriss {
     /**
      * Linear TWAP holdings path {@code x_j = X*(N-j)/N}.
      *
-     * @param totalShares shares to sell, {@code >= 0}
-     * @param nIntervals  number of intervals, {@code >= 1}
+     * @param totalShares shares to sell, finite and {@code >= 0}
+     * @param nIntervals  number of intervals, in {@code [1, MAX_AC_INTERVALS]}
      * @return holdings array of length {@code nIntervals + 1}
      */
     public static double[] twapHoldings(double totalShares, int nIntervals) {
-        require(totalShares >= 0.0, "totalShares must be >= 0");
-        require(nIntervals >= 1, "nIntervals must be an integer >= 1");
+        require(Double.isFinite(totalShares) && totalShares >= 0.0,
+                "totalShares must be finite and >= 0");
+        require(nIntervals >= 1 && nIntervals <= MAX_AC_INTERVALS,
+                "nIntervals must be an integer in [1, 10000000]");
         double[] x = new double[nIntervals + 1];
         for (int j = 0; j <= nIntervals; j++) {
             x[j] = totalShares * (nIntervals - j) / nIntervals;
@@ -187,26 +241,33 @@ public final class AlmgrenChriss {
      * POV (percentage-of-volume) holdings path: sells
      * {@code participation * marketVolumeRate * tau} shares per interval until
      * done (last clip partial).  The path length is set by the order size,
-     * with {@code M = ceil(X/clip - 1e-12)} intervals and {@code x_M = 0} exactly.
+     * with {@code M = ceil(X/clip - 1e-12)} intervals and {@code x_M = 0} exactly;
+     * {@code X/clip <= MAX_POV_INTERVALS} is required (a clip too small for the
+     * order is an input error, never a huge allocation).
      *
-     * @param totalShares      shares to sell, {@code >= 0}
-     * @param tau              interval length, {@code > 0}
-     * @param marketVolumeRate market volume rate (shares per unit time), {@code > 0}
+     * @param totalShares      shares to sell, finite and {@code >= 0}
+     * @param tau              interval length, finite and {@code > 0}
+     * @param marketVolumeRate market volume rate (shares per unit time), finite, {@code > 0}
      * @param participation    participation fraction, in the open interval (0, 1)
      * @return holdings array of length {@code M + 1}
      */
     public static double[] povHoldings(double totalShares, double tau,
                                        double marketVolumeRate, double participation) {
-        require(totalShares >= 0.0, "totalShares must be >= 0");
-        require(tau > 0.0, "tau must be > 0");
-        require(marketVolumeRate > 0.0, "marketVolumeRate must be > 0");
-        require(participation > 0.0 && participation < 1.0,
+        require(Double.isFinite(totalShares) && totalShares >= 0.0,
+                "totalShares must be finite and >= 0");
+        require(Double.isFinite(tau) && tau > 0.0, "tau must be > 0");
+        require(Double.isFinite(marketVolumeRate) && marketVolumeRate > 0.0,
+                "marketVolumeRate must be > 0");
+        require(Double.isFinite(participation) && participation > 0.0 && participation < 1.0,
                 "participation must be in (0, 1)");
         double clip = participation * marketVolumeRate * tau;
         if (totalShares == 0.0) {
             return new double[2];
         }
-        int nInt = (int) Math.ceil(totalShares / clip - 1e-12);
+        double ratio = totalShares / clip;   // bounded BEFORE any cast/allocation
+        require(ratio <= MAX_POV_INTERVALS,
+                "POV clip too small: would need > 10000000 intervals");
+        int nInt = (int) Math.ceil(ratio - 1e-12);
         double[] x = new double[nInt + 1];
         for (int i = 0; i <= nInt; i++) {
             x[i] = Math.max(totalShares - i * clip, 0.0);
@@ -228,17 +289,17 @@ public final class AlmgrenChriss {
 
     /**
      * {@code E[IS] = 0.5*gammaP*X^2 + (etaTilde/tau)*sum n_j^2} (exact discrete sum).
+     * The order size X in the permanent-impact term is the schedule's
+     * {@code x_0}, not {@code params.totalShares()} (pinned).
      *
      * @param params   model parameters
-     * @param holdings any fully liquidating path ({@code |x_N| <= 1e-9*max(1, X)})
+     * @param holdings any finite, fully liquidating path ({@code |x_N| <= 1e-9*max(1, X)})
      * @return E[IS]
      */
     public static double expectedCost(ACParams params, double[] holdings) {
-        require(holdings != null && holdings.length >= 2,
-                "holdings must be an array of length >= 2");
+        requireHoldings(holdings);
+        requireLiquidating(holdings);
         double x0 = holdings[0];
-        require(Math.abs(holdings[holdings.length - 1]) <= 1e-9 * Math.max(1.0, Math.abs(x0)),
-                "holdings path must fully liquidate (x_N = 0)");
         double[] n = tradesFromHoldings(holdings);
         double sumN2 = 0.0;
         for (double nj : n) {
@@ -263,12 +324,11 @@ public final class AlmgrenChriss {
      * {@code x_N = 0} contributes nothing).
      *
      * @param params   model parameters
-     * @param holdings holdings path, length {@code >= 2}
+     * @param holdings holdings path, length {@code >= 2}, finite
      * @return Var[IS]
      */
     public static double varianceCost(ACParams params, double[] holdings) {
-        require(holdings != null && holdings.length >= 2,
-                "holdings must be an array of length >= 2");
+        requireHoldings(holdings);
         double sumX2 = 0.0;
         for (int j = 1; j < holdings.length; j++) {
             sumX2 += holdings[j] * holdings[j];
@@ -295,7 +355,8 @@ public final class AlmgrenChriss {
      * {@code (lambdaRa, kappa, E, Var, sqrt(Var))} of the optimal strategy.
      *
      * @param params  model parameters (its own {@code lambdaRa} is ignored)
-     * @param lambdas non-empty grid of risk aversions, each {@code >= 0}
+     * @param lambdas non-empty grid of risk aversions, each finite and {@code >= 0}
+     *                (duplicates and unsorted grids are reproduced in input order)
      * @return one frontier point per grid value, in input order
      */
     public static FrontierPoint[] efficientFrontier(ACParams params, double[] lambdas) {
@@ -328,20 +389,25 @@ public final class AlmgrenChriss {
      * loop {@code j = 1..N}: execute {@code n_j} at {@code S_(j-1) - eta*n_j/tau},
      * then update {@code S_j = S_(j-1) + sigma*sqrt(tau)*xi_j - gammaP*n_j}
      * (draw order: one N(0,1) per interval, in interval order per path).
-     * {@code IS = X*S_0 - proceeds} with {@code S_0 = 0}.  The closed forms
+     * {@code IS = X*S_0 - proceeds} with {@code S_0 = 0}.  The schedule must
+     * fully liquidate (same check as {@link #expectedCost}).  The closed forms
      * {@link #expectedCost} / {@link #varianceCost} match within a few SE.
      *
      * @param params   model parameters
-     * @param holdings the schedule to execute (any fully liquidating path)
-     * @param nPaths   number of paths, {@code >= 2}
-     * @param seed     RNG seed (deterministic per seed; Java RNG, not NumPy's)
+     * @param holdings the schedule to execute (any finite, fully liquidating path)
+     * @param nPaths   number of paths, in {@code [2, MAX_PATHS]}
+     * @param seed     RNG seed (deterministic per seed; {@link SplittableRandom},
+     *                 not NumPy's stream)
      * @return sample mean/variance of IS with standard errors
      */
     public static ISSimResult simulateIS(ACParams params, double[] holdings,
                                          int nPaths, long seed) {
-        require(nPaths >= 2, "nPaths must be >= 2");
+        require(nPaths >= 2 && nPaths <= MAX_PATHS,
+                "nPaths must be an integer in [2, 10000000]");
+        requireHoldings(holdings);
+        requireLiquidating(holdings);
         double[] n = tradesFromHoldings(holdings);
-        Random rng = new Random(seed);
+        SplittableRandom rng = new SplittableRandom(seed);
         double srt = params.sigma() * Math.sqrt(params.tau());
         double[] shortfall = new double[nPaths];
         for (int p = 0; p < nPaths; p++) {

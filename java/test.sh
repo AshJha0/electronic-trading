@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run all JUnit 4 test classes (build first with ./build.sh).
+# Run all JUnit 4 test classes (build first with: bash build.sh).
 set -euo pipefail
 cd "$(dirname "$0")"
 

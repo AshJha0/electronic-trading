@@ -124,3 +124,49 @@ TEST(Impact, RegressionRecoversSlopeApproximately) {
 }
 
 }  // namespace
+
+// ---------------------------------------------------------------------------
+// Robustness tests (T-9, T-13)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+TEST(ISDecomposition, PriceShiftInvariance) {
+    // Adding c to every price leaves every component unchanged (Q + R = X).
+    const double c = 37.5;
+    const std::vector<double> qty = {300.0, 400.0, 200.0};
+    const std::vector<double> px = {99.4, 99.2, 99.1};
+    std::vector<double> px_c;
+    for (double p : px) px_c.push_back(p + c);
+    for (Side side : {Side::kSell, Side::kBuy}) {
+        const auto d0 = etrade::decompose_shortfall(side, 100.0, 99.5, 98.8, 1000.0, qty, px);
+        const auto d1 = etrade::decompose_shortfall(side, 100.0 + c, 99.5 + c, 98.8 + c,
+                                                    1000.0, qty, px_c);
+        EXPECT_NEAR(d0.total, d1.total, 1e-9);
+        EXPECT_NEAR(d0.delay, d1.delay, 1e-9);
+        EXPECT_NEAR(d0.trading, d1.trading, 1e-9);
+        EXPECT_NEAR(d0.opportunity, d1.opportunity, 1e-9);
+    }
+}
+
+TEST(ISDecomposition, EmptyFills) {
+    const auto d = etrade::decompose_shortfall(Side::kSell, 100.0, 99.0, 98.0, 500.0, {}, {});
+    EXPECT_DOUBLE_EQ(d.delay, 0.0);
+    EXPECT_DOUBLE_EQ(d.trading, 0.0);
+    EXPECT_NEAR(d.opportunity, 1000.0, 1e-12);  // 500 * (100 - 98)
+    EXPECT_NEAR(d.total, 1000.0, 1e-12);
+    EXPECT_DOUBLE_EQ(d.executed_qty, 0.0);
+    EXPECT_DOUBLE_EQ(d.remaining_qty, 500.0);
+    const auto b = etrade::decompose_shortfall(Side::kBuy, 100.0, 99.0, 98.0, 500.0, {}, {});
+    EXPECT_NEAR(b.opportunity, -1000.0, 1e-12);  // price fell: a gain for a buyer
+}
+
+TEST(Participation, AboveOneIsInputError) {
+    EXPECT_THROW(etrade::participation_rate(2e6, 1.5e6), std::invalid_argument);
+    EXPECT_DOUBLE_EQ(etrade::participation_rate(1.5e6, 1.5e6), 1.0);  // boundary
+    EXPECT_THROW(etrade::participation_rate(std::nan(""), 1.0), std::invalid_argument);
+    EXPECT_THROW(etrade::participation_rate(1.0, std::numeric_limits<double>::infinity()),
+                 std::invalid_argument);
+}
+
+}  // namespace

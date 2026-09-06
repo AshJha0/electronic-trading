@@ -5,8 +5,11 @@ electronic markets work at the microstructure level, why executing a large
 order is a genuine optimization problem, the Almgren-Chriss solution to it,
 the Perold implementation-shortfall framework used to measure execution
 quality, and the Avellaneda-Stoikov model of an inventory-averse market
-maker. Every worked number below is reproduced bit-for-bit by the code and
-pinned in `data/golden/golden.json`.
+maker. The closed-form numbers below are reproduced by the code and pinned
+in `data/golden/golden.json` (tolerance 1e-10..1e-12); the simulation
+numbers (Section 6.5–6.6) are 2,000-path samples from the Python demo that
+the C++/Rust/Java ports reproduce *statistically* (within the 4-SE bands of
+the golden file), not bit-for-bit.
 
 ---
 
@@ -188,10 +191,23 @@ $$
 
 The implementation computes `n_j` as differences of `x_j`; the cosh
 expression is the identity the differences must satisfy (a good property
-test). E and Var of the optimum are then evaluated through the **exact
-discrete sums** of Section 3.2 — never through the continuous-time
-hyperbolic approximations, which differ at the 4th-5th significant digit for
-small N and would break the 1e-10 golden tolerances.
+test). E and Var of the optimum are evaluated through the **exact discrete
+sums** of Section 3.2. These coincide with the paper's hyperbolic closed
+forms for E and V (evaluated with the *discrete* kappa above) to machine
+precision — on the liquid set `E_paper = 1,078,215.1670497851` vs the sum
+`1,078,215.167049785` (relative difference 2e-16) — and every test suite
+asserts that identity at 1e-12. The sums are pinned because one code path
+also covers TWAP, POV and any hand-built schedule.
+
+Two numerical details are pinned as well (`API_SPEC.md` Section 1.4):
+`kappa` is evaluated as `log1p(x + sqrt(x(2+x)))/tau` with
+`x = kappa_tilde^2 tau^2/2`, which is `arccosh(1+x)/tau` without the
+cancellation that costs `acosh(1+x)` about `eps/x` relative digits when
+`tau` is a second rather than a day; and the sinh ratio is evaluated as
+`exp(-kappa t_j) * expm1(-2 kappa (T - t_j)) / expm1(-2 kappa T)`, which is
+the same number for every `kappa > 0` but cannot overflow (`sinh` overflows
+at `kappa T > 710`, i.e. a horizon of more than ~710 half-lives — a
+one-minute grid over a day at moderate urgency reaches that).
 
 ### 3.4 Reading kappa: urgency and half-life
 
@@ -319,8 +335,8 @@ and it is the first sanity check to run on any TCA vendor's numbers.
 - trading = 300×0.10 + 400×0.30 + 200×0.40 = **\$230** — execution slippage.
 - opportunity = 100 × 1.20 = **\$120** — the unfilled tail rode the price
   down.
-- total = **\$800** = 80 bps of the \$100 decision value... exactly
-  `1000×100 − (sum of fill proceeds) − 100×98.80`.
+- total = **\$800** = 80 bps of the \$100,000 decision value (1,000 shares ×
+  \$100)... exactly `1000×100 − (sum of fill proceeds) − 100×98.80`.
 
 The buy case (`is_decomposition_buy`) mirrors the prices and yields the same
 components — a deliberate symmetry check.
@@ -426,6 +442,13 @@ $$
 `lambda = 140*exp(-0.9) = 56.919752363683884` and
 `P = 1 - exp(-56.9198*0.005) = 0.24768394830642568`.
 
+This exact thinned probability is the pinned choice. The paper's own
+simulation (as commonly reproduced) uses the first-order `lambda*dt`
+instead; with `lambda*dt ~ 0.28` at these parameters that over-fills by
+~12%, which is why the mean PnL in Section 6.6 (~56) sits below the paper's
+Table 1 value (~65 at `gamma = 0.1`) while the PnL standard deviations (6.4
+vs 6.4; symmetric strategy 12.8 vs 12.7) agree.
+
 **Worked quotes** (golden `as_reservation_liquid`, `as_spread_liquid`):
 `s = 100, q = +3, t = 0.3, T = 1, sigma = 2, gamma = 0.1, k = 1.5`:
 
@@ -465,10 +488,14 @@ The comparison agent quotes the *same average spread*
 average of the A-S spread) symmetrically around the **mid**, with no skew,
 same fill mechanics, same RNG. From the demo (2,000 paths, liquid set):
 
-| agent | mean PnL | std PnL | Sharpe | rms q | mean max abs q |
-|---|---|---|---|---|---|
-| A-S | 55.92 | 6.37 | 8.78 | 1.45 | 4.10 |
-| fixed-spread | 57.84 | 12.81 | 4.51 | 4.96 | 9.50 |
+| agent | mean PnL | std PnL | Sharpe | rms q | mean max abs q | fills |
+|---|---|---|---|---|---|---|
+| A-S | 55.92 | 6.37 | 8.78 | 1.45 | 4.10 | 85.6 |
+| fixed-spread | 57.84 | 12.81 | 4.51 | 4.96 | 9.50 | 81.8 |
+
+(`fills` is the total number of fills per path, both sides counted — a step
+in which both the bid and the ask fill contributes two; ~4–5% of steps here.
+The 20,000-path golden reference is 85.53 ± 0.06.)
 
 Nearly identical expected PnL (the fixed agent even earns slightly more —
 it never shades away from flow), but the A-S agent runs **~3.4x smaller RMS
@@ -511,7 +538,8 @@ The three bundled parameter sets are calibrated caricatures:
   step, price 1.1000. Note the *units* discipline: gamma = 100 and k = 2000
   look huge but are per-unit-of-price on an asset quoted to 4 decimals —
   always sanity-check `gamma/k` (here 0.05) and `gamma*sigma^2*T` (here
-  0.0016, ~1.6 pips of skew per unit of inventory) rather than raw numbers.
+  `100 × 0.004² × 1 = 0.0016`, i.e. 16 pips of skew per unit of inventory)
+  rather than raw numbers.
   Also FX conventions: two-way prices are quoted as bid/ask outright, sizes
   in base currency, and "spread" is measured in pips = 1e-4.
 
@@ -530,10 +558,16 @@ mid-price world — which is exactly why they are teachable in closed form.
    `lambda_ra = 0` exactly it is 0/0. The pinned fix: branch to the exact
    linear TWAP when `kappa*T < 1e-6`. Do **not** branch on
    `lambda_ra == 0` only — `sigma == 0` also gives kappa = 0.
-2. **Using continuous-time formulas for E/Var.** The paper's hyperbolic
-   closed forms for E and Var are continuous-time *approximations* of the
-   discrete sums. At N = 5 they differ from the exact sums well above
-   1e-10. All golden values use the pinned discrete sums.
+2. **Mixing the continuous and discrete kappa.** The paper's hyperbolic
+   closed forms for E and Var are *exact* — but only with the discrete
+   `kappa` from `cosh(kappa tau)`; plugging in the continuous
+   `kappa_tilde = sqrt(lambda sigma^2/eta_tilde)` instead is off well above
+   1e-10 at N = 5. All golden values use the pinned discrete sums, and the
+   suites assert the closed forms against them at 1e-12.
+   Two related traps: `sinh(kappa(T-t))/sinh(kappa T)` overflows to
+   `inf/inf = NaN` for `kappa T > 710` (use the pinned `exp/expm1` form),
+   and `acosh(1 + x)` for `kappa` loses `eps/x` digits when `tau` is small
+   (use the pinned `log1p` form) — both bite on second-resolution grids.
 3. **Forgetting `eta_tilde`.** Using raw `eta` in the cost sum double-counts
    permanent impact (the `gamma_p*tau/2` correction removes the overlap
    between the within-interval permanent move and the temporary cost). And
@@ -562,6 +596,56 @@ mid-price world — which is exactly why they are teachable in closed form.
    (`delta < 0`, fill probability rises toward `1 − exp(−A dt)`). Clamping
    delta at 0 "to be safe" changes the dynamics and breaks the golden
    simulation statistics.
+
+---
+
+## 9a. How a desk would use this
+
+A concrete workflow for the pieces that are here, in the order a desk would
+run them:
+
+1. **Calibrate impact.** From a history of child-order fills, compute
+   per-share cost versus participation rate and fit `estimate_impact` (the
+   OLS in `analytics`). The slope is a first estimate of the temporary
+   impact coefficient; the intercept absorbs half-spread and fees (the
+   paper's `epsilon`, which the AC cost functions deliberately omit — add
+   `epsilon*X` back when reporting total cost). Check `r_squared` and the
+   size range of the fills before trusting the slope for a bigger order.
+2. **Choose the grid and units.** Pick `tau` (the rebalancing interval), set
+   `sigma` as an *arithmetic* volatility in currency per share per
+   `sqrt(tau unit)`, and make sure `gamma_p * tau < 2 * eta` — the
+   constructor rejects the parameter set otherwise. `N = T/tau` is bounded
+   at 10 million; a one-second grid over a day is `N = 23,400`, which the
+   trajectory handles without overflow at any urgency.
+3. **Sweep the frontier.** `efficient_frontier` over a `lambda_ra` grid gives
+   `(E, sqrt(Var), kappa)` per point; `half_life` (= `1/kappa`) tells you
+   whether the nominal horizon is even relevant (`1/kappa << T` means you
+   are effectively liquidating fast). The best-execution committee sees this
+   table: it documents *why* an order was traded at a given urgency.
+4. **Pick a schedule, compare baselines.** `ac_trajectory` /
+   `ac_trade_list` for the chosen `lambda_ra`; `twap_holdings` and
+   `pov_holdings` for the benchmarks; `expected_cost` / `variance_cost`
+   price any of them on the same footing (`X` is taken from the schedule).
+   Round the fractional `n_j` to lots downstream — the library does not.
+5. **Sanity-check with Monte Carlo.** `simulate_is` on the chosen schedule
+   must land within a few SE of the closed forms; if it does not, the
+   parameters are outside the model (typically `eta_tilde` near zero).
+6. **After the fact: TCA.** `decompose_shortfall` with the decision price,
+   arrival price, fills and close splits the realised shortfall into delay,
+   trading and opportunity cost — the identity is exact, so any mismatch
+   with a vendor's number is a convention difference, not rounding.
+   `participation_rate` (market volume *including* own fills, so never above
+   1) labels the fills for the next calibration round.
+7. **Market-making side.** `quotes(params, s, q, t)` gives the reservation
+   price and skewed bid/ask for the live state; `simulate` with the A-S and
+   fixed agents on the same seed quantifies how much inventory variance the
+   skew removes, and the `stress_factor` run shows what a volatility regime
+   change does to the PnL distribution before it happens.
+
+Everything above is deterministic per seed and validated at the entry
+points, so it can sit inside a larger system; what the library does *not*
+do — calendars, lots, ticks, venues, adaptive re-optimisation, adverse
+selection — is listed in the README's real-world usage notes.
 
 ---
 
@@ -698,21 +782,26 @@ ddof, and the cap's always-draw rule — not the RNG itself.
 
 ## 13. Further reading
 
-- R. Almgren, N. Chriss, "Optimal Execution of Portfolio Transactions",
-  *Journal of Risk* 3(2), 2000 — the AC model, exactly as pinned here.
-- M. Avellaneda, S. Stoikov, "High-frequency trading in a limit order
-  book", *Quantitative Finance* 8(3), 2008 — reservation price and spread.
-- A. Perold, "The Implementation Shortfall: Paper versus Reality", *Journal
-  of Portfolio Management*, 1988 — the decomposition of Section 4.
+- R. Almgren, N. Chriss (2000), "Optimal execution of portfolio
+  transactions", *Journal of Risk* 3(2), 5–39 — the AC model, exactly as
+  pinned here (with the fixed-cost `epsilon` term omitted).
+- M. Avellaneda, S. Stoikov (2008), "High-frequency trading in a limit order
+  book", *Quantitative Finance* 8(3), 217–224 — reservation price and
+  spread.
+- A. F. Perold (1988), "The implementation shortfall: paper versus reality",
+  *Journal of Portfolio Management* 14(3), 4–9 — the decomposition of
+  Section 4; W. H. Wagner, M. Edwards (1993), "Best execution", *Financial
+  Analysts Journal* 49(1), 65–71 — the delay/trading/opportunity naming.
 - R. Kissell, *The Science of Algorithmic Trading and Portfolio
   Management* — practitioner treatment of benchmarks, POV/VWAP, TCA.
 - L. Harris, *Trading and Exchanges* — the microstructure classic; order
   types, dealers, adverse selection.
 - Cartea, Jaimungal, Penalva, *Algorithmic and High-Frequency Trading* —
   rigorous stochastic-control treatment generalizing both models here.
-- Guéant, Lehalle, Fernandez-Tapia, "Dealing with the inventory risk"
-  (2013) — the A-S model solved with inventory limits (closed forms for the
-  capped case).
+- O. Guéant, C.-A. Lehalle, J. Fernandez-Tapia (2013), "Dealing with the
+  inventory risk: a solution to the market making problem", *Mathematics
+  and Financial Economics* 7(4), 477–507 — the A-S model solved with
+  inventory limits (closed forms for the capped case).
 - J.-P. Bouchaud et al., *Trades, Quotes and Prices* — empirical impact,
   the square-root law, order-book dynamics.
 - ESMA MiFID II best-execution guidance and SEC Rules 605/606 — the

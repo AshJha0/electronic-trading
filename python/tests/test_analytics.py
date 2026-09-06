@@ -116,3 +116,48 @@ def test_impact_regression_recovers_slope() -> None:
     r0 = et.estimate_impact(p0, c0)
     assert r0.slope == pytest.approx(5.0, abs=1e-10)
     assert r0.intercept == pytest.approx(0.2, abs=1e-10)
+
+
+# ----------------------------------------------------------------------------
+# Robustness tests (T-9, T-13)
+# ----------------------------------------------------------------------------
+
+def test_is_decomposition_price_shift_invariance() -> None:
+    """Adding a constant c to every price leaves all components unchanged
+    (delay + trading + opportunity involve only price differences; the total
+    identity uses Q + R = X)."""
+    c = 37.5
+    qtys, prices = [300.0, 400.0, 200.0], [99.4, 99.2, 99.1]
+    for side in ("sell", "buy"):
+        d0 = et.decompose_shortfall(side, 100.0, 99.5, 98.8, 1000.0, qtys, prices)
+        d1 = et.decompose_shortfall(side, 100.0 + c, 99.5 + c, 98.8 + c, 1000.0,
+                                    qtys, [p + c for p in prices])
+        for name in ("total", "delay", "trading", "opportunity"):
+            assert getattr(d1, name) == pytest.approx(getattr(d0, name), abs=1e-9)
+
+
+def test_is_decomposition_empty_fills() -> None:
+    d = et.decompose_shortfall("sell", 100.0, 99.0, 98.0, 500.0, [], [])
+    assert d.delay == 0.0 and d.trading == 0.0
+    assert d.opportunity == pytest.approx(1000.0, abs=1e-12)   # 500 * (100 - 98)
+    assert d.total == pytest.approx(1000.0, abs=1e-12)
+    assert d.executed_qty == 0.0 and d.remaining_qty == 500.0
+    b = et.decompose_shortfall("buy", 100.0, 99.0, 98.0, 500.0, [], [])
+    assert b.opportunity == pytest.approx(-1000.0, abs=1e-12)  # price fell: a gain
+
+
+def test_participation_rate_above_one_is_error() -> None:
+    with pytest.raises(ValueError, match="exceeds market volume"):
+        et.participation_rate(2e6, 1.5e6)
+    assert et.participation_rate(1.5e6, 1.5e6) == 1.0      # boundary allowed
+    with pytest.raises(ValueError):
+        et.participation_rate(float("nan"), 1.0)
+    with pytest.raises(ValueError):
+        et.participation_rate(1.0, float("inf"))
+
+
+def test_synthetic_fills_reject_bool_and_accept_numpy_int() -> None:
+    with pytest.raises(ValueError):
+        et.synthetic_impact_fills(True)
+    part, cost = et.synthetic_impact_fills(np.int64(4))
+    assert part.size == 4 and cost.size == 4

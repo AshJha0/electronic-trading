@@ -11,7 +11,7 @@ import java.util.Locale;
  *
  * <p>Parameter values mirror {@code data/params_liquid.json},
  * {@code data/params_fx.json} and {@code data/parent_order.json}.
- * Run with {@code ./demo.sh} after {@code ./build.sh}.
+ * Run with {@code bash demo.sh} after {@code bash build.sh}.
  */
 public final class Demo {
 

@@ -40,7 +40,12 @@ size) with the thinned-Poisson probability
 
 ``delta`` is the distance of the quote from the *current mid* (it can be
 negative when the inventory skew pushes a quote through the mid; the
-probability formula still applies and stays in (0, 1)).
+probability formula still applies and stays in (0, 1)).  This exact thinned
+probability is the pinned choice; the paper's own simulation (as commonly
+reproduced) uses the first-order ``lambda*dt``, which over-fills by ~12% at
+``lambda*dt ~ 0.28`` — that is why the mean PnL here (~56 on the liquid set)
+sits below the paper's Table 1 value (~65 at ``gamma = 0.1``) while the PnL
+standard deviations agree.
 
 Simulation loop (order pinned; see API_SPEC.md)
 -----------------------------------------------
@@ -69,15 +74,27 @@ mechanics, RNG stream and terminal liquidation.
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
 
+#: Upper bound on the number of simulation steps T/dt (pinned, API_SPEC §0).
+MAX_AS_STEPS: int = 10_000_000
+
+#: Upper bound on Monte Carlo path counts (pinned, API_SPEC §0).
+MAX_PATHS: int = 10_000_000
+
 
 def _require(cond: bool, msg: str) -> None:
     if not cond:
         raise ValueError(msg)
+
+
+def _is_int(v: object) -> bool:
+    """True for Python/NumPy integers, False for bool and floats."""
+    return isinstance(v, numbers.Integral) and not isinstance(v, bool)
 
 
 @dataclass(frozen=True)
@@ -89,12 +106,18 @@ class ASParams:
     s0      : initial mid price (any real; arithmetic model).
     sigma   : arithmetic mid volatility per sqrt(time unit), >= 0.
     horizon : terminal time T > 0.
-    dt      : simulation step, 0 < dt <= T, with T/dt integral (1e-9 tol).
+    dt      : simulation step, 0 < dt <= T, with T/dt integral (1e-9 tol)
+              and T/dt <= MAX_AS_STEPS.
     gamma   : risk aversion, strictly > 0 (gamma = 0 invalid per spec).
     k       : intensity decay, > 0.
     a_rate  : intensity scale A, > 0.
     q_max   : hard inventory cap (units), integer >= 0.
     eta_liq : terminal liquidation penalty per unit inventory, >= 0.
+
+    Units are abstract but must be consistent: ``horizon``/``dt`` in time
+    units, ``sigma`` in price/sqrt(time unit), ``gamma`` in 1/price,
+    ``k`` in 1/price, ``a_rate`` in fills per time unit, ``eta_liq`` in price
+    per unit of inventory.
     """
 
     s0: float
@@ -117,12 +140,13 @@ class ASParams:
                  "gamma must be > 0 (gamma = 0 is outside the A-S model)")
         _require(math.isfinite(self.k) and self.k > 0.0, "k must be > 0")
         _require(math.isfinite(self.a_rate) and self.a_rate > 0.0, "a_rate (A) must be > 0")
-        _require(isinstance(self.q_max, int) and self.q_max >= 0,
+        _require(_is_int(self.q_max) and self.q_max >= 0,
                  "q_max must be an integer >= 0")
         _require(math.isfinite(self.eta_liq) and self.eta_liq >= 0.0,
                  "eta_liq must be >= 0")
         n = self.horizon / self.dt
         _require(abs(n - round(n)) < 1e-9, "horizon must be an integer multiple of dt")
+        _require(n <= MAX_AS_STEPS, f"horizon/dt must be <= {MAX_AS_STEPS} steps")
 
     @property
     def n_steps(self) -> int:
@@ -131,7 +155,11 @@ class ASParams:
 
 
 def reservation_price(params: ASParams, s: float, q: float, t: float) -> float:
-    """r(s, q, t) = s - q * gamma * sigma^2 * (T - t).  Requires 0 <= t <= T."""
+    """r(s, q, t) = s - q * gamma * sigma^2 * (T - t).
+
+    Requires finite ``s`` and ``q`` and ``0 <= t <= T``.
+    """
+    _require(math.isfinite(s) and math.isfinite(q), "s and q must be finite")
     _require(0.0 <= t <= params.horizon, "t must be in [0, horizon]")
     return s - q * params.gamma * params.sigma ** 2 * (params.horizon - t)
 
@@ -185,7 +213,8 @@ class ASSimResult:
     Per-path arrays (length n_paths): ``pnl``, ``mean_abs_q_path`` (time
     average of |q| over the path), ``max_abs_q_path`` (path max of |q|),
     ``rms_q_path`` (sqrt of the time average of q^2), ``fills_path`` (total
-    fills).  Aggregates are means/stds over paths; ``se_*`` are standard
+    number of fills, both sides counted — a step where both the bid and the
+    ask fill counts as two fills).  Aggregates are means/stds over paths; ``se_*`` are standard
     errors (SE of a mean = sample std / sqrt(M); SE of std_pnl uses the
     normal approximation std/sqrt(2(M-1))).
     """
@@ -261,15 +290,18 @@ def simulate(params: ASParams, n_paths: int, seed: int,
     in the module docstring / API_SPEC.md.  Deterministic per (seed, agent,
     n_paths).
     """
-    _require(n_paths >= 2, "n_paths must be >= 2")
+    _require(_is_int(n_paths) and 2 <= n_paths <= MAX_PATHS,
+             f"n_paths must be an integer in [2, {MAX_PATHS}]")
     _require(math.isfinite(stress_factor) and stress_factor > 0.0,
              "stress_factor must be > 0")
-    _require(0.0 <= stress_time_frac <= 1.0, "stress_time_frac must be in [0, 1]")
+    _require(math.isfinite(stress_time_frac) and 0.0 <= stress_time_frac <= 1.0,
+             "stress_time_frac must be in [0, 1]")
     if agent not in ("as", "fixed"):
         raise ValueError("agent must be 'as' or 'fixed'")
     if fixed_spread is None:
         fixed_spread = average_as_spread(params)
-    _require(fixed_spread > 0.0, "fixed_spread must be > 0")
+    _require(math.isfinite(fixed_spread) and fixed_spread > 0.0,
+             "fixed_spread must be finite and > 0")
 
     rng = np.random.default_rng(seed)
     n_steps = params.n_steps
@@ -309,7 +341,7 @@ def simulate(params: ASParams, n_paths: int, seed: int,
         # 3. inventory / cash update (unit fill size)
         q += fill_bid.astype(float) - fill_ask.astype(float)
         cash += np.where(fill_ask, ask, 0.0) - np.where(fill_bid, bid, 0.0)
-        fills += fill_ask + fill_bid
+        fills += fill_ask.astype(float) + fill_bid.astype(float)   # count both sides
         abs_q = np.abs(q)
         if np.any(abs_q > params.q_max + 1e-12):
             cap_violated = True

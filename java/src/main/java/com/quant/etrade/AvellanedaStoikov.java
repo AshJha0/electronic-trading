@@ -2,7 +2,7 @@ package com.quant.etrade;
 
 import static com.quant.etrade.Validation.require;
 
-import java.util.Random;
+import java.util.SplittableRandom;
 
 /**
  * Avellaneda-Stoikov market making (2008 paper, finite horizon).
@@ -20,7 +20,10 @@ import java.util.Random;
  * A long maker ({@code q > 0}) shades quotes down to attract buyers of its
  * inventory; a short maker shades up.  {@code delta} is measured from the
  * current mid and may be negative (a quote through the mid) — the intensity
- * formula still applies.
+ * formula still applies.  The exact thinned fill probability is the pinned
+ * choice; the paper's own simulation uses the first-order {@code lambda*dt},
+ * which over-fills by ~12% at {@code lambda*dt ~ 0.28} — hence the mean PnL
+ * here sits below the paper's Table 1 while the PnL standard deviations agree.
  *
  * <p>Simulation loop order (pinned): per step, (1) quote from the current
  * {@code s}, {@code q}, remaining time (inventory cap: bid quoted only if
@@ -33,6 +36,12 @@ import java.util.Random;
  * Terminal: {@code PnL = cash + q*S_T - etaLiq*|q|}.
  */
 public final class AvellanedaStoikov {
+
+    /** Upper bound on the number of simulation steps {@code T/dt} (pinned, API_SPEC 0). */
+    public static final int MAX_AS_STEPS = 10_000_000;
+
+    /** Upper bound on Monte Carlo path counts (pinned, API_SPEC 0). */
+    public static final int MAX_AS_PATHS = 10_000_000;
 
     /** Quoting agent for {@link #simulate}. */
     public enum Agent {
@@ -57,12 +66,13 @@ public final class AvellanedaStoikov {
      * Reservation price {@code r(s,q,t) = s - q*gamma*sigma^2*(T - t)}.
      *
      * @param params model parameters
-     * @param s      current mid price
-     * @param q      current inventory (units)
+     * @param s      current mid price (finite)
+     * @param q      current inventory (units, finite)
      * @param t      current time, in {@code [0, T]}
      * @return the reservation price
      */
     public static double reservationPrice(ASParams params, double s, double q, double t) {
+        require(Double.isFinite(s) && Double.isFinite(q), "s and q must be finite");
         require(t >= 0.0 && t <= params.horizon(), "t must be in [0, horizon]");
         return s - q * params.gamma() * params.sigma() * params.sigma()
                 * (params.horizon() - t);
@@ -87,8 +97,8 @@ public final class AvellanedaStoikov {
      * (bid, ask) = reservation price -/+ half the optimal spread.
      *
      * @param params model parameters
-     * @param s      current mid price
-     * @param q      current inventory
+     * @param s      current mid price (finite)
+     * @param q      current inventory (finite)
      * @param t      current time, in {@code [0, T]}
      * @return the two-sided quote
      */
@@ -161,17 +171,18 @@ public final class AvellanedaStoikov {
     /**
      * Simulates the market maker over {@code nPaths} seeded paths (loop order
      * pinned; see the class javadoc).  Deterministic per (seed, agent, nPaths);
-     * uses Java's own RNG, so sample values differ from the Python reference
-     * while agreeing statistically.
+     * uses {@link SplittableRandom} (Java's own stream), so sample values differ
+     * from the Python reference while agreeing statistically.
      *
      * @param agent          {@link Agent#AS} quotes the reservation price +/- half the
      *                       optimal spread; {@link Agent#FIXED} quotes the mid +/- half
      *                       {@code fixedSpread}
      * @param params         model parameters
-     * @param nPaths         number of paths, {@code >= 2}
+     * @param nPaths         number of paths, in {@code [2, MAX_AS_PATHS]}
      * @param seed           RNG seed
-     * @param fixedSpread    the fixed agent's total spread, {@code > 0} (use
-     *                       {@link #averageAsSpread} for the paper's default)
+     * @param fixedSpread    the fixed agent's total spread, finite and {@code > 0}
+     *                       (use {@link #averageAsSpread} for the paper's default;
+     *                       there is no NaN sentinel in Java)
      * @param stressFactor   realised-volatility multiplier applied for
      *                       {@code t >= stressTimeFrac*T}, {@code > 0} (1 = off);
      *                       the agent keeps quoting with the base sigma
@@ -181,16 +192,18 @@ public final class AvellanedaStoikov {
     public static ASSimResult simulate(ASParams params, int nPaths, long seed, Agent agent,
                                        double fixedSpread, double stressFactor,
                                        double stressTimeFrac) {
-        require(nPaths >= 2, "nPaths must be >= 2");
+        require(nPaths >= 2 && nPaths <= MAX_AS_PATHS,
+                "nPaths must be an integer in [2, 10000000]");
         require(agent != null, "agent must be 'as' or 'fixed'");
         require(Double.isFinite(stressFactor) && stressFactor > 0.0,
                 "stressFactor must be > 0");
-        require(stressTimeFrac >= 0.0 && stressTimeFrac <= 1.0,
+        require(Double.isFinite(stressTimeFrac) && stressTimeFrac >= 0.0
+                        && stressTimeFrac <= 1.0,
                 "stressTimeFrac must be in [0, 1]");
         require(Double.isFinite(fixedSpread) && fixedSpread > 0.0,
-                "fixedSpread must be > 0");
+                "fixedSpread must be finite and > 0");
 
-        Random rng = new Random(seed);
+        SplittableRandom rng = new SplittableRandom(seed);
         int nSteps = params.nSteps();
         double g = params.gamma();
         double sig2 = params.sigma() * params.sigma();
@@ -241,19 +254,16 @@ public final class AvellanedaStoikov {
                         * Math.exp(-params.k() * (s - bid)) * dt);
                 boolean fillAsk = quoteAsk && uAsk < pAsk;
                 boolean fillBid = quoteBid && uBid < pBid;
-                // 3. inventory / cash update (unit fill size; both may fill)
+                // 3. inventory / cash update (unit fill size; both sides may fill,
+                //    and both count: fills is a total fill count, API_SPEC 2.2)
                 if (fillAsk) {
                     q -= 1.0;
                     cash += ask;
+                    fills++;
                 }
                 if (fillBid) {
                     q += 1.0;
                     cash -= bid;
-                }
-                if (fillAsk || fillBid) {
-                    // Fill count = steps with at least one fill (a both-sides step
-                    // counts once), matching the Python reference (numpy bool "+"
-                    // is logical OR) whose 20k-path run produced the golden values.
                     fills++;
                 }
                 double absQ = Math.abs(q);

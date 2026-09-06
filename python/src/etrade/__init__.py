@@ -6,12 +6,16 @@ See API_SPEC.md at the project root for the pinned cross-language contract.
 
 from .almgren_chriss import (
     KAPPA_T_LIMIT,
+    MAX_AC_INTERVALS,
+    MAX_PATHS,
+    MAX_POV_INTERVALS,
     ACParams,
     FrontierPoint,
     ISSimResult,
     ac_kappa,
     ac_trade_list,
     ac_trajectory,
+    characteristic_time,
     efficient_frontier,
     expected_cost,
     half_life,
@@ -32,6 +36,7 @@ from .analytics import (
     synthetic_impact_fills,
 )
 from .avellaneda_stoikov import (
+    MAX_AS_STEPS,
     ASParams,
     ASSimResult,
     average_as_spread,
@@ -45,12 +50,17 @@ from .avellaneda_stoikov import (
 
 __all__ = [
     "KAPPA_T_LIMIT",
+    "MAX_AC_INTERVALS",
+    "MAX_AS_STEPS",
+    "MAX_PATHS",
+    "MAX_POV_INTERVALS",
     "ACParams",
     "FrontierPoint",
     "ISSimResult",
     "ac_kappa",
     "ac_trade_list",
     "ac_trajectory",
+    "characteristic_time",
     "efficient_frontier",
     "expected_cost",
     "half_life",
@@ -78,4 +88,4 @@ __all__ = [
     "simulate",
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

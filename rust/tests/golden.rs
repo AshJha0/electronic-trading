@@ -84,7 +84,7 @@ const AS_PATHS: usize = 4000;
 fn golden_cases_all_pass() {
     let golden = load_golden();
     let cases = golden["cases"].as_array().expect("cases array");
-    assert_eq!(cases.len(), 18, "expected the pinned 18 golden cases");
+    assert_eq!(cases.len(), 19, "expected the pinned 19 golden cases");
 
     for case in cases {
         let name = case["name"].as_str().expect("case name");
@@ -173,6 +173,15 @@ fn golden_cases_all_pass() {
                 check_exact(name, "e_cost", fp.e_cost, f(exp, "e_cost"), tol);
                 check_exact(name, "std_cost", fp.std_cost, f(exp, "std_cost"), tol);
                 check_exact(name, "kappa", fp.kappa, f(exp, "kappa"), tol);
+            }
+            "ac_kappa_small_tau" => {
+                // kappa_tilde^2*tau^2/2 ~ 2e-9: the ln_1p form matches; the
+                // acosh(1+x) form would miss by ~1e-8 relative.
+                let p = ac_params(inp);
+                assert_eq!(p.n_intervals(), 5000);
+                check_exact(name, "kappa", etrade::ac_kappa(&p), f(exp, "kappa"), tol);
+                check_exact(name, "half_life", etrade::half_life(&p), f(exp, "half_life"), tol);
+                check_exact(name, "x_1", etrade::ac_trajectory(&p)[1], f(exp, "x_1"), tol);
             }
             "ac_lambda_zero_limit_liquid" => {
                 let p = ac_params(inp);

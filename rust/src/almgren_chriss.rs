@@ -16,15 +16,29 @@
 //! eta_tilde = eta - gamma_p*tau/2            (must be > 0, paper footnote)
 //! ```
 //!
+//! The sums coincide with the paper's hyperbolic closed forms (with the
+//! discrete `kappa`) to machine precision; they are used because they also
+//! cover TWAP/POV/arbitrary schedules.  The paper's fixed-cost term
+//! `epsilon*sum|n_j|` is omitted (schedule-independent for a one-sided
+//! program).
+//!
 //! Minimising `U = E + lambda_ra*Var` gives the sinh trajectory
 //! `x_j = X*sinh(kappa*(T - t_j))/sinh(kappa*T)` where the discrete `kappa`
 //! solves `(2/tau^2)*(cosh(kappa*tau) - 1) = kappa_tilde^2` with
-//! `kappa_tilde^2 = lambda_ra*sigma^2/eta_tilde`.  When `kappa*T <`
+//! `kappa_tilde^2 = lambda_ra*sigma^2/eta_tilde`.  Pinned evaluation
+//! (API_SPEC.md Section 1.4): `kappa = ln_1p(x + sqrt(x*(2+x)))/tau` with
+//! `x = kappa_tilde^2*tau^2/2` (no cancellation for small `x`), and
+//! `x_j = X*exp(-kappa*t_j)*exp_m1(-2*kappa*(T-t_j))/exp_m1(-2*kappa*T)`
+//! (no `sinh` overflow for large `kappa*T`).  When `kappa*T <`
 //! [`KAPPA_T_LIMIT`] the exact linear TWAP limit `x_j = X*(N-j)/N` is used
 //! instead (covers `lambda_ra = 0` and `sigma = 0` with no 0/0).
+//!
+//! RNG: `ChaCha12Rng::seed_from_u64` (the `rand_chacha` crate) — pinned
+//! explicitly so "same seed, same results" holds across `rand` releases.
 
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::Rng;
+use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::ChaCha12Rng;
 use rand_distr::StandardNormal;
 
 use crate::error::{require, EtradeError};
@@ -32,6 +46,15 @@ use crate::error::{require, EtradeError};
 /// Threshold on `kappa*T` below which the exact linear (TWAP) limit branch
 /// of the optimal trajectory is used (pinned in API_SPEC.md Section 1.4).
 pub const KAPPA_T_LIMIT: f64 = 1e-6;
+
+/// Upper bound on the number of AC trading intervals `N` (pinned, API_SPEC.md Section 0).
+pub const MAX_AC_INTERVALS: usize = 10_000_000;
+
+/// Upper bound on the number of POV intervals `M = ceil(X/clip)` (pinned).
+pub const MAX_POV_INTERVALS: usize = 10_000_000;
+
+/// Upper bound on Monte Carlo path counts (pinned, API_SPEC.md Section 0).
+pub const MAX_PATHS: usize = 10_000_000;
 
 /// Parameters of the discrete Almgren-Chriss problem (sell `X` shares).
 ///
@@ -53,7 +76,7 @@ impl ACParams {
     /// Validate and build the parameter set.
     ///
     /// * `total_shares` — `X >= 0`, shares to sell (`0` gives the empty trajectory);
-    /// * `n_intervals`  — `N >= 1` trading intervals;
+    /// * `n_intervals`  — `N` trading intervals, `1 <= N <= MAX_AC_INTERVALS`;
     /// * `tau`          — interval length, `> 0`;
     /// * `sigma`        — arithmetic volatility per sqrt(time unit), `>= 0`;
     /// * `eta`          — linear temporary impact coefficient, `> 0`;
@@ -75,7 +98,10 @@ impl ACParams {
             total_shares.is_finite() && total_shares >= 0.0,
             "total_shares must be finite and >= 0",
         )?;
-        require(n_intervals >= 1, "n_intervals must be >= 1")?;
+        require(
+            (1..=MAX_AC_INTERVALS).contains(&n_intervals),
+            "n_intervals must be in [1, 10000000]",
+        )?;
         require(tau.is_finite() && tau > 0.0, "tau must be > 0")?;
         require(sigma.is_finite() && sigma >= 0.0, "sigma must be >= 0")?;
         require(eta.is_finite() && eta > 0.0, "eta must be > 0")?;
@@ -159,20 +185,24 @@ impl ACParams {
 ///
 /// Solves `(2/tau^2)*(cosh(kappa*tau) - 1) = kappa_tilde^2` with
 /// `kappa_tilde^2 = lambda_ra*sigma^2/eta_tilde`, i.e.
-/// `kappa = arccosh(1 + kappa_tilde^2*tau^2/2)/tau`; returns `0.0` in the
+/// `kappa = arccosh(1 + kappa_tilde^2*tau^2/2)/tau`, evaluated in the
+/// cancellation-free form `ln_1p(x + sqrt(x*(2 + x)))/tau` with
+/// `x = kappa_tilde^2*tau^2/2` (pinned); returns `0.0` in the
 /// `lambda_ra*sigma^2 = 0` limit.
 pub fn ac_kappa(params: &ACParams) -> f64 {
     let kt2 = params.lambda_ra() * params.sigma().powi(2) / params.eta_tilde();
     if kt2 == 0.0 {
         return 0.0;
     }
-    (1.0 + 0.5 * kt2 * params.tau().powi(2)).acosh() / params.tau()
+    let x = 0.5 * kt2 * params.tau().powi(2);
+    (x + (x * (2.0 + x)).sqrt()).ln_1p() / params.tau()
 }
 
-/// Characteristic decay time `theta = 1/kappa` of the optimal trajectory.
+/// Characteristic decay time `theta = 1/kappa` of the optimal trajectory
+/// (the paper's e-folding time, not `ln(2)/kappa`).
 ///
 /// Returns `f64::INFINITY` in the TWAP limit (`kappa == 0`) — reported as
-/// infinity, never an error.
+/// infinity, never an error.  [`characteristic_time`] is an alias.
 pub fn half_life(params: &ACParams) -> f64 {
     let kappa = ac_kappa(params);
     if kappa == 0.0 {
@@ -182,10 +212,17 @@ pub fn half_life(params: &ACParams) -> f64 {
     }
 }
 
-/// Optimal holdings path `x_0..x_N` (length `N+1`, `x_0 = X`, `x_N = 0` exactly).
+/// Alias of [`half_life`] under the paper's name (`theta = 1/kappa`).
+pub fn characteristic_time(params: &ACParams) -> f64 {
+    half_life(params)
+}
+
+/// Optimal holdings path `x_0..x_N` (length `N+1`, `x_0 = X` exactly,
+/// `x_N = 0` exactly, every entry finite for any valid parameters).
 ///
-/// Uses the sinh solution; switches to the exact linear (TWAP) branch when
-/// `kappa*T < KAPPA_T_LIMIT` (covers `lambda_ra = 0` and `sigma = 0`).
+/// Uses the sinh solution in the overflow-free `exp/exp_m1` ratio form;
+/// switches to the exact linear (TWAP) branch when `kappa*T < KAPPA_T_LIMIT`
+/// (covers `lambda_ra = 0` and `sigma = 0`).
 pub fn ac_trajectory(params: &ACParams) -> Vec<f64> {
     let n = params.n_intervals();
     let x0 = params.total_shares();
@@ -195,7 +232,8 @@ pub fn ac_trajectory(params: &ACParams) -> Vec<f64> {
     let kappa = ac_kappa(params);
     let big_t = params.horizon();
     let linear = kappa * big_t < KAPPA_T_LIMIT;
-    let sinh_kt = (kappa * big_t).sinh();
+    // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT)
+    let denom = (-2.0 * kappa * big_t).exp_m1();
     let mut x: Vec<f64> = (0..=n)
         .map(|j| {
             if linear {
@@ -203,7 +241,9 @@ pub fn ac_trajectory(params: &ACParams) -> Vec<f64> {
                 x0 * (n - j) as f64 / n as f64
             } else {
                 let t_j = j as f64 * params.tau();
-                x0 * (kappa * (big_t - t_j)).sinh() / sinh_kt
+                // ratio formed first so that x_0 == X exactly
+                let ratio = (-2.0 * kappa * (big_t - t_j)).exp_m1() / denom;
+                x0 * (-kappa * t_j).exp() * ratio
             }
         })
         .collect();
@@ -217,19 +257,37 @@ pub fn ac_trade_list(params: &ACParams) -> Vec<f64> {
     trades_from_holdings(&ac_trajectory(params)).expect("trajectory has length >= 2")
 }
 
-/// Trade list `n_j = x_{j-1} - x_j` from a holdings path (length `>= 2`).
+/// Validate a user-supplied holdings path: length `>= 2`, all finite.
+fn require_holdings(x: &[f64]) -> Result<(), EtradeError> {
+    require(x.len() >= 2, "holdings must have length >= 2")?;
+    require(x.iter().all(|v| v.is_finite()), "holdings must be finite")
+}
+
+/// Pinned liquidation check `|x_N| <= 1e-9 * max(1, |x_0|)`.
+fn require_liquidating(x: &[f64]) -> Result<(), EtradeError> {
+    require(
+        x[x.len() - 1].abs() <= 1e-9 * x[0].abs().max(1.0),
+        "holdings path must fully liquidate (x_N = 0)",
+    )
+}
+
+/// Trade list `n_j = x_{j-1} - x_j` from a finite holdings path (length `>= 2`).
 pub fn trades_from_holdings(holdings: &[f64]) -> Result<Vec<f64>, EtradeError> {
-    require(holdings.len() >= 2, "holdings must have length >= 2")?;
+    require_holdings(holdings)?;
     Ok(holdings.windows(2).map(|w| w[0] - w[1]).collect())
 }
 
-/// Linear TWAP holdings path `x_j = X*(N-j)/N` (length `N+1`).
+/// Linear TWAP holdings path `x_j = X*(N-j)/N` (length `N+1`).  Requires
+/// finite `total_shares >= 0` and `1 <= n_intervals <= MAX_AC_INTERVALS`.
 pub fn twap_holdings(total_shares: f64, n_intervals: usize) -> Result<Vec<f64>, EtradeError> {
     require(
         total_shares.is_finite() && total_shares >= 0.0,
-        "total_shares must be >= 0",
+        "total_shares must be finite and >= 0",
     )?;
-    require(n_intervals >= 1, "n_intervals must be >= 1")?;
+    require(
+        (1..=MAX_AC_INTERVALS).contains(&n_intervals),
+        "n_intervals must be in [1, 10000000]",
+    )?;
     Ok((0..=n_intervals)
         .map(|j| total_shares * (n_intervals - j) as f64 / n_intervals as f64)
         .collect())
@@ -240,8 +298,11 @@ pub fn twap_holdings(total_shares: f64, n_intervals: usize) -> Result<Vec<f64>, 
 /// Sells `clip = participation * market_volume_rate * tau` shares per
 /// interval until the parent order is done; the last clip is partial.  The
 /// number of intervals is `M = ceil(X/clip - 1e-12)` (pinned) and the path
-/// length is `M+1` with `x_M = 0` exactly.  `participation` must lie in the
-/// open interval `(0, 1)` and `market_volume_rate` must be `> 0`.
+/// length is `M+1` with `x_M = 0` exactly.  All inputs must be finite,
+/// `participation` must lie in the open interval `(0, 1)`,
+/// `market_volume_rate` must be `> 0`, and `X/clip <= MAX_POV_INTERVALS`
+/// (a clip too small for the order is an input error, never a huge
+/// allocation).
 pub fn pov_holdings(
     total_shares: f64,
     tau: f64,
@@ -250,7 +311,7 @@ pub fn pov_holdings(
 ) -> Result<Vec<f64>, EtradeError> {
     require(
         total_shares.is_finite() && total_shares >= 0.0,
-        "total_shares must be >= 0",
+        "total_shares must be finite and >= 0",
     )?;
     require(tau.is_finite() && tau > 0.0, "tau must be > 0")?;
     require(
@@ -258,14 +319,19 @@ pub fn pov_holdings(
         "market_volume_rate must be > 0",
     )?;
     require(
-        participation > 0.0 && participation < 1.0,
+        participation.is_finite() && participation > 0.0 && participation < 1.0,
         "participation must be in (0, 1)",
     )?;
     let clip = participation * market_volume_rate * tau;
     if total_shares == 0.0 {
         return Ok(vec![0.0, 0.0]);
     }
-    let n_int = (total_shares / clip - 1e-12).ceil() as usize;
+    let ratio = total_shares / clip; // bounded BEFORE any cast/allocation
+    require(
+        ratio <= MAX_POV_INTERVALS as f64,
+        "POV clip too small: would need > 10000000 intervals",
+    )?;
+    let n_int = (ratio - 1e-12).ceil() as usize;
     let mut x: Vec<f64> = (0..=n_int)
         .map(|i| (total_shares - clip * i as f64).max(0.0))
         .collect();
@@ -275,8 +341,10 @@ pub fn pov_holdings(
 
 /// `E[IS] = 0.5*gamma_p*X^2 + (eta_tilde/tau)*sum n_j^2` (exact discrete sum).
 ///
-/// `holdings = None` uses the optimal trajectory; any fully liquidating path
-/// (`|x_N| <= 1e-9*max(1, X)`) may be supplied (TWAP, POV, ...).
+/// `holdings = None` uses the optimal trajectory; any finite, fully
+/// liquidating path (`|x_N| <= 1e-9*max(1, X)`) may be supplied (TWAP, POV,
+/// ...).  The order size `X` in the permanent-impact term is the schedule's
+/// `x_0`, not `params.total_shares()` (pinned).
 pub fn expected_cost(params: &ACParams, holdings: Option<&[f64]>) -> Result<f64, EtradeError> {
     let traj;
     let x: &[f64] = match holdings {
@@ -286,19 +354,17 @@ pub fn expected_cost(params: &ACParams, holdings: Option<&[f64]>) -> Result<f64,
             &traj
         }
     };
+    require_holdings(x)?;
+    require_liquidating(x)?;
     let trades = trades_from_holdings(x)?;
     let x0 = x[0];
-    require(
-        x[x.len() - 1].abs() <= 1e-9 * x0.abs().max(1.0),
-        "holdings path must fully liquidate (x_N = 0)",
-    )?;
     let sum_n2: f64 = trades.iter().map(|n| n * n).sum();
     Ok(0.5 * params.gamma_p() * x0 * x0 + params.eta_tilde() / params.tau() * sum_n2)
 }
 
 /// `Var[IS] = sigma^2 * tau * sum_{j=1}^{N} x_j^2` (exact discrete sum;
 /// `x_N = 0` contributes nothing).  `holdings = None` uses the optimal
-/// trajectory.
+/// trajectory; a supplied path must be finite with length `>= 2`.
 pub fn variance_cost(params: &ACParams, holdings: Option<&[f64]>) -> Result<f64, EtradeError> {
     let traj;
     let x: &[f64] = match holdings {
@@ -308,6 +374,7 @@ pub fn variance_cost(params: &ACParams, holdings: Option<&[f64]>) -> Result<f64,
             &traj
         }
     };
+    require_holdings(x)?;
     let sum_x2: f64 = x.iter().skip(1).map(|v| v * v).sum();
     Ok(params.sigma().powi(2) * params.tau() * sum_x2)
 }
@@ -337,7 +404,8 @@ pub struct FrontierPoint {
 
 /// Sweep a risk-aversion grid; each point carries
 /// `(lambda_ra, kappa, E, Var, sqrt(Var))` of the optimal strategy.
-/// The grid must be non-empty and every `lambda_ra >= 0`.
+/// The grid must be non-empty and every `lambda_ra` finite and `>= 0`;
+/// input order is preserved (duplicates and unsorted grids are reproduced).
 pub fn efficient_frontier(
     params: &ACParams,
     lambdas: &[f64],
@@ -379,16 +447,21 @@ pub struct ISSimResult {
 /// random walk (API_SPEC.md Section 1.7; per path, per interval `j`):
 /// execute `n_j` at `S_{j-1} - eta*n_j/tau`, then
 /// `S_j = S_{j-1} + sigma*sqrt(tau)*xi_j - gamma_p*n_j`.  `IS` is independent
-/// of `S_0`, which is taken as `0`.  Deterministic per seed with this crate's
-/// own RNG (`StdRng`); sample values differ from the Python reference, but
-/// the closed forms must match within a few standard errors.
+/// of `S_0`, which is taken as `0`.  The schedule must fully liquidate (same
+/// check as [`expected_cost`]) and `2 <= n_paths <= MAX_PATHS`.
+/// Deterministic per seed with `ChaCha12Rng`; sample values differ from the
+/// Python reference, but the closed forms must match within a few standard
+/// errors.
 pub fn simulate_is(
     params: &ACParams,
     holdings: Option<&[f64]>,
     n_paths: usize,
     seed: u64,
 ) -> Result<ISSimResult, EtradeError> {
-    require(n_paths >= 2, "n_paths must be >= 2")?;
+    require(
+        (2..=MAX_PATHS).contains(&n_paths),
+        "n_paths must be in [2, 10000000]",
+    )?;
     let traj;
     let x: &[f64] = match holdings {
         Some(h) => h,
@@ -397,8 +470,10 @@ pub fn simulate_is(
             &traj
         }
     };
+    require_holdings(x)?;
+    require_liquidating(x)?;
     let trades = trades_from_holdings(x)?;
-    let mut rng = StdRng::seed_from_u64(seed);
+    let mut rng = ChaCha12Rng::seed_from_u64(seed);
     let srt = params.sigma() * params.tau().sqrt();
     let mut shortfalls = Vec::with_capacity(n_paths);
     for _ in 0..n_paths {

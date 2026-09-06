@@ -14,6 +14,11 @@
 //! P(fill)   = 1 - exp(-lambda(delta)*dt)                     (per-step, thinned Poisson)
 //! ```
 //!
+//! The exact thinned fill probability is the pinned choice; the paper's own
+//! simulation uses the first-order `lambda*dt`, which over-fills by ~12% at
+//! `lambda*dt ~ 0.28` — hence the mean PnL here sits below the paper's
+//! Table 1 while the PnL standard deviations agree.
+//!
 //! A long maker (`q > 0`) shades quotes *down* to attract buyers of its
 //! inventory; a short maker shades up.  The first spread term is
 //! inventory-risk compensation (zero at `t = T`); the second is the
@@ -23,15 +28,23 @@
 //! The simulation loop order (quote → fill draws → inventory/cash update →
 //! mid move) and the draw order (`u_ask`, then `u_bid`, then `z`, per step,
 //! both uniforms always drawn even for a suppressed side) are pinned in
-//! API_SPEC.md Section 2.2; this port uses its own RNG per Section 4, so its
-//! sample values differ from Python while all statistics agree within SE
-//! bands.
+//! API_SPEC.md Section 2.2; this port uses its own RNG per Section 4
+//! (`ChaCha12Rng::seed_from_u64`, pinned explicitly so results are stable
+//! across `rand` releases), so its sample values differ from Python while
+//! all statistics agree within SE bands.
 
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::Rng;
+use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::ChaCha12Rng;
 use rand_distr::StandardNormal;
 
 use crate::error::{require, EtradeError};
+
+/// Upper bound on the number of simulation steps `T/dt` (pinned, API_SPEC.md Section 0).
+pub const MAX_AS_STEPS: usize = 10_000_000;
+
+/// Upper bound on Monte Carlo path counts (pinned, API_SPEC.md Section 0).
+pub const MAX_AS_PATHS: usize = 10_000_000;
 
 /// Avellaneda-Stoikov model parameters (validated at construction).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,7 +66,8 @@ impl ASParams {
     /// * `s0`      — initial mid price (any finite real; arithmetic model);
     /// * `sigma`   — arithmetic mid volatility per sqrt(time unit), `>= 0`;
     /// * `horizon` — terminal time `T > 0`;
-    /// * `dt`      — simulation step, `0 < dt <= T`, `T/dt` integral (1e-9 tol);
+    /// * `dt`      — simulation step, `0 < dt <= T`, `T/dt` integral (1e-9 tol)
+    ///   and `T/dt <= MAX_AS_STEPS`;
     /// * `gamma`   — risk aversion, strictly `> 0`;
     /// * `k`       — intensity decay, `> 0`;
     /// * `a_rate`  — intensity scale `A`, `> 0`;
@@ -90,6 +104,7 @@ impl ASParams {
             (n - n.round()).abs() < 1e-9,
             "horizon must be an integer multiple of dt",
         )?;
+        require(n <= MAX_AS_STEPS as f64, "horizon/dt must be <= 10000000 steps")?;
         Ok(Self {
             s0,
             sigma,
@@ -147,8 +162,9 @@ impl ASParams {
 }
 
 /// Reservation price `r(s,q,t) = s - q*gamma*sigma^2*(T - t)`.
-/// Requires `0 <= t <= T`.
+/// Requires finite `s` and `q`, and `0 <= t <= T`.
 pub fn reservation_price(params: &ASParams, s: f64, q: f64, t: f64) -> Result<f64, EtradeError> {
+    require(s.is_finite() && q.is_finite(), "s and q must be finite")?;
     require(t >= 0.0 && t <= params.horizon(), "t must be in [0, horizon]")?;
     Ok(s - q * params.gamma() * params.sigma().powi(2) * (params.horizon() - t))
 }
@@ -164,6 +180,7 @@ pub fn optimal_spread(params: &ASParams, t: f64) -> Result<f64, EtradeError> {
 }
 
 /// `(bid, ask)` = reservation price `-/+` half the optimal spread.
+/// Requires finite `s` and `q`, and `0 <= t <= T`.
 pub fn quotes(params: &ASParams, s: f64, q: f64, t: f64) -> Result<(f64, f64), EtradeError> {
     let r = reservation_price(params, s, q, t)?;
     let half = 0.5 * optimal_spread(params, t)?;
@@ -241,9 +258,8 @@ pub struct ASSimResult {
     pub max_abs_q_path: Vec<f64>,
     /// Per-path `sqrt(time average of q^2)` — the "inventory std" measure.
     pub rms_q_path: Vec<f64>,
-    /// Per-path count of fill events: steps where at least one side filled
-    /// (a step where both sides fill counts once — the Python reference's
-    /// convention, pinned by the golden `mean_fills` values).
+    /// Per-path total number of fills, both sides counted (a step where the
+    /// bid and the ask both fill contributes two).
     pub fills_path: Vec<f64>,
     /// Maximum `|q|` seen across all paths and steps.
     pub overall_max_abs_q: f64,
@@ -265,7 +281,7 @@ pub enum ASStat {
     MeanMaxAbsQ,
     /// Mean over paths of per-path RMS inventory.
     RmsQ,
-    /// Mean over paths of fill events.
+    /// Mean over paths of total fills (both sides).
     MeanFills,
 }
 
@@ -312,7 +328,7 @@ impl ASSimResult {
     pub fn rms_q(&self) -> f64 {
         mean(&self.rms_q_path)
     }
-    /// Mean over paths of per-path fill events (steps with at least one fill).
+    /// Mean over paths of per-path total fills (both sides counted).
     pub fn mean_fills(&self) -> f64 {
         mean(&self.fills_path)
     }
@@ -346,29 +362,35 @@ impl ASSimResult {
 ///    `t >= stress_time_frac*T` (the agent keeps the base `sigma`).
 ///
 /// Terminal: `PnL = cash + q*S_T - eta_liq*|q|`.  Deterministic per
-/// `(seed, config, n_paths)` with this crate's own RNG.
+/// `(seed, config, n_paths)` with `ChaCha12Rng`.  `2 <= n_paths <=
+/// MAX_AS_PATHS`; `fixed_spread` (when given) must be finite and `> 0`.
 pub fn simulate(
     params: &ASParams,
     n_paths: usize,
     seed: u64,
     config: &SimConfig,
 ) -> Result<ASSimResult, EtradeError> {
-    require(n_paths >= 2, "n_paths must be >= 2")?;
+    require(
+        (2..=MAX_AS_PATHS).contains(&n_paths),
+        "n_paths must be in [2, 10000000]",
+    )?;
     require(
         config.stress_factor.is_finite() && config.stress_factor > 0.0,
         "stress_factor must be > 0",
     )?;
     require(
-        config.stress_time_frac >= 0.0 && config.stress_time_frac <= 1.0,
+        config.stress_time_frac.is_finite()
+            && config.stress_time_frac >= 0.0
+            && config.stress_time_frac <= 1.0,
         "stress_time_frac must be in [0, 1]",
     )?;
     let fixed_spread = config.fixed_spread.unwrap_or_else(|| average_as_spread(params));
     require(
         fixed_spread.is_finite() && fixed_spread > 0.0,
-        "fixed_spread must be > 0",
+        "fixed_spread must be finite and > 0",
     )?;
 
-    let mut rng = StdRng::seed_from_u64(seed);
+    let mut rng = ChaCha12Rng::seed_from_u64(seed);
     let n_steps = params.n_steps();
     let (g, big_t, dt) = (params.gamma(), params.horizon(), params.dt());
     let sig2 = params.sigma().powi(2);
@@ -415,20 +437,16 @@ pub fn simulate(
             let p_bid = -(-params.a_rate() * (-params.k() * (s - bid)).exp() * dt).exp_m1();
             let fill_ask = quote_ask && u_ask < p_ask;
             let fill_bid = quote_bid && u_bid < p_bid;
-            // 3. inventory / cash update (unit fill size, both sides may fill)
+            // 3. inventory / cash update (unit fill size; both sides may fill,
+            //    and both count: `fills` is a total fill count, API_SPEC 2.2)
             if fill_ask {
                 q -= 1;
                 cash += ask;
+                fills += 1;
             }
             if fill_bid {
                 q += 1;
                 cash -= bid;
-            }
-            if fill_ask || fill_bid {
-                // Fill count matches the Python reference (which sums numpy
-                // bool arrays, i.e. logical OR): a step where BOTH sides
-                // fill counts as ONE fill event.  The golden `mean_fills`
-                // values pin this convention.
                 fills += 1;
             }
             let abs_q = q.abs();

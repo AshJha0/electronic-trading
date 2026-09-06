@@ -3,16 +3,16 @@ flowchart TB
         PJ["params_liquid.json<br/>params_illiquid.json<br/>params_fx.json"]
         PO["parent_order.json<br/>(X, lambda grid, IS fills)"]
         GEN["generate_data.py<br/>(seeded, asserts AC closed forms vs MC)"]
-        GOLD["golden/golden.json<br/>18 cases: exact + statistical"]
+        GOLD["golden/golden.json<br/>19 cases: exact + statistical"]
         GEN --> PJ
         GEN --> PO
         GEN --> GOLD
     end
 
     subgraph CORE["etrade core (identical in Python / C++ / Rust / Java)"]
-        ACP["ACParams<br/>validate: eta_tilde > 0, X >= 0, ..."]
+        ACP["ACParams<br/>validate: eta_tilde > 0, X >= 0,<br/>N <= MAX_AC_INTERVALS, ..."]
         AC["almgren_chriss<br/>kappa, trajectory, trade list,<br/>E/Var sums, frontier,<br/>TWAP / POV / instant, MC check"]
-        ASP["ASParams<br/>validate: gamma > 0, T/dt integral, ..."]
+        ASP["ASParams<br/>validate: gamma > 0, T/dt integral,<br/>T/dt <= MAX_AS_STEPS, ..."]
         AS["avellaneda_stoikov<br/>reservation price, spread, quotes,<br/>intensity, fill prob,<br/>pinned simulation loop"]
         AN["analytics<br/>IS decomposition, participation,<br/>native OLS impact regression"]
         ACP --> AC
