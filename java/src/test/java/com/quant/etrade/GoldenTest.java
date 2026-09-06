@@ -164,6 +164,18 @@ public final class GoldenTest {
     }
 
     @Test
+    public void acKappaSmallTau() {
+        // kappa_tilde^2*tau^2/2 ~ 2e-9: the log1p form matches; acosh(1+x)
+        // would miss by ~1e-8 relative.
+        ACParams p = acFromCfg(inputs("ac_kappa_small_tau"));
+        assertEquals(5000, p.nIntervals());
+        checkExact("ac_kappa_small_tau", Map.of(
+                "kappa", AlmgrenChriss.kappa(p),
+                "half_life", AlmgrenChriss.halfLife(p),
+                "x_1", AlmgrenChriss.trajectory(p)[1]));
+    }
+
+    @Test
     public void acLambdaZeroLimit() {
         ACParams p = acFromCfg(inputs("ac_lambda_zero_limit_liquid"));
         assertEquals(0.0, p.lambdaRa(), 0.0);
@@ -226,6 +238,7 @@ public final class GoldenTest {
         Map<String, Object> in = inputs(name);
         ASParams ap = asFromCfg(in);
         ASSimResult res = AvellanedaStoikov.simulate(ap, N_PATHS_TEST, (long) d(in, "seed"));
+        assertTrue(name + ": inventory cap violated", !res.capViolated());
         Map<String, Double> vals = new LinkedHashMap<>();
         vals.put("mean_pnl", res.meanPnl());
         vals.put("std_pnl", res.stdPnl());
@@ -313,11 +326,11 @@ public final class GoldenTest {
                 "ac_liquid_solution", "ac_illiquid_solution", "ac_twap_liquid",
                 "ac_pov_liquid", "ac_frontier_point_liquid",
                 "ac_lambda_zero_limit_liquid", "ac_instant_liquidation_liquid",
-                "ac_mc_liquid", "as_reservation_liquid", "as_spread_liquid",
-                "as_fill_prob_liquid", "as_sim_liquid", "as_sim_fx",
+                "ac_kappa_small_tau", "ac_mc_liquid", "as_reservation_liquid",
+                "as_spread_liquid", "as_fill_prob_liquid", "as_sim_liquid", "as_sim_fx",
                 "as_fixed_comparison_liquid", "is_decomposition_sell",
                 "is_decomposition_buy", "participation_rate", "impact_regression"));
         assertEquals(covered, CASES.keySet());
-        assertEquals(18, CASES.size());
+        assertEquals(19, CASES.size());
     }
 }

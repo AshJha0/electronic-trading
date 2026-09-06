@@ -127,3 +127,46 @@ fn error_paths_are_reported_not_panicked() {
     assert!(etrade::ols(&[1.0, f64::NAN], &[1.0, 2.0]).is_err());
     assert!(etrade::synthetic_impact_fills(1, 0.5, 8.0, 0.05).is_err());
 }
+
+// ---------------------------------------------------------------------------
+// Robustness tests (T-9, T-13)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn is_decomposition_price_shift_invariance() {
+    // Adding c to every price leaves every component unchanged (Q + R = X).
+    let c = 37.5;
+    let qty = [300.0, 400.0, 200.0];
+    let px = [99.4, 99.2, 99.1];
+    let px_c: Vec<f64> = px.iter().map(|p| p + c).collect();
+    for side in [Side::Sell, Side::Buy] {
+        let d0 = etrade::decompose_shortfall(side, 100.0, 99.5, 98.8, 1000.0, &qty, &px).unwrap();
+        let d1 = etrade::decompose_shortfall(side, 100.0 + c, 99.5 + c, 98.8 + c, 1000.0, &qty, &px_c)
+            .unwrap();
+        assert!((d0.total - d1.total).abs() < 1e-9);
+        assert!((d0.delay - d1.delay).abs() < 1e-9);
+        assert!((d0.trading - d1.trading).abs() < 1e-9);
+        assert!((d0.opportunity - d1.opportunity).abs() < 1e-9);
+    }
+}
+
+#[test]
+fn is_decomposition_empty_fills() {
+    let d = etrade::decompose_shortfall(Side::Sell, 100.0, 99.0, 98.0, 500.0, &[], &[]).unwrap();
+    assert_eq!(d.delay, 0.0);
+    assert_eq!(d.trading, 0.0);
+    assert!((d.opportunity - 1000.0).abs() < 1e-12); // 500 * (100 - 98)
+    assert!((d.total - 1000.0).abs() < 1e-12);
+    assert_eq!(d.executed_qty, 0.0);
+    assert_eq!(d.remaining_qty, 500.0);
+    let b = etrade::decompose_shortfall(Side::Buy, 100.0, 99.0, 98.0, 500.0, &[], &[]).unwrap();
+    assert!((b.opportunity + 1000.0).abs() < 1e-12); // price fell: a gain for a buyer
+}
+
+#[test]
+fn participation_rate_above_one_is_error() {
+    let err = etrade::participation_rate(2e6, 1.5e6).unwrap_err();
+    assert!(err.to_string().contains("exceeds market volume"));
+    assert_eq!(etrade::participation_rate(1.5e6, 1.5e6).unwrap(), 1.0); // boundary
+    assert!(etrade::participation_rate(f64::NAN, 1.0).is_err());
+}

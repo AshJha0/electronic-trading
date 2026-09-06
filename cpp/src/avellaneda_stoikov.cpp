@@ -60,6 +60,8 @@ ASParams::ASParams(double s0_, double sigma_, double horizon_, double dt_,
     const double n = horizon / dt;
     require(std::abs(n - std::round(n)) < 1e-9,
             "horizon must be an integer multiple of dt");
+    require(n <= static_cast<double>(kMaxAsSteps),
+            "horizon/dt must be <= 10000000 steps");
 }
 
 int ASParams::n_steps() const {
@@ -67,6 +69,7 @@ int ASParams::n_steps() const {
 }
 
 double reservation_price(const ASParams& params, double s, double q, double t) {
+    require(std::isfinite(s) && std::isfinite(q), "s and q must be finite");
     require(t >= 0.0 && t <= params.horizon, "t must be in [0, horizon]");
     return s - q * params.gamma * params.sigma * params.sigma *
                    (params.horizon - t);
@@ -134,14 +137,16 @@ double ASSimResult::se(const std::string& stat) const {
 ASSimResult simulate(const ASParams& params, int n_paths, std::uint64_t seed,
                      Agent agent, double fixed_spread, double stress_factor,
                      double stress_time_frac) {
-    require(n_paths >= 2, "n_paths must be >= 2");
+    require(n_paths >= 2 && n_paths <= kMaxAsPaths,
+            "n_paths must be an integer in [2, 10000000]");
     require(std::isfinite(stress_factor) && stress_factor > 0.0,
             "stress_factor must be > 0");
-    require(stress_time_frac >= 0.0 && stress_time_frac <= 1.0,
+    require(std::isfinite(stress_time_frac) && stress_time_frac >= 0.0 &&
+                stress_time_frac <= 1.0,
             "stress_time_frac must be in [0, 1]");
     if (std::isnan(fixed_spread)) fixed_spread = average_as_spread(params);
     require(std::isfinite(fixed_spread) && fixed_spread > 0.0,
-            "fixed_spread must be > 0");
+            "fixed_spread must be finite and > 0");
 
     std::mt19937_64 rng(seed);
     std::uniform_real_distribution<double> uniform(0.0, 1.0);
@@ -199,14 +204,10 @@ ASSimResult simulate(const ASParams& params, int n_paths, std::uint64_t seed,
                 -std::expm1(-params.a_rate * std::exp(-params.k * (s - bid)) * dt);
             const bool fill_ask = quote_ask && u_ask < p_ask;
             const bool fill_bid = quote_bid && u_bid < p_bid;
-            // 3. inventory / cash update (unit fill size; both sides may fill).
-            if (fill_ask) { q -= 1; cash += ask; }
-            if (fill_bid) { q += 1; cash -= bid; }
-            // Fill counter pinned to the Python reference: `fills +=
-            // fill_ask + fill_bid` on numpy BOOL arrays is a logical OR, so
-            // a step where both sides fill counts once (the golden
-            // mean_fills embeds this; cash/inventory still book both fills).
-            if (fill_ask || fill_bid) ++fills;
+            // 3. inventory / cash update (unit fill size; both sides may fill,
+            //    and both count: fills is a total fill count, API_SPEC 2.2).
+            if (fill_ask) { q -= 1; cash += ask; ++fills; }
+            if (fill_bid) { q += 1; cash -= bid; ++fills; }
             const int abs_q = std::abs(q);
             if (abs_q > params.q_max) res.cap_violated = true;
             sum_abs_q += abs_q;

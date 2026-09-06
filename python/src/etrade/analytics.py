@@ -24,6 +24,8 @@ mirrored:
     opportunity = R * (P_T - P_d)
 
 Participation rate: executed volume / market volume over the same window.
+Market volume must include the trader's own fills, so a rate above 1 is an
+input error (pinned, API_SPEC.md Section 3.2).
 
 Impact estimation: ordinary least squares of per-share cost against
 participation rate, ``cost = intercept + slope * participation``, with a
@@ -34,6 +36,7 @@ library.
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -43,6 +46,11 @@ import numpy as np
 def _require(cond: bool, msg: str) -> None:
     if not cond:
         raise ValueError(msg)
+
+
+def _is_int(v: object) -> bool:
+    """True for Python/NumPy integers, False for bool and floats."""
+    return isinstance(v, numbers.Integral) and not isinstance(v, bool)
 
 
 @dataclass(frozen=True)
@@ -93,11 +101,18 @@ def decompose_shortfall(side: str, decision_price: float, arrival_price: float,
 
 
 def participation_rate(executed_volume: float, market_volume: float) -> float:
-    """Executed volume as a fraction of market volume over the same window."""
+    """Executed volume as a fraction of market volume over the same window.
+
+    ``market_volume`` must include the trader's own fills, so
+    ``executed_volume <= market_volume`` is required (a rate above 1 is an
+    input error, not a warning).
+    """
     _require(math.isfinite(executed_volume) and executed_volume >= 0.0,
              "executed_volume must be >= 0")
     _require(math.isfinite(market_volume) and market_volume > 0.0,
              "market_volume must be > 0")
+    _require(executed_volume <= market_volume,
+             "executed volume exceeds market volume — market volume must include own fills")
     return executed_volume / market_volume
 
 
@@ -145,7 +160,7 @@ def synthetic_impact_fills(n_obs: int = 25, intercept: float = 0.5,
         part_i = 0.02 + 0.18 * i / (n_obs - 1),        i = 0..n_obs-1
         cost_i = intercept + slope * part_i + noise_amp * sin(2.5*i + 0.3)
     """
-    _require(isinstance(n_obs, int) and n_obs >= 2, "n_obs must be an integer >= 2")
+    _require(_is_int(n_obs) and n_obs >= 2, "n_obs must be an integer >= 2")
     i = np.arange(n_obs, dtype=float)
     part = 0.02 + 0.18 * i / (n_obs - 1)
     cost = intercept + slope * part + noise_amp * np.sin(2.5 * i + 0.3)

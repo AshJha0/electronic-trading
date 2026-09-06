@@ -138,9 +138,14 @@ def test_stress_double_vol_raises_pnl_dispersion(ap: et.ASParams) -> None:
 
 
 def test_average_spread_matches_numeric_average(ap: et.ASParams) -> None:
-    ts = np.linspace(0.0, ap.horizon, 200_001)
-    numeric = float(np.trapezoid([et.optimal_spread(ap, float(t)) for t in ts],
-                                 ts)) / ap.horizon
+    # The spread is linear in t, so its time average is the exact midpoint of
+    # the endpoint values; a composite-trapezoid check (NumPy 1.x/2.x
+    # compatible) is included as an independent numeric cross-check.
+    exact_mid = 0.5 * (et.optimal_spread(ap, 0.0) + et.optimal_spread(ap, ap.horizon))
+    assert et.average_as_spread(ap) == pytest.approx(exact_mid, rel=1e-13)
+    ts = np.linspace(0.0, ap.horizon, 2001)
+    vals = np.array([et.optimal_spread(ap, float(t)) for t in ts])
+    numeric = float(np.sum(0.5 * (vals[1:] + vals[:-1]) * np.diff(ts))) / ap.horizon
     assert et.average_as_spread(ap) == pytest.approx(numeric, rel=1e-9)
 
 
@@ -166,3 +171,132 @@ def test_sharpe_and_result_shapes(ap: et.ASParams) -> None:
     for stat in ("mean_pnl", "std_pnl", "mean_abs_q", "mean_max_abs_q",
                  "rms_q", "mean_fills"):
         assert res.se(stat) > 0.0
+
+
+# ----------------------------------------------------------------------------
+# Robustness tests (review findings CRIT-1, MAJ-8, MIN-16, T-8, T-11, T-14)
+# ----------------------------------------------------------------------------
+
+def _reference_loop(p: et.ASParams, n_paths: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """Independent scalar re-implementation of the pinned loop (API_SPEC 2.2)
+    returning (fills, pnl) per path.  Draw order: u_ask, u_bid, z per step,
+    as vectors across paths."""
+    rng = np.random.default_rng(seed)
+    s = np.full(n_paths, p.s0)
+    q = np.zeros(n_paths, dtype=int)
+    cash = np.zeros(n_paths)
+    fills = np.zeros(n_paths, dtype=int)
+    markup = 2.0 / p.gamma * math.log1p(p.gamma / p.k)
+    for i in range(p.n_steps):
+        t = i * p.dt
+        r = s - q * p.gamma * p.sigma ** 2 * (p.horizon - t)
+        half = 0.5 * (p.gamma * p.sigma ** 2 * (p.horizon - t) + markup)
+        ask, bid = r + half, r - half
+        u_ask = rng.random(n_paths)
+        u_bid = rng.random(n_paths)
+        for m in range(n_paths):
+            fa = q[m] > -p.q_max and u_ask[m] < -math.expm1(
+                -p.a_rate * math.exp(-p.k * (ask[m] - s[m])) * p.dt)
+            fb = q[m] < p.q_max and u_bid[m] < -math.expm1(
+                -p.a_rate * math.exp(-p.k * (s[m] - bid[m])) * p.dt)
+            if fa:
+                q[m] -= 1
+                cash[m] += ask[m]
+                fills[m] += 1
+            if fb:
+                q[m] += 1
+                cash[m] -= bid[m]
+                fills[m] += 1
+        s = s + p.sigma * math.sqrt(p.dt) * rng.standard_normal(n_paths)
+    return fills, cash + q * s - p.eta_liq * np.abs(q)
+
+
+def test_mean_fills_counts_both_sides(ap: et.ASParams) -> None:
+    # 1. Saturated book: P(fill) = 1 - exp(-1e6*exp(-k*delta)*dt) rounds to 1
+    #    on both sides at every step, so fills == 2*n_steps exactly.
+    sat = et.ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, a_rate=1e6,
+                      q_max=10_000, eta_liq=0.0)
+    res = et.simulate(sat, n_paths=50, seed=1)
+    assert res.mean_fills == 2.0 * sat.n_steps            # 400, not 200
+    assert bool(np.all(res.fills_path == 2.0 * sat.n_steps))
+    # 2. Liquid set: matches an independent scalar re-implementation exactly.
+    fills_ref, pnl_ref = _reference_loop(ap, 60, 42)
+    res = et.simulate(ap, n_paths=60, seed=42)
+    assert np.array_equal(res.fills_path, fills_ref)
+    assert np.allclose(res.pnl, pnl_ref, rtol=0.0, atol=1e-9)
+    # both-side steps exist here (~4-5% of steps): sum > OR count
+    assert res.mean_fills > 0.0
+
+
+def test_fixed_spread_must_be_finite_and_positive(ap: et.ASParams) -> None:
+    for bad in (float("inf"), float("nan"), 0.0, -1.0):
+        with pytest.raises(ValueError):
+            et.simulate(ap, n_paths=10, seed=0, agent="fixed", fixed_spread=bad)
+    with pytest.raises(ValueError):
+        et.simulate(ap, n_paths=10, seed=0, stress_time_frac=float("nan"))
+    with pytest.raises(ValueError):
+        et.simulate(ap, n_paths=10, seed=0, stress_factor=float("inf"))
+
+
+def test_stress_edge_fractions(ap: et.ASParams) -> None:
+    base = et.simulate(ap, n_paths=300, seed=9)
+    # frac = 1.0: no step has t >= T (t = i*dt <= T - dt), so identical.
+    late = et.simulate(ap, n_paths=300, seed=9, stress_factor=5.0, stress_time_frac=1.0)
+    assert np.array_equal(base.pnl, late.pnl)
+    # factor = 1.0 at any fraction: identical.
+    unit = et.simulate(ap, n_paths=300, seed=9, stress_factor=1.0, stress_time_frac=0.0)
+    assert np.array_equal(base.pnl, unit.pnl)
+    # frac = 0.0 with factor 5: every step stressed, dispersion up.
+    early = et.simulate(ap, n_paths=300, seed=9, stress_factor=5.0, stress_time_frac=0.0)
+    assert early.std_pnl > base.std_pnl
+
+
+def test_quotes_reject_non_finite_state(ap: et.ASParams) -> None:
+    nan, inf = float("nan"), float("inf")
+    with pytest.raises(ValueError):
+        et.reservation_price(ap, nan, 0.0, 0.0)
+    with pytest.raises(ValueError):
+        et.reservation_price(ap, 100.0, inf, 0.0)
+    with pytest.raises(ValueError):
+        et.quotes(ap, 100.0, inf, 0.0)
+    with pytest.raises(ValueError):
+        et.quotes(ap, -inf, 0.0, 0.0)
+    with pytest.raises(ValueError):
+        et.reservation_price(ap, 100.0, 0.0, nan)
+    with pytest.raises(ValueError):
+        et.fill_probability(ap, nan)
+
+
+def test_n_steps_integrality_float() -> None:
+    p3 = et.ASParams(100.0, 2.0, 1.0, 1.0 / 3.0, 0.1, 1.5, 140.0, 20, 0.5)
+    assert p3.n_steps == 3
+    with pytest.raises(ValueError):
+        et.ASParams(100.0, 2.0, 1.0, 0.3, 0.1, 1.5, 140.0, 20, 0.5)
+    p1 = et.ASParams(100.0, 2.0, 1.0, 1.0, 0.1, 1.5, 140.0, 20, 0.5)   # dt = T
+    assert p1.n_steps == 1
+    res = et.simulate(p1, n_paths=200, seed=4)
+    # one step: the time average of |q| is the single post-update value
+    assert np.array_equal(res.mean_abs_q_path, res.max_abs_q_path)
+    assert np.array_equal(res.rms_q_path, res.max_abs_q_path)
+    assert bool(np.all(res.fills_path <= 2.0))
+    assert res.mean_abs_q == res.mean_max_abs_q
+
+
+def test_step_and_path_bounds_are_input_errors(ap: et.ASParams) -> None:
+    with pytest.raises(ValueError):
+        et.ASParams(100.0, 2.0, 1.0, 1.0 / (et.MAX_AS_STEPS * 10), 0.1, 1.5, 140.0, 20, 0.5)
+    with pytest.raises(ValueError):
+        et.simulate(ap, n_paths=et.MAX_PATHS + 1, seed=0)
+    with pytest.raises(ValueError):
+        et.simulate(ap, n_paths=10.0, seed=0)   # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        et.ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, True, 0.5)
+    assert et.ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, np.int64(3), 0.5).q_max == 3
+
+
+def test_fills_bounded_by_two_per_step_and_inventory_consistent(ap: et.ASParams) -> None:
+    res = et.simulate(ap, n_paths=400, seed=8)
+    assert bool(np.all(res.fills_path <= 2.0 * ap.n_steps))
+    assert bool(np.all(res.fills_path >= res.max_abs_q_path))   # |q| needs fills
+    assert bool(np.all(res.fills_path == np.round(res.fills_path)))
+    assert res.se("mean_fills") > 0.0

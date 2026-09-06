@@ -6,9 +6,8 @@ package com.quant.etrade;
  * <p>Per-path arrays (length {@code nPaths}): terminal PnL, the per-path time
  * average of {@code |q|}, the per-path maximum {@code |q|}, the per-path
  * {@code sqrt(time average of q^2)} (the "inventory std" measure used in the
- * fixed-spread comparison), and the fill count — the number of steps with at
- * least one fill (a step where both sides fill counts once, matching the
- * Python reference implementation that produced the golden values).
+ * fixed-spread comparison), and the total number of fills, both sides counted
+ * (a step where the bid and the ask both fill contributes two).
  * Aggregates are means/stds over paths; standard errors: SE of a
  * per-path-mean statistic = sample std of the per-path values / sqrt(M);
  * {@code SE(stdPnl) = stdPnl/sqrt(2(M-1))} (normal approximation).
@@ -76,7 +75,7 @@ public final class ASSimResult {
         return mean(rmsQPath);
     }
 
-    /** Mean over paths of the per-path fill count (steps with at least one fill). */
+    /** Mean over paths of the per-path total fills (both sides counted). */
     public double meanFills() {
         return mean(fillsPath);
     }

@@ -129,6 +129,17 @@ TEST(Golden, AcFrontierPointLiquid) {
     check_exact(c, "kappa", frontier[0].kappa);
 }
 
+TEST(Golden, AcKappaSmallTau) {
+    // kappa_tilde^2*tau^2/2 ~ 2e-9: the log1p form matches; acosh(1+x)
+    // would miss by ~1e-8 relative.
+    const Value& c = find_case("ac_kappa_small_tau");
+    const etrade::ACParams p = ac_params(c);
+    ASSERT_EQ(p.n_intervals, 5000);
+    check_exact(c, "kappa", etrade::ac_kappa(p));
+    check_exact(c, "half_life", etrade::half_life(p));
+    check_exact(c, "x_1", etrade::ac_trajectory(p)[1]);
+}
+
 TEST(Golden, AcLambdaZeroLimitLiquid) {
     const Value& c = find_case("ac_lambda_zero_limit_liquid");
     const etrade::ACParams p = ac_params(c);
@@ -183,6 +194,7 @@ TEST(Golden, AsFillProbLiquid) {
 TEST(Golden, AsSimLiquid) {
     const Value& c = find_case("as_sim_liquid");
     const etrade::ASSimResult r = etrade::simulate(as_params(c), 4000, 42);
+    EXPECT_FALSE(r.cap_violated);
     check_stat(c, "mean_pnl", r.mean_pnl(), r.se("mean_pnl"));
     check_stat(c, "std_pnl", r.std_pnl(), r.se("std_pnl"));
     check_stat(c, "mean_abs_q", r.mean_abs_q(), r.se("mean_abs_q"));
@@ -249,16 +261,18 @@ TEST(Golden, ImpactRegression) {
 }
 
 TEST(Golden, AllCasesCovered) {
-    // Guard: every case in the file is one of the 18 handled above.
+    // Guard: every case in the file is one of the 19 handled above.
     const std::vector<std::string> known = {
         "ac_liquid_solution", "ac_illiquid_solution", "ac_twap_liquid",
         "ac_pov_liquid", "ac_frontier_point_liquid",
         "ac_lambda_zero_limit_liquid", "ac_instant_liquidation_liquid",
-        "ac_mc_liquid", "as_reservation_liquid", "as_spread_liquid",
+        "ac_kappa_small_tau", "ac_mc_liquid", "as_reservation_liquid",
+        "as_spread_liquid",
         "as_fill_prob_liquid", "as_sim_liquid", "as_sim_fx",
         "as_fixed_comparison_liquid", "is_decomposition_sell",
         "is_decomposition_buy", "participation_rate", "impact_regression"};
     const auto& cases = golden().at("cases").arr;
+    ASSERT_EQ(known.size(), 19u);
     EXPECT_EQ(cases.size(), known.size());
     for (const auto& c : cases) {
         bool found = false;

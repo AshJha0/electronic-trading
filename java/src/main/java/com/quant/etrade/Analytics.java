@@ -101,8 +101,10 @@ public final class Analytics {
 
     /**
      * Executed volume as a fraction of market volume over the same window.
+     * Market volume includes the trader's own fills, so a rate above 1 is an
+     * input error.
      *
-     * @param executedVolume executed volume, {@code >= 0}
+     * @param executedVolume executed volume, {@code >= 0} and {@code <= marketVolume}
      * @param marketVolume   market volume, {@code > 0}
      * @return the participation rate
      */
@@ -111,6 +113,8 @@ public final class Analytics {
                 "executedVolume must be >= 0");
         require(Double.isFinite(marketVolume) && marketVolume > 0.0,
                 "marketVolume must be > 0");
+        require(executedVolume <= marketVolume,
+                "executed volume exceeds market volume - market volume must include own fills");
         return executedVolume / marketVolume;
     }
 

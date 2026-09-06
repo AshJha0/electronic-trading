@@ -89,6 +89,16 @@ def test_ac_frontier_point() -> None:
                        "kappa": fp.kappa})
 
 
+def test_ac_kappa_small_tau() -> None:
+    """kappa at kappa_tilde^2*tau^2/2 ~ 2e-7: the log1p form must agree with
+    the golden (which the acosh(1+x) form misses by ~1e-9 relative)."""
+    case = CASES["ac_kappa_small_tau"]
+    p = ac_from_cfg(case["inputs"])
+    assert p.tau == 1e-3 and p.n_intervals == 5000
+    check_exact(case, {"kappa": et.ac_kappa(p), "half_life": et.half_life(p),
+                       "x_1": float(et.ac_trajectory(p)[1])})
+
+
 def test_ac_lambda_zero_limit() -> None:
     case = CASES["ac_lambda_zero_limit_liquid"]
     p = ac_from_cfg(case["inputs"])
@@ -155,6 +165,7 @@ def test_as_sim_statistical(name: str, keys: list[str]) -> None:
     res = et.simulate(ap, n_paths=N_PATHS_TEST, seed=int(case["inputs"]["seed"]))
     actual, se = _sim_stats(res, keys)
     check_statistical(case, actual, se)
+    assert not res.cap_violated
 
 
 def test_as_fixed_comparison_statistical() -> None:
@@ -209,10 +220,10 @@ def test_all_cases_covered() -> None:
         "ac_liquid_solution", "ac_illiquid_solution", "ac_twap_liquid",
         "ac_pov_liquid", "ac_frontier_point_liquid",
         "ac_lambda_zero_limit_liquid", "ac_instant_liquidation_liquid",
-        "ac_mc_liquid", "as_reservation_liquid", "as_spread_liquid",
-        "as_fill_prob_liquid", "as_sim_liquid", "as_sim_fx",
+        "ac_kappa_small_tau", "ac_mc_liquid", "as_reservation_liquid",
+        "as_spread_liquid", "as_fill_prob_liquid", "as_sim_liquid", "as_sim_fx",
         "as_fixed_comparison_liquid", "is_decomposition_sell",
         "is_decomposition_buy", "participation_rate", "impact_regression",
     }
     assert set(CASES) == covered
-    assert len(GOLDEN["cases"]) == 18
+    assert len(GOLDEN["cases"]) == 19

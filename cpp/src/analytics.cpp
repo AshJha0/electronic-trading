@@ -52,6 +52,8 @@ double participation_rate(double executed_volume, double market_volume) {
             "executed_volume must be >= 0");
     require(std::isfinite(market_volume) && market_volume > 0.0,
             "market_volume must be > 0");
+    require(executed_volume <= market_volume,
+            "executed volume exceeds market volume - market volume must include own fills");
     return executed_volume / market_volume;
 }
 

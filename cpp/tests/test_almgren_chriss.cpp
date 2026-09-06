@@ -200,3 +200,189 @@ TEST(ACValidation, RejectsNonLiquidatingAndDegenerateSchedules) {
 }
 
 }  // namespace
+
+// ---------------------------------------------------------------------------
+// Robustness / literature tests (review findings MAJ-1..MAJ-5, MIN-3/4/5)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// FX-like parameter set (mirrors data/params_fx.json).
+ACParams fx_set(int n_intervals = 10) {
+    return ACParams(5e7, n_intervals, 0.1, 0.006, 2e-9, 5e-11, 1e-4);
+}
+
+void expect_finite_large_kappa_t(const ACParams& p, int n_int) {
+    const double kappa = etrade::ac_kappa(p);
+    ASSERT_GT(kappa * p.horizon(), 710.0);  // std::sinh would overflow
+    const auto x = etrade::ac_trajectory(p);
+    ASSERT_EQ(x.size(), static_cast<std::size_t>(n_int) + 1);
+    EXPECT_DOUBLE_EQ(x.front(), p.total_shares);
+    EXPECT_DOUBLE_EQ(x.back(), 0.0);
+    double sum_n = 0.0;
+    int normal = 0;
+    for (std::size_t j = 0; j < x.size(); ++j) {
+        ASSERT_TRUE(std::isfinite(x[j])) << "j=" << j;
+        if (j > 0) {
+            EXPECT_LE(x[j], x[j - 1]);
+            sum_n += x[j - 1] - x[j];
+            // strictly decreasing while in the normal range
+            if (x[j] > std::numeric_limits<double>::min() * x[0]) {
+                EXPECT_LT(x[j], x[j - 1]) << "j=" << j;
+                ++normal;
+            }
+        }
+    }
+    EXPECT_GE(normal, 800);
+    EXPECT_NEAR(sum_n, p.total_shares, 1e-12 * p.total_shares);
+    EXPECT_NEAR(x[1] / x[0], std::exp(-kappa * p.tau), 1e-9 * std::exp(-kappa * p.tau));
+    EXPECT_TRUE(std::isfinite(etrade::expected_cost(p)));
+    EXPECT_TRUE(std::isfinite(etrade::variance_cost(p)));
+    for (const auto& fp : etrade::efficient_frontier(p, {1e-8, 1e-6, 1e-4, 1.0})) {
+        EXPECT_TRUE(std::isfinite(fp.e_cost));
+        EXPECT_TRUE(std::isfinite(fp.std_cost));
+        EXPECT_TRUE(std::isfinite(fp.kappa));
+    }
+}
+
+TEST(ACRobustness, TrajectoryFiniteForLargeKappaT) {
+    expect_finite_large_kappa_t(ACParams(1e6, 1000, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
+                                1000);  // kappa*T ~ 846
+    expect_finite_large_kappa_t(fx_set(20000), 20000);  // kappa*T ~ 2683
+}
+
+TEST(ACRobustness, PaperClosedFormsMatchDiscreteSums) {
+    // Almgren-Chriss (2000): E and V of the optimal strategy in closed form
+    // (with the discrete kappa) equal the exact sums.
+    for (const ACParams& p : {liquid(), ACParams(5e5, 10, 0.5, 1.5, 1e-5, 5e-7, 5e-6),
+                              fx_set()}) {
+        const double k = etrade::ac_kappa(p), T = p.horizon(), tau = p.tau;
+        const double X = p.total_shares, sh = std::sinh(k * T);
+        const double e_paper =
+            0.5 * p.gamma_p * X * X +
+            p.eta_tilde() * X * X * std::tanh(0.5 * k * tau) *
+                (tau * std::sinh(2 * k * T) + 2 * T * std::sinh(k * tau)) /
+                (2 * tau * tau * sh * sh);
+        const double v_paper =
+            0.5 * p.sigma * p.sigma * X * X *
+            (tau * sh * std::cosh(k * (T - tau)) - T * std::sinh(k * tau)) /
+            (sh * sh * std::sinh(k * tau));
+        EXPECT_NEAR(etrade::expected_cost(p), e_paper, 1e-12 * e_paper);
+        EXPECT_NEAR(etrade::variance_cost(p), v_paper, 1e-12 * v_paper);
+    }
+}
+
+TEST(ACRobustness, KappaSmallTauAccuracy) {
+    // kappa = kappa_tilde*(1 - kappa_tilde^2 tau^2/24 + O(tau^4)).
+    for (double lam : {1e-6, 1e-12}) {
+        const ACParams p(1e6, 5000, 1e-3, 0.95, 2.5e-6, 2.5e-7, lam);
+        const double kt2 = lam * p.sigma * p.sigma / p.eta_tilde();
+        const double series = std::sqrt(kt2) * (1.0 - kt2 * p.tau * p.tau / 24.0);
+        EXPECT_NEAR(etrade::ac_kappa(p), series, 1e-9 * series);
+        EXPECT_NEAR(etrade::half_life(p), 1.0 / series, 1e-9 / series);
+        EXPECT_DOUBLE_EQ(etrade::characteristic_time(p), etrade::half_life(p));
+    }
+}
+
+TEST(ACRobustness, PovClipTooSmallIsInputError) {
+    EXPECT_THROW(etrade::pov_holdings(1e6, 1.0, 1.0, 1e-9), std::invalid_argument);
+    EXPECT_THROW(etrade::pov_holdings(etrade::kMaxPovIntervals + 1.0, 1.0, 1.0, 0.5),
+                 std::invalid_argument);
+}
+
+TEST(ACRobustness, PovBoundaryIntervalCounts) {
+    const double clip = 0.15 * 2.5e6;  // 375,000
+    const auto x2 = etrade::pov_holdings(750000.0, 1.0, 2.5e6, 0.15);
+    ASSERT_EQ(x2.size(), 3u);  // X/clip = 2 exactly -> 2 intervals
+    EXPECT_DOUBLE_EQ(x2[1], 375000.0);
+    EXPECT_DOUBLE_EQ(x2[2], 0.0);
+    const auto x3 = etrade::pov_holdings(750000.001, 1.0, 2.5e6, 0.15);
+    ASSERT_EQ(x3.size(), 4u);  // one share-thousandth more -> 3 intervals
+    const auto n3 = etrade::trades_from_holdings(x3);
+    EXPECT_DOUBLE_EQ(n3[0], clip);
+    EXPECT_DOUBLE_EQ(n3[1], clip);
+    EXPECT_NEAR(n3[2], 0.001, 1e-6);
+    EXPECT_DOUBLE_EQ(x3.back(), 0.0);
+}
+
+TEST(ACRobustness, SimulateIsRejectsNonLiquidatingSchedule) {
+    const ACParams p = liquid();
+    EXPECT_THROW(etrade::simulate_is(p, {1e6, 5e5, 1e3}, 10, 0), std::invalid_argument);
+    EXPECT_THROW(etrade::simulate_is(p, {1e6, std::nan(""), 0.0}, 10, 0),
+                 std::invalid_argument);
+    EXPECT_THROW(etrade::simulate_is(p, {1e6}, 10, 0), std::invalid_argument);
+    EXPECT_THROW(etrade::simulate_is(p, etrade::kMaxPaths + 1, 0), std::invalid_argument);
+}
+
+TEST(ACRobustness, SimulateIsTwapMatchesClosedForms) {
+    const ACParams p = liquid();
+    const auto twap = etrade::twap_holdings(p.total_shares, p.n_intervals);
+    const auto mc = etrade::simulate_is(p, twap, 5000, 17);
+    EXPECT_LE(std::abs(mc.mean - etrade::expected_cost(p, twap)), 4.0 * mc.se_mean);
+    EXPECT_LE(std::abs(mc.var - etrade::variance_cost(p, twap)), 4.0 * mc.se_var);
+    EXPECT_EQ(mc.n_paths, 5000);
+}
+
+TEST(ACRobustness, FrontierRejectsNonFiniteLambdaAndKeepsOrder) {
+    const ACParams p = liquid();
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double inf = std::numeric_limits<double>::infinity();
+    EXPECT_THROW(etrade::efficient_frontier(p, {1e-7, nan}), std::invalid_argument);
+    EXPECT_THROW(etrade::efficient_frontier(p, {inf}), std::invalid_argument);
+    EXPECT_THROW(etrade::efficient_frontier(p, {1e-7, -1e-7}), std::invalid_argument);
+    const auto f = etrade::efficient_frontier(p, {2e-6, 1e-8, 2e-6});
+    ASSERT_EQ(f.size(), 3u);
+    EXPECT_DOUBLE_EQ(f[0].lambda_ra, 2e-6);
+    EXPECT_DOUBLE_EQ(f[1].lambda_ra, 1e-8);
+    EXPECT_DOUBLE_EQ(f[0].e_cost, f[2].e_cost);
+    EXPECT_DOUBLE_EQ(f[0].kappa, f[2].kappa);
+    EXPECT_LT(f[1].e_cost, f[0].e_cost);
+}
+
+TEST(ACRobustness, TwapAndPovRejectNonFinite) {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double inf = std::numeric_limits<double>::infinity();
+    EXPECT_THROW(etrade::twap_holdings(inf, 5), std::invalid_argument);
+    EXPECT_THROW(etrade::twap_holdings(nan, 5), std::invalid_argument);
+    EXPECT_THROW(etrade::pov_holdings(nan, 1.0, 1e6, 0.1), std::invalid_argument);
+    EXPECT_THROW(etrade::pov_holdings(inf, 1.0, 1e6, 0.1), std::invalid_argument);
+    EXPECT_THROW(etrade::pov_holdings(1e6, inf, 1e6, 0.1), std::invalid_argument);
+    EXPECT_THROW(etrade::pov_holdings(1e6, 1.0, inf, 0.1), std::invalid_argument);
+    EXPECT_THROW(etrade::pov_holdings(1e6, 1.0, 1e6, nan), std::invalid_argument);
+}
+
+TEST(ACRobustness, SizeBoundsAreInputErrors) {
+    EXPECT_THROW(ACParams(1e6, etrade::kMaxAcIntervals + 1, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
+                 std::invalid_argument);
+    EXPECT_THROW(etrade::twap_holdings(1e6, etrade::kMaxAcIntervals + 1),
+                 std::invalid_argument);
+    EXPECT_EQ(etrade::twap_holdings(1.0, etrade::kMaxAcIntervals).size(),
+              static_cast<std::size_t>(etrade::kMaxAcIntervals) + 1);
+}
+
+TEST(ACRobustness, CostFunctionsValidateHoldings) {
+    const ACParams p = liquid();
+    const double inf = std::numeric_limits<double>::infinity();
+    EXPECT_THROW(etrade::variance_cost(p, {1e6}), std::invalid_argument);
+    EXPECT_THROW(etrade::variance_cost(p, {1e6, inf, 0.0}), std::invalid_argument);
+    EXPECT_THROW(etrade::expected_cost(p, {1e6, std::nan(""), 0.0}), std::invalid_argument);
+    // X is taken from the schedule (x_0), not from params (pinned).
+    const auto half = etrade::twap_holdings(5e5, 5);
+    const double e_half = 0.5 * p.gamma_p * 5e5 * 5e5 + p.eta_tilde() * 5e5 * 5e5 / 5.0;
+    EXPECT_NEAR(etrade::expected_cost(p, half), e_half, 1e-12 * e_half);
+}
+
+TEST(ACRobustness, TrajectoryX0ExactAndSinhIdentityModerate) {
+    for (double lam : {1e-8, 5e-7, 2e-6, 1e-4}) {
+        const ACParams p = liquid(lam);
+        const double k = etrade::ac_kappa(p), T = p.horizon();
+        const auto x = etrade::ac_trajectory(p);
+        EXPECT_EQ(x[0], p.total_shares);  // exact, not within an ulp
+        for (int j = 1; j < p.n_intervals; ++j) {
+            const double ref = p.total_shares * std::sinh(k * (T - j * p.tau)) / std::sinh(k * T);
+            EXPECT_NEAR(x[j], ref, 1e-14 * ref);
+        }
+    }
+}
+
+}  // namespace

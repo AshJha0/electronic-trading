@@ -168,4 +168,100 @@ public final class AvellanedaStoikovTest {
         assertThrows(IllegalArgumentException.class,       // unknown statistic name
                 () -> AvellanedaStoikov.simulate(LIQUID, 10, 0).se("nope"));
     }
+
+    // -----------------------------------------------------------------------
+    // Robustness tests (review findings CRIT-1, MAJ-8, MIN-16, T-8, T-11, T-14)
+    // -----------------------------------------------------------------------
+
+    @Test
+    public void meanFillsCountsBothSides() {
+        // Saturated book: P(fill) rounds to 1 on both sides every step, so the
+        // fill count is exactly 2*nSteps (400), not the step count (200).
+        ASParams sat = new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 1e6, 10_000, 0.0);
+        ASSimResult r = AvellanedaStoikov.simulate(sat, 50, 1);
+        assertEquals(2.0 * sat.nSteps(), r.meanFills(), 0.0);
+        // Liquid set: bounded by 2 per step, integral, >= peak inventory.
+        ASSimResult l = AvellanedaStoikov.simulate(LIQUID, 400, 8);
+        assertTrue(l.meanFills() <= 2.0 * LIQUID.nSteps());
+        assertTrue(l.meanFills() >= l.meanMaxAbsQ());
+        assertTrue(l.se("mean_fills") > 0.0);
+    }
+
+    @Test
+    public void fixedSpreadMustBeFiniteAndPositive() {
+        for (double bad : new double[] {Double.POSITIVE_INFINITY, Double.NaN, 0.0, -1.0}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> AvellanedaStoikov.simulate(LIQUID, 10, 0,
+                            AvellanedaStoikov.Agent.FIXED, bad, 1.0, 0.5));
+        }
+        double avg = AvellanedaStoikov.averageAsSpread(LIQUID);
+        assertThrows(IllegalArgumentException.class,          // stressTimeFrac NaN
+                () -> AvellanedaStoikov.simulate(LIQUID, 10, 0,
+                        AvellanedaStoikov.Agent.AS, avg, 1.0, Double.NaN));
+        assertThrows(IllegalArgumentException.class,          // stressFactor inf
+                () -> AvellanedaStoikov.simulate(LIQUID, 10, 0,
+                        AvellanedaStoikov.Agent.AS, avg, Double.POSITIVE_INFINITY, 0.5));
+        assertThrows(IllegalArgumentException.class,
+                () -> AvellanedaStoikov.simulate(LIQUID, AvellanedaStoikov.MAX_AS_PATHS + 1, 0));
+    }
+
+    @Test
+    public void stressEdgeFractions() {
+        double avg = AvellanedaStoikov.averageAsSpread(LIQUID);
+        ASSimResult base = AvellanedaStoikov.simulate(LIQUID, 300, 9);
+        // frac = 1.0: no step has t >= T, so bitwise identical to unstressed.
+        ASSimResult late = AvellanedaStoikov.simulate(LIQUID, 300, 9,
+                AvellanedaStoikov.Agent.AS, avg, 5.0, 1.0);
+        // factor = 1.0 at any fraction: identical.
+        ASSimResult unit = AvellanedaStoikov.simulate(LIQUID, 300, 9,
+                AvellanedaStoikov.Agent.AS, avg, 1.0, 0.0);
+        double[] b = base.pnlPerPath();
+        double[] lp = late.pnlPerPath();
+        double[] up = unit.pnlPerPath();
+        for (int i = 0; i < b.length; i++) {
+            assertEquals(b[i], lp[i], 0.0);
+            assertEquals(b[i], up[i], 0.0);
+        }
+        // frac = 0.0 with factor 5: every step stressed, dispersion up.
+        ASSimResult early = AvellanedaStoikov.simulate(LIQUID, 300, 9,
+                AvellanedaStoikov.Agent.AS, avg, 5.0, 0.0);
+        assertTrue(early.stdPnl() > base.stdPnl());
+    }
+
+    @Test
+    public void quotesRejectNonFiniteState() {
+        double nan = Double.NaN;
+        double inf = Double.POSITIVE_INFINITY;
+        assertThrows(IllegalArgumentException.class,
+                () -> AvellanedaStoikov.reservationPrice(LIQUID, nan, 0.0, 0.0));
+        assertThrows(IllegalArgumentException.class,
+                () -> AvellanedaStoikov.reservationPrice(LIQUID, 100.0, inf, 0.0));
+        assertThrows(IllegalArgumentException.class,
+                () -> AvellanedaStoikov.quotes(LIQUID, 100.0, inf, 0.0));
+        assertThrows(IllegalArgumentException.class,
+                () -> AvellanedaStoikov.quotes(LIQUID, -inf, 0.0, 0.0));
+        assertThrows(IllegalArgumentException.class,
+                () -> AvellanedaStoikov.reservationPrice(LIQUID, 100.0, 0.0, nan));
+        assertThrows(IllegalArgumentException.class,
+                () -> AvellanedaStoikov.fillProbability(LIQUID, nan));
+    }
+
+    @Test
+    public void nStepsIntegralityFloat() {
+        ASParams p3 = new ASParams(100.0, 2.0, 1.0, 1.0 / 3.0, 0.1, 1.5, 140.0, 20, 0.5);
+        assertEquals(3, p3.nSteps());
+        assertThrows(IllegalArgumentException.class,
+                () -> new ASParams(100.0, 2.0, 1.0, 0.3, 0.1, 1.5, 140.0, 20, 0.5));
+        ASParams p1 = new ASParams(100.0, 2.0, 1.0, 1.0, 0.1, 1.5, 140.0, 20, 0.5); // dt = T
+        assertEquals(1, p1.nSteps());
+        ASSimResult r = AvellanedaStoikov.simulate(p1, 200, 4);
+        // one step: the time average of |q| is the single post-update value
+        assertEquals(r.meanMaxAbsQ(), r.meanAbsQ(), 0.0);
+        assertEquals(r.meanMaxAbsQ(), r.rmsQ(), 0.0);
+        assertTrue(r.meanFills() <= 2.0);
+        // step-count bound
+        assertThrows(IllegalArgumentException.class,
+                () -> new ASParams(100.0, 2.0, 1.0, 1.0 / (10.0 * AvellanedaStoikov.MAX_AS_STEPS),
+                        0.1, 1.5, 140.0, 20, 0.5));
+    }
 }

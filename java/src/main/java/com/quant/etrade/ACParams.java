@@ -13,7 +13,7 @@ import static com.quant.etrade.Validation.require;
  * {@link IllegalArgumentException} at construction time.
  *
  * @param totalShares shares to sell, {@code X >= 0} ({@code 0} gives the empty trajectory)
- * @param nIntervals  number of trading intervals, {@code N >= 1}
+ * @param nIntervals  number of trading intervals, {@code 1 <= N <= AlmgrenChriss.MAX_AC_INTERVALS}
  * @param tau         interval length, {@code > 0}
  * @param sigma       arithmetic volatility per sqrt(time unit), {@code >= 0}
  * @param eta         linear temporary impact coefficient, {@code > 0}
@@ -27,7 +27,8 @@ public record ACParams(double totalShares, int nIntervals, double tau, double si
     public ACParams {
         require(Double.isFinite(totalShares) && totalShares >= 0.0,
                 "totalShares must be finite and >= 0");
-        require(nIntervals >= 1, "nIntervals must be an integer >= 1");
+        require(nIntervals >= 1 && nIntervals <= AlmgrenChriss.MAX_AC_INTERVALS,
+                "nIntervals must be an integer in [1, 10000000]");
         require(Double.isFinite(tau) && tau > 0.0, "tau must be > 0");
         require(Double.isFinite(sigma) && sigma >= 0.0, "sigma must be >= 0");
         require(Double.isFinite(eta) && eta > 0.0, "eta must be > 0");

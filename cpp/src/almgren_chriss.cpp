@@ -1,5 +1,6 @@
 #include "etrade/almgren_chriss.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <random>
@@ -12,6 +13,18 @@ namespace {
 /// Throw std::invalid_argument unless `cond` holds.
 void require(bool cond, const char* msg) {
     if (!cond) throw std::invalid_argument(msg);
+}
+
+/// Validate a user-supplied holdings path: length >= 2, all finite.
+void require_holdings(const std::vector<double>& x) {
+    require(x.size() >= 2, "holdings must have length >= 2");
+    for (double v : x) require(std::isfinite(v), "holdings must be finite");
+}
+
+/// Pinned liquidation check |x_N| <= 1e-9 * max(1, |x_0|).
+void require_liquidating(const std::vector<double>& x) {
+    require(std::abs(x.back()) <= 1e-9 * std::max(1.0, std::abs(x.front())),
+            "holdings path must fully liquidate (x_N = 0)");
 }
 
 }  // namespace
@@ -27,7 +40,8 @@ ACParams::ACParams(double total_shares_, int n_intervals_, double tau_,
       lambda_ra(lambda_ra_) {
     require(std::isfinite(total_shares) && total_shares >= 0.0,
             "total_shares must be finite and >= 0");
-    require(n_intervals >= 1, "n_intervals must be an integer >= 1");
+    require(n_intervals >= 1 && n_intervals <= kMaxAcIntervals,
+            "n_intervals must be an integer in [1, 10000000]");
     require(std::isfinite(tau) && tau > 0.0, "tau must be > 0");
     require(std::isfinite(sigma) && sigma >= 0.0, "sigma must be >= 0");
     require(std::isfinite(eta) && eta > 0.0, "eta must be > 0");
@@ -51,13 +65,18 @@ double ac_kappa(const ACParams& params) {
     const double kt2 = params.lambda_ra * params.sigma * params.sigma /
                        params.eta_tilde();
     if (kt2 == 0.0) return 0.0;
-    return std::acosh(1.0 + 0.5 * kt2 * params.tau * params.tau) / params.tau;
+    // arccosh(1 + x) = log1p(x + sqrt(x*(2 + x))): exact to 1 ulp for small x
+    // where acosh(1 + x) cancels (pinned evaluation form, API_SPEC 1.4).
+    const double x = 0.5 * kt2 * params.tau * params.tau;
+    return std::log1p(x + std::sqrt(x * (2.0 + x))) / params.tau;
 }
 
 double half_life(const ACParams& params) {
     const double kappa = ac_kappa(params);
     return kappa == 0.0 ? std::numeric_limits<double>::infinity() : 1.0 / kappa;
 }
+
+double characteristic_time(const ACParams& params) { return half_life(params); }
 
 std::vector<double> ac_trajectory(const ACParams& params) {
     const int n = params.n_intervals;
@@ -70,9 +89,13 @@ std::vector<double> ac_trajectory(const ACParams& params) {
         // Exact linear TWAP limit — no 0/0 from the sinh ratio.
         for (int j = 0; j <= n; ++j) x[j] = x0 * (n - j) / n;
     } else {
-        const double denom = std::sinh(kappa * big_t);
+        // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT):
+        // overflow-free for any kappa*T; ratio formed first so x_0 == X exactly.
+        const double denom = std::expm1(-2.0 * kappa * big_t);
         for (int j = 0; j <= n; ++j) {
-            x[j] = x0 * std::sinh(kappa * (big_t - j * params.tau)) / denom;
+            const double t_j = j * params.tau;
+            const double ratio = std::expm1(-2.0 * kappa * (big_t - t_j)) / denom;
+            x[j] = x0 * std::exp(-kappa * t_j) * ratio;
         }
     }
     x[n] = 0.0;  // pinned: liquidate exactly, no residual epsilon
@@ -84,7 +107,7 @@ std::vector<double> ac_trade_list(const ACParams& params) {
 }
 
 std::vector<double> trades_from_holdings(const std::vector<double>& holdings) {
-    require(holdings.size() >= 2, "holdings must have length >= 2");
+    require_holdings(holdings);
     std::vector<double> n(holdings.size() - 1);
     for (std::size_t j = 0; j + 1 < holdings.size(); ++j) {
         n[j] = holdings[j] - holdings[j + 1];
@@ -94,8 +117,9 @@ std::vector<double> trades_from_holdings(const std::vector<double>& holdings) {
 
 std::vector<double> twap_holdings(double total_shares, int n_intervals) {
     require(std::isfinite(total_shares) && total_shares >= 0.0,
-            "total_shares must be >= 0");
-    require(n_intervals >= 1, "n_intervals must be an integer >= 1");
+            "total_shares must be finite and >= 0");
+    require(n_intervals >= 1 && n_intervals <= kMaxAcIntervals,
+            "n_intervals must be an integer in [1, 10000000]");
     std::vector<double> x(static_cast<std::size_t>(n_intervals) + 1);
     for (int j = 0; j <= n_intervals; ++j) {
         x[j] = total_shares * (n_intervals - j) / n_intervals;
@@ -106,7 +130,7 @@ std::vector<double> twap_holdings(double total_shares, int n_intervals) {
 std::vector<double> pov_holdings(double total_shares, double tau,
                                  double market_volume_rate, double participation) {
     require(std::isfinite(total_shares) && total_shares >= 0.0,
-            "total_shares must be >= 0");
+            "total_shares must be finite and >= 0");
     require(std::isfinite(tau) && tau > 0.0, "tau must be > 0");
     require(std::isfinite(market_volume_rate) && market_volume_rate > 0.0,
             "market_volume_rate must be > 0");
@@ -115,7 +139,10 @@ std::vector<double> pov_holdings(double total_shares, double tau,
             "participation must be in (0, 1)");
     const double clip = participation * market_volume_rate * tau;
     if (total_shares == 0.0) return {0.0, 0.0};
-    const int m = static_cast<int>(std::ceil(total_shares / clip - 1e-12));
+    const double ratio = total_shares / clip;  // bounded BEFORE any cast/alloc
+    require(ratio <= static_cast<double>(kMaxPovIntervals),
+            "POV clip too small: would need > 10000000 intervals");
+    const int m = static_cast<int>(std::ceil(ratio - 1e-12));
     std::vector<double> x(static_cast<std::size_t>(m) + 1);
     for (int i = 0; i <= m; ++i) {
         x[i] = std::max(total_shares - clip * i, 0.0);
@@ -125,10 +152,8 @@ std::vector<double> pov_holdings(double total_shares, double tau,
 }
 
 double expected_cost(const ACParams& params, const std::vector<double>& holdings) {
-    require(!holdings.empty() &&
-                std::abs(holdings.back()) <=
-                    1e-9 * std::max(1.0, std::abs(holdings.front())),
-            "holdings path must fully liquidate (x_N = 0)");
+    require_holdings(holdings);
+    require_liquidating(holdings);
     const std::vector<double> n = trades_from_holdings(holdings);
     double sum_n2 = 0.0;
     for (double nj : n) sum_n2 += nj * nj;
@@ -142,7 +167,7 @@ double expected_cost(const ACParams& params) {
 }
 
 double variance_cost(const ACParams& params, const std::vector<double>& holdings) {
-    require(holdings.size() >= 2, "holdings must have length >= 2");
+    require_holdings(holdings);
     double sum_x2 = 0.0;
     for (std::size_t j = 1; j < holdings.size(); ++j) {
         sum_x2 += holdings[j] * holdings[j];
@@ -177,7 +202,10 @@ std::vector<FrontierPoint> efficient_frontier(const ACParams& params,
 
 ISSimResult simulate_is(const ACParams& params, const std::vector<double>& holdings,
                         int n_paths, std::uint64_t seed) {
-    require(n_paths >= 2, "n_paths must be >= 2");
+    require(n_paths >= 2 && n_paths <= kMaxPaths,
+            "n_paths must be an integer in [2, 10000000]");
+    require_holdings(holdings);
+    require_liquidating(holdings);
     const std::vector<double> n = trades_from_holdings(holdings);
     std::mt19937_64 rng(seed);
     std::normal_distribution<double> normal(0.0, 1.0);

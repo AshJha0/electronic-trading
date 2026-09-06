@@ -14,6 +14,7 @@ import static com.quant.etrade.Validation.require;
  * @param sigma   arithmetic mid volatility per sqrt(time unit), {@code >= 0}
  * @param horizon terminal time {@code T > 0}
  * @param dt      simulation step, {@code 0 < dt <= T}, with {@code T/dt} integral (1e-9 tol)
+ *                and {@code T/dt <= AvellanedaStoikov.MAX_AS_STEPS}
  * @param gamma   risk aversion, strictly {@code > 0}
  * @param k       intensity decay, {@code > 0}
  * @param aRate   intensity scale {@code A > 0}
@@ -39,6 +40,8 @@ public record ASParams(double s0, double sigma, double horizon, double dt, doubl
         double n = horizon / dt;
         require(Math.abs(n - Math.round(n)) < 1e-9,
                 "horizon must be an integer multiple of dt");
+        require(n <= AvellanedaStoikov.MAX_AS_STEPS,
+                "horizon/dt must be <= 10000000 steps");
     }
 
     /** Number of simulation steps {@code T/dt}. */

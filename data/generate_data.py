@@ -7,7 +7,7 @@ Steps:
      (assert |MC - closed form| <= 4 SE) before pinning anything.
   2. Write params_liquid.json / params_illiquid.json / params_fx.json and
      parent_order.json.
-  3. Write golden/golden.json (~18 cases).  Deterministic cases carry a
+  3. Write golden/golden.json (19 cases).  Deterministic cases carry a
      relative tolerance (|a - e| <= tol * max(1, |e|)); simulation cases are
      statistical: expect holds the 20k-path Python reference plus a *_se key
      per statistic, tol = 4.0 is the SE-band multiplier (ports use their own
@@ -38,7 +38,9 @@ PARAMS = {
         "ac_total_shares": 1.0e6, "ac_n_intervals": 5, "ac_tau": 1.0,
         "ac_sigma": 0.95, "ac_eta": 2.5e-6, "ac_gamma_p": 2.5e-7,
         "ac_lambda_ra": 2.0e-6,
-        # Avellaneda-Stoikov (2008) paper-like parameters.
+        # Avellaneda-Stoikov (2008) paper parameters (Table 1 row gamma=0.1);
+        # fills use the exact thinned probability 1-exp(-lambda*dt), not the
+        # paper's first-order lambda*dt, so mean PnL sits ~12% below Table 1.
         "as_s0": 100.0, "as_sigma": 2.0, "as_horizon": 1.0, "as_dt": 0.005,
         "as_gamma": 0.1, "as_k": 1.5, "as_a_rate": 140.0, "as_q_max": 20,
         "as_eta_liq": 0.5,
@@ -169,6 +171,13 @@ def build_cases() -> list[dict]:
     fp = et.efficient_frontier(p_liq, [lam_pin])[0]
     exact("ac_frontier_point_liquid", ac_inputs(cfg, ac_lambda_ra=lam_pin),
           {"e_cost": fp.e_cost, "std_cost": fp.std_cost, "kappa": fp.kappa}, 1e-10)
+
+    # ---- kappa at small kappa_tilde*tau (log1p form; acosh(1+x) cancels) ----
+    cfg_small = ac_inputs(cfg, ac_tau=1e-3, ac_n_intervals=5000, ac_lambda_ra=1e-8)
+    p_small = ac_params(cfg_small)
+    exact("ac_kappa_small_tau", cfg_small,
+          {"kappa": et.ac_kappa(p_small), "half_life": et.half_life(p_small),
+           "x_1": float(et.ac_trajectory(p_small)[1])}, 1e-10)
 
     # ---- lambda_ra = 0 limit == TWAP (identity) ----
     p0 = p_liq.with_lambda(0.0)
