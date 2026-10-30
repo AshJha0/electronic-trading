@@ -23,6 +23,8 @@ namespace mini_json {
 /// Deepest array/object nesting accepted by the parser.
 inline constexpr int kMaxDepth = 64;
 
+struct Member;
+
 /// A parsed JSON value (tagged union over the vector/obj members).
 struct Value {
     enum class Type { kNull, kBool, kNumber, kString, kArray, kObject };
@@ -31,24 +33,37 @@ struct Value {
     double number = 0.0;
     std::string str;
     std::vector<Value> arr;
-    std::vector<std::pair<std::string, Value>> obj;
+    std::vector<Member> obj;  ///< object members in file order (Member is defined below)
 
     /// Object member lookup; throws when the key is missing.
-    const Value& at(const std::string& key) const {
-        for (const auto& kv : obj) {
-            if (kv.first == key) return kv.second;
-        }
-        throw std::runtime_error("mini_json: missing key '" + key + "'");
-    }
+    const Value& at(const std::string& key) const;
 
     /// True when the object holds `key`.
-    bool has(const std::string& key) const {
-        for (const auto& kv : obj) {
-            if (kv.first == key) return true;
-        }
-        return false;
-    }
+    bool has(const std::string& key) const;
 };
+
+/// One object member. A named struct rather than std::pair<std::string, Value>:
+/// instantiating std::pair over the still-incomplete Value is rejected by
+/// clang with libstdc++ 14 in C++26 mode; std::vector<Member> of an
+/// incomplete Member is fine.
+struct Member {
+    std::string first;  ///< key
+    Value second;       ///< value
+};
+
+inline const Value& Value::at(const std::string& key) const {
+    for (const auto& kv : obj) {
+        if (kv.first == key) return kv.second;
+    }
+    throw std::runtime_error("mini_json: missing key '" + key + "'");
+}
+
+inline bool Value::has(const std::string& key) const {
+    for (const auto& kv : obj) {
+        if (kv.first == key) return true;
+    }
+    return false;
+}
 
 namespace detail {
 
@@ -264,7 +279,7 @@ private:
             std::string key = parse_string();
             skip_ws();
             expect(':');
-            v.obj.emplace_back(std::move(key), parse_value());
+            v.obj.push_back(Member{std::move(key), parse_value()});
             skip_ws();
             const char c = peek();
             ++pos_;
