@@ -1,7 +1,13 @@
 # Diagrams
 
-The Mermaid sources in `docs/diagrams/`, rendered. The same three diagrams
+The Mermaid sources in `docs/diagrams/`, rendered. The same four diagrams
 appear in context in [Architecture](architecture.md).
+
+## Module dependencies
+
+```mermaid
+--8<-- "docs/diagrams/module_deps.mmd"
+```
 
 ## Data flow
 

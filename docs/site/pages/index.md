@@ -19,6 +19,7 @@ macOS.
 [Cookbook](cookbook.md){ .md-button }
 [Architecture](architecture.md){ .md-button }
 [API contract](api-spec.md){ .md-button }
+[Diagrams](diagrams.md){ .md-button }
 [GitHub](https://github.com/AshJha0/electronic-trading){ .md-button }
 
 ## Measured, not claimed
@@ -31,8 +32,8 @@ push and pull request.
 
 | | |
 |---|---|
-| Cross-language parity | Python 174, C++ 91, Rust 78, Java 85 tests, 428 in total; every suite loads the same 19 model, 9 market and 8 impact golden cases |
-| Golden suite | exact cases (AC `kappa` / `x_j` / `n_1` / E / Var on two parameter sets, TWAP/POV costs, A-S closed forms, both IS decompositions, the impact fit) at \|actual − expected\| ≤ tol·max(1, \|expected\|), tol between 1e-10 and 1e-12; market cases at 1e-12, power-law impact cases at 1e-9 |
+| Cross-language parity | Python 371, C++ 127, Rust 151, Java 120 tests, 769 in total; every suite loads the same 70 golden cases: 19 model, 15 market, 8 impact, 11 TCA, 9 calibration and 8 execution |
+| Golden suite | exact cases (AC `kappa` / `x_j` / `n_1` / E / Var on two parameter sets, TWAP/POV costs, A-S closed forms, both IS decompositions, the impact fit) at \|actual − expected\| ≤ tol·max(1, \|expected\|), tol between 1e-10 and 1e-12; market, TCA and calibration cases at 1e-12, power-law impact and execution cases at 1e-9 |
 | Statistical cases | Python 20,000-path Monte Carlo references stored with their standard errors; each port runs M ≥ 2000 paths on its own RNG and must satisfy \|stat − ref\| ≤ 4·sqrt(se_ref² + se_own²) |
 | Literature check | the paper's hyperbolic closed forms for E[IS] and Var[IS] equal the discrete sums to 1e-12 in every suite (measured rel. diff 2e-16 on the liquid set) |
 | Numerics | `kappa` via `log1p(x + sqrt(x(2+x)))/tau` (cancellation-free at any `tau`; naive `acosh` loses 8 digits at millisecond `tau`); trajectory via an `exp/expm1` ratio, finite for any `kappa·T` (the naive `sinh` ratio is NaN above `kappa·T` ≈ 710); TWAP branch at `kappa·T < 1e-6` |
@@ -54,8 +55,14 @@ A-S spread at the open and at the close of the session).
 | US ETF (\$500, 0.2 bp spread) | 1% ADV | 0.2 bps | 50.6 bps | 0.1 bps | 0.5 / 0.3 bps |
 | EUR/USD (0.45 bp spread) | 5% of volume | 2.4 bps | 26.2 bps | 0.2 bps | 0.8 / 0.5 bps |
 | Almgren-Chriss (2000) example | 20% ADV | 215.6 bps | 89.9 bps | 12.5 bps | |
+| AAPL, fitted to ITCH 2019-12-30 (\$289.72, 0.91 bp spread) | 5% of NASDAQ volume | 4.9 bps | 58.2 bps | 0.5 bps | 1.2 / 0.5 bps |
+| MSFT, fitted to ITCH 2019-12-30 (\$157.67, 0.78 bp spread) | 5% of NASDAQ volume | 4.2 bps | 37.4 bps | 0.4 bps | 1.9 / 0.5 bps |
+| QQQ, fitted to ITCH 2019-12-30 (\$212.16, 0.55 bp spread) | 5% of NASDAQ volume | 2.9 bps | 29.0 bps | 0.3 bps | 0.8 / 0.3 bps |
 
-Presets are illustrative, not fitted to data. This table uses the
+The first five presets are illustrative. The last three take price,
+spread, volatility, volume and fill intensity from one NASDAQ ITCH day,
+with the caveats of [`API_SPEC` Section 11.6](api-spec.md) (one day, one
+venue, the week after Christmas). This table uses the
 Almgren-Chriss linear impact calibration (`API_SPEC` Section 7); the
 pre-trade report below uses square-root impact.
 
@@ -135,12 +142,41 @@ relative), and the Python suite cross-checks it against SciPy.
     two-variable OLS used to fit cost per share against participation on
     pinned RNG-free synthetic fills.
 
+-   **Post-trade TCA**
+
+    ---
+
+    Slippage against arrival, the day's VWAP, the interval VWAP of the bins
+    the order traded in, and the close; markouts per fill and per share;
+    per-bin participation; and a Welch t-test for comparing algorithms,
+    with the incomplete beta and Student t CDF pinned so every port gives
+    the same p-value.
+
+-   **Calibration from recorded data**
+
+    ---
+
+    Volume curve, realised-volatility curve, spread statistics and a
+    weighted fill-intensity fit on plain arrays; three presets and a volume
+    curve fitted to the NASDAQ ITCH sample day 2019-12-30, with only
+    aggregates committed.
+
+-   **Execution extensions**
+
+    ---
+
+    Transient impact with exponential resilience (Obizhaeva-Wang), its
+    optimum from one tridiagonal solve; adaptive re-planning against the
+    static schedule under a drift signal or partial fills, with the zero
+    saving of the time-consistent case asserted; internalisation of
+    opposite client orders.
+
 -   **Golden-value testing**
 
     ---
 
-    `golden.json` with 19 model cases, `market_golden.json` with 9 and
-    `impact_golden.json` with 8, loaded by all four suites: deterministic
+    Six golden files with 70 cases (19 model, 15 market, 8 impact, 11 TCA,
+    9 calibration, 8 execution), loaded by all four suites: deterministic
     cases under a relative-or-absolute tolerance of 1e-9 to 1e-12, Monte
     Carlo cases as reference values plus standard errors. Sample values
     differ across languages by design; distributions must agree.
@@ -163,8 +199,9 @@ relative), and the Python suite cross-checks it against SciPy.
     Identical rules in all four languages: Python `ValueError`, C++
     `std::invalid_argument` (`std::domain_error` for the AC validity
     condition), Rust `Err(EtradeError)` with no panics, Java
-    `IllegalArgumentException`. No function returns NaN or infinity from
-    valid finite inputs.
+    `IllegalArgumentException`; solver failures are reported separately
+    (`std::runtime_error`, `SolverFailed`, `IllegalStateException`). No
+    function returns NaN or infinity from valid finite inputs.
 
 -   **Units and what is out of scope**
 
@@ -173,9 +210,10 @@ relative), and the Python suite cross-checks it against SciPy.
     `tau`, `dt`, `T` in an abstract time unit (bundled sets and the market
     layer use one trading day); `sigma` is arithmetic; prices may go
     negative; AC shares are fractional, A-S fills are one unit. Not covered
-    yet: adaptive re-optimisation, adverse selection, decaying impact, order
-    types, venues, ticks, lots, latency, calendars, and any calibration of
-    `eta`, `alpha`, `gamma_p`, `A`, `k` or the volume curve to real markets.
+    yet: adverse selection in market making, limit-order placement, order
+    types, venues, ticks, lots, latency, calendars, and any fit of the
+    impact parameters `eta`, `alpha`, `gamma_p` and `Y` to real parent
+    orders.
 
 -   **Reference papers**
 
@@ -186,7 +224,9 @@ relative), and the Python suite cross-checks it against SciPy.
     (1993) for the shortfall decomposition and its naming; Guéant, Lehalle
     and Fernandez-Tapia (2013) for the inventory-capped variant behind
     `q_max`; Almgren et al. (2005), Tóth et al. (2011) and Bouchaud et al.
-    (2018) for the square-root law; MiFID II Art. 17/27, Reg NMS Rules
+    (2018) for the square-root law; Obizhaeva and Wang (2013) for transient
+    impact; Almgren and Lorenz (2007) for adaptive execution; Andersen et
+    al. (2001) for realised variance; Welch (1947) for the A/B test; MiFID II Art. 17/27, Reg NMS Rules
     605/606 and SEC Rule 15c3-5 in the guide's regulatory section.
 
 </div>
@@ -235,18 +275,18 @@ cd electronic-trading
 # Python (3.11+)
 pip install -e "python[dev]"
 python python/demo.py
-pytest python                                   # 174 tests
+pytest python                                   # 371 tests
 
 # C++ (C++17, CMake >= 3.20; GCC, Clang or MSVC)
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release               # 91 tests
+ctest --test-dir build -C Release               # 127 tests
 
 # Rust (stable, MSRV 1.78)
-(cd rust && cargo test --release && cargo run --release --example demo)   # 78 tests
+(cd rust && cargo test --release && cargo run --release --example demo)   # 151 tests
 
 # Java (JDK 17+, Maven)
-(cd java && mvn verify && mvn -q exec:java)     # 85 tests
+(cd java && mvn verify && mvn -q exec:java)     # 120 tests
 ```
 
 electronic-trading is MIT-licensed and provided without warranty: a

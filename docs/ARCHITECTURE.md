@@ -2,13 +2,15 @@
 
 Design notes for the four parallel implementations (Python reference, C++,
 Rust, Java) of the Almgren-Chriss / Avellaneda-Stoikov / analytics stack,
-the power-law impact model and the market-unit layer.
+the power-law impact model, the market-unit layer, post-trade TCA,
+calibration from recorded data, and the execution extensions (transient
+impact, adaptive re-planning, internalisation).
 The normative contract is `../API_SPEC.md`; this document explains *why* it
 is shaped the way it is.
 
 ## 1. Component responsibilities
 
-Five modules per language, mirrored one-to-one across ports:
+Eight modules per language, mirrored one-to-one across ports:
 
 | Module | Owns | Depends on |
 |---|---|---|
@@ -17,11 +19,17 @@ Five modules per language, mirrored one-to-one across ports:
 | `analytics` | Perold IS decomposition (buy/sell), participation rate, native closed-form OLS, pinned RNG-free synthetic impact fills | nothing stochastic |
 | `impact` | power-law temporary impact with per-interval liquidity weights, linear permanent impact and adverse drift; exact cost and variance of any sell schedule; pinned Newton solver (tridiagonal Hessian, Armijo line search, decrement stop) with horizon bisection and a KKT certificate; VWAP schedule; square-root-law estimate (API_SPEC Section 8) | nothing (its own parameter type) |
 | `market` | conversion from market units (price, spread, tick, ADV, daily vol, touch fill rate, halving distance, opening skew) to `ACParams`/`ASParams`/`ImpactParams`; bps and half-spread reporting helpers (API_SPEC Section 7); pre-trade report (Section 8.4) | `almgren_chriss`, `avellaneda_stoikov` (parameter types, `twap_holdings`), `impact` |
+| `tca` | post-trade slippage against arrival, market VWAP, interval VWAP and close; markouts per fill and per share; per-bin participation; Welch t-test with a pinned `ln_gamma` (Lanczos), regularised incomplete beta (modified Lentz) and Student t CDF (API_SPEC Section 10) | nothing (C++ and Rust reuse the `Side` enum of `analytics`; Python and Java take the side as a string) |
+| `calibration` | the pinned binning rule; volume curve, realised-volatility curve, spread statistics and the weighted log-linear fill-intensity fit, all on plain arrays; `FITTED_VOLUME_CURVE_13` (API_SPEC Section 11) | nothing |
+| `execution` | `TransientParams` (Obizhaeva-Wang) with exact cost and the Thomas-solved static optimum; `SignalParams`, the linear re-plan and its coefficients, the paired static-vs-adaptive simulation; `internalise` (API_SPEC Section 12) | `almgren_chriss` (`ACParams`, `MAX_PATHS`), `impact` (cost, VWAP schedule), `market` (`impact_params_from_market`, `bps`) |
 
 The four model modules (`almgren_chriss`, `avellaneda_stoikov`, `analytics`,
-`impact`) do not import each other. `market` builds their parameter objects
+`impact`) do not import each other, and neither do `tca` and `calibration`,
+which work on plain arrays. `market` builds the model parameter objects
 and, for the pre-trade report, calls the `impact` cost and schedule
-functions. Parameter objects are immutable value
+functions. `execution` is the only module above `market`: internalisation
+prices each side with the Section 8 cost of a VWAP schedule built from
+market inputs, and the adaptive simulation takes an `ACParams`. Parameter objects are immutable value
 types (frozen dataclasses in Python, plain structs/records elsewhere) that
 validate **at construction**, so every downstream function can assume valid
 inputs and stay branch-free. Functions that take user data (holdings paths,
@@ -32,74 +40,159 @@ liquidation, and the pinned size bounds of `API_SPEC.md` Section 0, checked
 behaviour, an integer overflow, an out-of-memory abort or a panic. The only
 shared state anywhere is the RNG inside a single simulation call.
 
+### Module dependencies
+
+```mermaid
+flowchart LR
+    AC["almgren_chriss<br/>(Section 1)"]
+    AS["avellaneda_stoikov<br/>(Section 2)"]
+    AN["analytics<br/>(Section 3)"]
+    IM["impact<br/>(Section 8)"]
+    MK["market<br/>(Sections 7, 8.3-8.4)"]
+    TC["tca<br/>(Section 10)"]
+    CA["calibration<br/>(Section 11)"]
+    EX["execution<br/>(Section 12)"]
+
+    MK --> AC
+    MK --> AS
+    MK --> IM
+    EX --> AC
+    EX --> IM
+    EX --> MK
+    TC -. "Side enum (Rust, C++)" .-> AN
+```
+
+An arrow points from a module to one it imports. The graph is acyclic and
+the same in every language; `calibration` is also imported by the Python
+tooling `data/calibration/fit_itch.py`, which is not part of the library.
+
 ### Data flow
 
 ```mermaid
 flowchart TB
+    subgraph EXT["outside the repository"]
+        ITCH["NASDAQ TotalView-ITCH 5.0 sample day<br/>12302019.NASDAQ_ITCH50"]
+        IAP["intraday-alpha-platform<br/>iap.marketdata ingest (ds3_20191230)"]
+        ITCH --> IAP
+    end
+
     subgraph DATA["data/ (shared, committed)"]
+        FIT["calibration/fit_itch.py<br/>(Python tooling, needs pyarrow)"]
+        FJ["calibration/fitted_20191230.json<br/>(aggregates only: curves, counts, fits)"]
         PJ["params_liquid.json<br/>params_illiquid.json<br/>params_fx.json"]
         PO["parent_order.json<br/>(X, lambda grid, IS fills)"]
-        PR["presets.json<br/>(5 instruments in market units)"]
+        PR["presets.json<br/>(8 instruments in market units,<br/>3 fitted to the ITCH day)"]
         GEN["generate_data.py<br/>(seeded, asserts AC closed forms vs MC)"]
         GENM["generate_market.py"]
         GENI["generate_impact.py"]
+        GENT["generate_tca.py"]
+        GENC["generate_calibration.py"]
+        GENX["generate_execution.py"]
         GOLD["golden/golden.json<br/>19 cases: exact + statistical"]
-        GOLDM["golden/market_golden.json<br/>9 cases"]
+        GOLDM["golden/market_golden.json<br/>15 cases"]
         GOLDI["golden/impact_golden.json<br/>8 cases"]
+        GOLDT["golden/tca_golden.json<br/>11 cases"]
+        GOLDC["golden/calibration_golden.json<br/>9 cases"]
+        GOLDX["golden/execution_golden.json<br/>8 cases: exact + statistical"]
+        FIT --> FJ
+        FJ --> GENM
         GEN --> PJ
         GEN --> PO
         GEN --> GOLD
         GENM --> PR
         GENM --> GOLDM
         GENI --> GOLDI
+        GENT --> GOLDT
+        GENC --> GOLDC
+        GENX --> GOLDX
     end
+
+    IAP --> FIT
 
     subgraph CORE["etrade core (identical in Python / C++ / Rust / Java)"]
-        ACP["ACParams<br/>validate: eta_tilde > 0, X >= 0,<br/>N <= MAX_AC_INTERVALS, ..."]
-        AC["almgren_chriss<br/>kappa, trajectory, trade list,<br/>E/Var sums, frontier,<br/>TWAP / POV / instant, MC check"]
-        ASP["ASParams<br/>validate: gamma > 0, T/dt integral,<br/>T/dt <= MAX_AS_STEPS, ..."]
-        AS["avellaneda_stoikov<br/>reservation price, spread, quotes,<br/>intensity, fill prob,<br/>pinned simulation loop"]
-        AN["analytics<br/>IS decomposition, participation,<br/>native OLS impact regression"]
-        IM["impact<br/>power-law cost, volume curve,<br/>VWAP, Newton solver + KKT"]
-        MK["market<br/>market units to parameters,<br/>bps helpers, pre-trade report"]
-        ACP --> AC
-        ASP --> AS
-        MK --> ACP
-        MK --> ASP
-        MK --> IM
+        AC["almgren_chriss"]
+        AS["avellaneda_stoikov"]
+        AN["analytics"]
+        IM["impact"]
+        MK["market"]
+        TC["tca"]
+        CA["calibration"]
+        EX["execution"]
     end
 
-    PJ --> ACP
-    PJ --> ASP
+    PJ --> AC
+    PJ --> AS
     PO --> AC
     PO --> AN
     PR --> MK
+    CA -. "estimators used by" .-> FIT
 
     subgraph OUT["outputs"]
         DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report)"]
         TESTS["4 language test suites<br/>exact cases: 1e-9..1e-12<br/>statistical cases: 4-SE band"]
     end
 
-    AC --> DEMO
-    AS --> DEMO
-    AN --> DEMO
-    MK --> DEMO
-    AC --> TESTS
-    AS --> TESTS
-    AN --> TESTS
-    IM --> TESTS
-    MK --> TESTS
+    CORE --> DEMO
+    CORE --> TESTS
     GOLD --> TESTS
     GOLDM --> TESTS
     GOLDI --> TESTS
+    GOLDT --> TESTS
+    GOLDC --> TESTS
+    GOLDX --> TESTS
 ```
 
-Three Python scripts are the single source of truth for the bundled JSON.
+Six Python scripts are the single source of truth for the bundled JSON.
 `generate_data.py` writes the parameter sets, the parent order and the model
 golden values (after asserting the AC closed forms against its own Monte
 Carlo), all seeded; `generate_market.py` writes `presets.json` and the market
-golden cases; `generate_impact.py` writes the power-law golden cases. Ports
-never regenerate data; they only consume it.
+golden cases; `generate_impact.py`, `generate_tca.py`,
+`generate_calibration.py` and `generate_execution.py` write the golden
+cases of Sections 8, 10, 11 and 12. Ports never regenerate data; they only
+consume it.
+
+**From an ITCH file to a preset.** The recorded data never enters the
+repository. The NASDAQ sample file is ingested by the sibling project
+intraday-alpha-platform into a normalised event dataset outside this
+repository. `data/calibration/fit_itch.py <dataset_dir>` (Python only,
+needs `pyarrow`) rebuilds the top of book, turns the continuous session into
+plain arrays and calls the `calibration` estimators. Its only output is
+`data/calibration/fitted_20191230.json`: per-symbol aggregates, curves and
+bucket counts, which cannot reconstruct the messages (API_SPEC 11.6 on
+"Derived Data"). `generate_market.py` reads that file, combines each symbol
+with a template preset for the inputs a single day cannot fit (order size,
+`lambda_ra`, the A-S skew, cap, liquidation penalty and step), and writes
+`itch_aapl_20191230`, `itch_msft_20191230` and `itch_qqq_20191230` into
+`data/presets.json`, each with a `source` field, plus their six market
+golden cases. Re-running the fit needs the external dataset; re-running the
+generators does not.
+
+### Golden-file inventory
+
+Every file has the schema `{"cases": [{name, kind, inputs, expect, tol}]}`
+(API_SPEC Section 5). Exact cases pass when
+`|got - expected| <= tol * max(1, |expected|)`; statistical cases store a
+20,000-path Python reference with its standard error and pass when
+`|got - ref| <= tol * sqrt(se_ref^2 + se_own^2)` with `tol = 4`. Every suite
+asserts the case count of every file and that each case is handled.
+
+| file | generator | cases | kinds (count) | tolerance | spec |
+|---|---|---|---|---|---|
+| `golden.json` | `generate_data.py` | 19 | `exact` (15), `statistical` (4) | 1e-10 or 1e-12; 4 SE | 1-3, 5 |
+| `market_golden.json` | `generate_market.py` | 15 | `market_ac` (8), `market_as` (7) | 1e-12 | 7.4, 11.7 |
+| `impact_golden.json` | `generate_impact.py` | 8 | `impact_schedule` (5), `impact_vwap` (1), `pretrade` (1), `sqrt_law` (1) | 1e-9 | 8.5 |
+| `tca_golden.json` | `generate_tca.py` | 11 | `slippage` (2), `markout` (2), `participation` (1), `welch` (2), `t_cdf` (4) | 1e-12 | 10.6 |
+| `calibration_golden.json` | `generate_calibration.py` | 9 | `cal_volume_curve` (2), `cal_volatility` (2), `cal_spread` (2), `cal_fill_intensity` (2), `cal_fitted_curve` (1) | 1e-12 | 11.7 |
+| `execution_golden.json` | `generate_execution.py` | 8 | `transient_schedule` (3), `internalise` (2), `adaptive_sim` (3) | 1e-9; 4 SE | 12.4 |
+
+70 cases in all. The case names say what each pins: for example
+`welch_constant_sample` (one sample with zero variance, the other not),
+`t_cdf_negative_fractional_df` (a negative `t` with non-integer degrees
+of freedom),
+`cal_spread_even_effective` (the even-count median),
+`cal_fill_intensity_two_days` (the `days` normalisation),
+`transient_slow_resilience` (`a` close to 1), `internalise_balanced_curve`
+(`B = S`, residual side `none`) and `adaptive_no_signal` (saving exactly 0).
 
 ### Module surface
 
@@ -240,6 +333,45 @@ classDiagram
         +PretradeRow[] rows
     }
 
+    class tca {
+        +slippage(side, arrival, close, fills, bins) SlippageReport
+        +markouts(side, steps, qtys, mids, horizons) MarkoutResult
+        +participation(bins, qtys, volumes) ParticipationResult
+        +welch_ttest(a, b) WelchResult
+        +student_t_cdf(t, df) float
+        +betainc_reg(a, b, x) float
+        +ln_gamma(x) float
+    }
+    class calibration {
+        +volume_curve(times, sizes, t0, t1, n_bins) float[]
+        +volatility_curve(times, mids, t0, t1, n_bins) VolatilityCurve
+        +spread_stats(spreads, mids, tick) SpreadStats
+        +fill_intensity(distances, tick, n_levels, days, sides) FillIntensity
+        +FITTED_VOLUME_CURVE_13
+    }
+    class TransientParams {
+        +float total_shares
+        +int n_intervals
+        +float tau
+        +float kappa
+        +float rho
+        +float gamma_p
+        +decay() float
+    }
+    class SignalParams {
+        +float phi
+        +float signal_sd
+        +float fill_risk
+    }
+    class execution {
+        +transient_expected_cost(p, holdings) float
+        +transient_optimal_schedule(p) array
+        +replan(p, sig, holding, signal, k) array
+        +replan_coefficients(p, sig) tuple
+        +simulate_adaptive(p, sig, n_paths, seed) AdaptiveSimResult
+        +internalise(buys, sells, market inputs) InternalisationResult
+    }
+
     almgren_chriss ..> ACParams : validates on construction
     almgren_chriss --> FrontierPoint
     almgren_chriss --> ISSimResult
@@ -253,6 +385,15 @@ classDiagram
     market --> ASParams
     market --> ImpactParams
     market --> PretradeReport
+    tca --> SlippageReport
+    tca --> WelchResult
+    calibration --> FillIntensity
+    execution ..> TransientParams : validates on construction
+    execution ..> SignalParams : validates on construction
+    execution --> AdaptiveSimResult
+    execution --> InternalisationResult
+    execution --> ACParams
+    execution --> market
 ```
 
 ## 2. The pinned A-S simulation loop
@@ -386,7 +527,62 @@ Design points:
     with the KKT condition instead of trusted. `alpha = 1` with uniform
     weights is asserted against the closed-form Almgren-Chriss trajectory,
     and the Python suite cross-checks the solver against SciPy.
-12. **RNG policy.** Determinism is per-language, agreement is statistical.
+
+    *Why a KKT certificate.* With a drift the optimum may finish at some
+    `m < N`, and on a shorter horizon the Newton iteration can fail for two
+    different reasons: the horizon is infeasible (a trade would have to be
+    negative), or the solver is broken. Bisection on `m` finds the largest
+    horizon on which Newton converges with all trades strictly positive;
+    the certificate then checks the one inequality that makes stopping
+    there optimal, that the marginal cost of the last trade does not exceed
+    the drift saved by finishing, `c_m'(n_m) <= drift * tau (1 + 1e-9) +
+    1e-12`. The problem is convex, so a point that passes is the global
+    optimum; a point that fails is reported as a solver error rather than
+    returned. With `drift = 0` the full horizon must converge, and any
+    failure is an error.
+12. **Transient impact: an exact tridiagonal solve, not an optimiser.** The
+    Obizhaeva-Wang cost is the quadratic form `n' A n / 2` with
+    `A = kappa K - gamma_p I` and `K_ij = a^|i-j|`. `K` is a
+    Kac-Murdock-Szego matrix, and `(1 - a^2) K^{-1}` is tridiagonal, so
+    `A y = 1` is multiplied through by that inverse into a tridiagonal
+    system (`API_SPEC.md` 12.1) solved by the Thomas algorithm in O(N).
+    There is no iteration and no tolerance. The system is strictly
+    diagonally dominant exactly when the validity condition
+    `gamma_p < kappa (1 - a)/(1 + a)` holds, which is also what makes Thomas
+    stable without pivoting; the constructor rejects every other input, so
+    the solve can assume it. `b = 1 - a` is evaluated as `-expm1(-rho tau)`
+    so that slow resilience (`a` near 1, golden `transient_slow_resilience`)
+    does not lose digits. The `gamma_p = 0` closed form
+    `n ~ [1, 1-a, ..., 1-a, 1]` and the `a = 0` reduction to TWAP are
+    asserted in every suite as literature and consistency checks.
+13. **Adaptive re-planning: precomputed linear coefficients.** The re-plan
+    is a Thomas solve of an `(m-1)`-system whose right-hand side is linear
+    in the holding `h` and the signal `s`, so its first step is
+    `c_m h - d_m s`. `replan_coefficients` solves the two unit right-hand
+    sides once per `m`, and the simulation then costs O(N) per path instead
+    of O(N^2). The static plan is the re-plan at `k = 0`, `s = 0`, and is
+    asserted equal to the Section 1.4 trajectory to `1e-9 X`; with no signal
+    and no fill risk the two strategies are asserted identical path by path,
+    which is the test that the coefficients are right.
+14. **The t CDF without a special-function library.** Welch p-values need
+    the Student t CDF, and the four languages do not share a statistics
+    library (C++ and Java have none in the standard library). The contract
+    therefore pins the algorithm (`API_SPEC.md` 10.4): `ln_gamma` by
+    Lanczos with `g = 7` and nine coefficients, the regularised incomplete
+    beta by the modified Lentz continued fraction of *Numerical Recipes*
+    (with the symmetry switch at `x = (a+1)/(a+b+2)`, which keeps the
+    fraction in its fast-converging region, and `1e-300` guards against
+    division by zero), and the t CDF from
+    `I_{df/(df+t^2)}(df/2, 1/2)`. Two choices matter for agreement between
+    ports: the prefactor is computed as `exp` of a sum of logs with
+    `log1p(-x)` rather than as a product of powers, and the iteration stops
+    on the same relative test `|del - 1| <= 1e-15`. Every port then agrees
+    to the 1e-12 golden tolerance; the Python suite checks against
+    `math.lgamma` and SciPy. The accuracy limit is stated rather than
+    hidden: `ln_gamma` differences cancel for `df` above about `1e5`, which
+    no realistic order count reaches. Hitting the 10,000-iteration cap is a
+    solver failure, not an input error.
+15. **RNG policy.** Determinism is per-language, agreement is statistical.
     Python: `numpy.random.default_rng(seed)` (PCG64, stream versioned by
     NumPy); C++: `std::mt19937_64` with `std::uniform_real_distribution` /
     `std::normal_distribution` — deterministic per standard library only,
@@ -415,6 +611,14 @@ entry, reported with a specific message, and never clamped or deferred:
 | Rust | `Result<_, EtradeError>` | manual thiserror-style enum; no panics on bad input; `?` propagation in demo/tests |
 | Java | `throw IllegalArgumentException(msg)` | checked eagerly in constructors and static entry points |
 
+A solver that fails on valid input (the Section 8 Newton solve or its KKT
+certificate, the incomplete-beta continued fraction) is not an input error
+and is reported separately: Python `ValueError` with a solver message, C++
+`std::runtime_error`, Rust `EtradeError::SolverFailed`, Java
+`IllegalStateException`. Messages are pinned per argument in
+`API_SPEC.md` Sections 6, 10.5, 11 and 12, so a test can assert the same
+text in every language; COOKBOOK recipe 23 lists the common ones.
+
 The checked conditions are enumerated in `API_SPEC.md` Section 6 and are
 identical in the four ports: NaN/inf anywhere (parameters, holdings paths,
 grids, quote state `s`/`q`, volumes, `fixed_spread`, stress settings),
@@ -431,12 +635,12 @@ exception is a port bug that the tests catch.
 
 ## 5. Testing strategy
 
-Five layers, replicated per language (Python 174 tests, C++ 91, Rust 78,
-Java 85, 428 in total):
+Five layers, replicated per language (Python 371 tests, C++ 127, Rust 151
+including 3 doc-tests, Java 120; 769 in total, counted on 2026-10-30 by
+running each suite):
 
-1. **Golden values** (`data/golden/golden.json`, 19 cases;
-   `market_golden.json`, 9 cases at 1e-12; `impact_golden.json`, 8 cases at
-   1e-9; every suite asserts each count exactly and that every case is
+1. **Golden values** (the six files of the inventory in Section 1, 70
+   cases; every suite asserts each count exactly and that every case is
    handled).
    *Exact* cases (tol 1e-10..1e-12, relative for large magnitudes via
    `tol*max(1,|expected|)`) pin the closed forms: AC solutions on two
@@ -478,6 +682,15 @@ Java 85, 428 in total):
    against a saturated book (exactly `2·n_steps`) and, in Python, against an
    independent scalar re-implementation of the pinned loop.
 
+The Section 10-12 modules add their own invariants to layers 2 and 3: TCA
+buy and sell results are exact negatives, and price scaling leaves the bps
+unchanged; `arrival_bps` reproduces the Section 3.1 trading component;
+`as_params_from_market` applied to a fitted `touch_fills_per_day` and
+`halving_ticks` returns the fitted `A` and `k`; the transient optimum
+reduces to TWAP when `a = 0`; internalising never increases cost on random
+order sets; re-planning saves exactly nothing without a signal or fill risk
+and more than 4 SE with one.
+
 ## 6. Performance notes
 
 - Closed-form AC quantities are O(N) with trivial constants; the frontier
@@ -498,3 +711,84 @@ Java 85, 428 in total):
   O(n_paths * n_steps) paths. The MC IS check allocates its
   `(n_paths, N)` normal block up front in Python purely for draw-order
   pinning; native ports draw per step and stay O(n_paths).
+
+## 7. Continuous integration
+
+Two workflows run on every push to `main` and every pull request.
+
+`.github/workflows/ci.yml`:
+
+| job | platforms | steps |
+|---|---|---|
+| Python | Ubuntu, Windows, macOS x Python 3.11, 3.13 | `pip install -e "python[dev]"`, `ruff check` and `ruff format --check`, `mypy`, `pytest`, the demo |
+| C++ | Ubuntu, Windows, macOS | CMake Release with `-DETRADE_WERROR=ON`, build, `ctest`, the demo |
+| C++ sanitizers | Ubuntu, clang | Debug build with AddressSanitizer and UBSan (`-DETRADE_SANITIZE=ON`), `ctest`; UBSan halts on the first error |
+| Rust | Ubuntu, Windows, macOS, stable | `cargo fmt --check`, `cargo clippy --all-targets -D warnings`, `cargo test --release`, `cargo doc` with warnings as errors, the demo |
+| Rust MSRV | Ubuntu, Rust 1.78 | dependencies resolved to MSRV-compatible versions, `cargo test --release` |
+| Java | Ubuntu, Windows, macOS x JDK 17, 21 | `mvn -B verify` (compiles with `-Xlint:all -Werror`), the demo |
+
+That is 20 jobs; `fail-fast` is off, so one platform failing does not hide
+another. Running every suite on three operating systems is what catches
+the last-ulp differences between C runtimes that the golden tolerances
+(Section 5) are sized to absorb.
+
+`.github/workflows/docs.yml` builds this site with `mkdocs build --strict`
+on Ubuntu and Python 3.12, so a broken link or anchor fails the pull
+request; it deploys to GitHub Pages only from `main` and only when the
+repository's Pages source is set to GitHub Actions (`docs/GITHUB_PAGES.md`).
+
+## 8. Contributor guide: adding a module in all four languages
+
+The order below keeps the four ports from drifting apart. Each step names
+the files touched; `tca` (Section 10) is a complete worked example to copy.
+
+1. **Write the contract first.** Add a numbered section to `API_SPEC.md`:
+   the formulas with every sum's order, the validation rules with their
+   exact messages (one per argument), the bounds, the error type for each
+   failure, and the golden kinds with their expected keys and tolerance. If
+   a choice could change the last digits (an algorithm, a loop order, a
+   `log1p`), pin it. A port that disagrees with the spec is wrong; a spec
+   that leaves room for disagreement is wrong.
+2. **Python reference.** `python/src/etrade/<module>.py` with a module
+   docstring that cites the spec section; register it in
+   `python/src/etrade/__init__.py` (`from . import <module>` and the
+   `__all__` entry). It must pass `ruff check`, `ruff format --check` and
+   `mypy` (strict, configured in `python/pyproject.toml`).
+3. **Generator and goldens.** `data/generate_<module>.py` imports the
+   reference, builds the cases (seeded if random), checks what it can
+   against an independent source (SciPy, a closed form, a brute-force loop)
+   and writes `data/golden/<module>_golden.json` in the Section 5 schema.
+   Commit the generator and its output together; ports never write golden
+   files.
+4. **Python tests.** `python/tests/test_<module>.py`: every golden case and
+   every expected key, the exact case count, each validation message, the
+   properties the spec asserts, and a determinism test for anything random.
+5. **C++.** `cpp/include/etrade/<module>.hpp` and `cpp/src/<module>.cpp`;
+   add the source to `add_library(etrade ...)` and the test file
+   `cpp/tests/test_<module>.cpp` to the test executable in
+   `cpp/CMakeLists.txt`. Golden files are read with `cpp/tests/mini_json.hpp`.
+   The build must be clean under `-DETRADE_WERROR=ON` and the sanitizers.
+6. **Rust.** `rust/src/<module>.rs`, `pub mod <module>;` in
+   `rust/src/lib.rs` (plus `pub use` lines for anything re-exported at the
+   crate root), errors through `crate::error::{require, EtradeError}`, and
+   `rust/tests/<module>.rs`. It must be clean under `cargo fmt`, `clippy -D
+   warnings`, `cargo doc -D warnings` and build on Rust 1.78.
+7. **Java.** `java/src/main/java/io/github/ashjha0/etrade/<Module>.java`
+   (records for results, `Validation.require` for checks) and
+   `<Module>Test.java` next to the other tests, which read goldens with the
+   test-side `Json` helper. Maven picks both up; `-Xlint:all -Werror` must
+   stay clean.
+8. **Demos.** Add a section to `python/demo.py`, `cpp/src/demo.cpp`,
+   `rust/examples/demo.rs` and `Demo.java` if the module has a result worth
+   printing. CI runs every demo, so this also guards against a module that
+   compiles but fails at run time. (The Section 10-12 modules have no demo
+   section yet; COOKBOOK recipes 15-22 play that role.)
+9. **Documentation.** A COOKBOOK recipe in all four languages, whose
+   quoted outputs are what the code printed; a LEARN section with the plain
+   idea, the formal statement, a worked example the code reproduces, and
+   its sources; this document's module table, dependency graph, data flow
+   and golden inventory; and the test counts wherever they are quoted
+   (README, `docs/site/pages/index.md`, `docs/index.html`, Section 5 here,
+   `python/README.md`).
+10. **Check locally before pushing.** All four suites, the linters above,
+    and `mkdocs build --strict`.

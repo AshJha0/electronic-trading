@@ -10,7 +10,8 @@
 site_name: electronic-trading
 site_description: >-
   Execution and market-making research platform: Almgren-Chriss, Avellaneda-Stoikov,
-  square-root impact and implementation shortfall, in Python, C++, Rust and Java.
+  square-root and transient impact, calibration, TCA and implementation shortfall,
+  in Python, C++, Rust and Java.
 site_url: https://ashjha0.github.io/electronic-trading/
 repo_url: https://github.com/AshJha0/electronic-trading
 repo_name: AshJha0/electronic-trading
@@ -27,6 +28,7 @@ watch:
   - API_SPEC.md
   - CHANGELOG.md
   - docs/ARCHITECTURE.md
+  - docs/GITHUB_PAGES.md
   - docs/diagrams
 
 nav:
@@ -37,6 +39,7 @@ nav:
   - Architecture: architecture.md
   - Diagrams: diagrams.md
   - Changelog: changelog.md
+  - Publishing the site: publishing.md
 
 theme:
   name: material

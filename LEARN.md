@@ -5,15 +5,23 @@ electronic markets work at the microstructure level, why executing a large
 order is a genuine optimization problem, the Almgren-Chriss solution to it,
 the Perold implementation-shortfall framework used to measure execution
 quality, and the Avellaneda-Stoikov model of an inventory-averse market
-maker. It also covers stating parameters in market units (Section 3.8) and
+maker. It also covers stating parameters in market units (Section 3.8),
 the square-root law of impact with intraday volume and alpha-aware schedules
-(Section 3.9). The closed-form numbers below are reproduced by the code and
+(Section 3.9), calibration from recorded data (3.10), transient impact
+(3.11), adaptive re-planning (3.12), internalisation (3.13) and post-trade
+analysis: benchmarks, markouts and comparing algorithms (4.2-4.4). A
+glossary is at the end (Section 15). The closed-form numbers below are
+reproduced by the code and
 pinned in `data/golden/golden.json` (tolerance 1e-10..1e-12); the market-unit
 and power-law figures are pinned in `data/golden/market_golden.json` and
-`data/golden/impact_golden.json` and printed by every demo; the simulation
+`data/golden/impact_golden.json` and printed by every demo; the TCA,
+calibration and execution-extension figures come from the golden files of
+`API_SPEC.md` Sections 10-12 or from COOKBOOK recipes 15-22, run in all four
+languages. The simulation
 numbers (Section 6.5–6.6) are 2,000-path samples from the Python demo that
 the C++/Rust/Java ports reproduce *statistically* (within the 4-SE bands of
-the golden file), not bit-for-bit.
+the golden file), not bit-for-bit; those of Section 3.12 are 20,000-path
+Python samples.
 
 ---
 
@@ -400,13 +408,231 @@ decision about the information behind it; this is where the model lets a
 desk price that decision.
 
 **What it still leaves out.** Volatility is constant through the day (real
-intraday volatility is also U-shaped), impact is instantaneous rather than
-decaying over time, and the volume curve is illustrative. The later
-calibration release fits both curves to recorded data.
+intraday volatility is also U-shaped) and impact is instantaneous rather
+than decaying over time. Section 3.10 measures the volume and volatility
+curves on recorded data; Section 3.11 adds impact that decays.
+
+### 3.10 Calibration: measuring the inputs, and what one day can tell you
+
+Claims in this and the following sections carry an evidence class:
+*asserted* (checked by every test suite), *measured* (computed from data
+in this repository), *published* (a peer-reviewed result, cited),
+*derived* (arithmetic shown in the text) or *judgement* (the author's
+reading, open to dispute).
+
+**The plain idea.** Every model above needs numbers: how volume is spread
+over the day, how volatile the price is, how wide the spread is, and how
+often a resting quote gets hit at a given distance from the mid. Each of
+these can be counted from a day of market data. Counting is easy. The hard
+part is knowing how far one day's count generalises.
+
+**The formal statement** (`API_SPEC.md` Section 11). A session `[t0, t1]`
+is cut into `B` equal bins, and an observation at `t` falls in bin
+`min(floor((t - t0) B / (t1 - t0)), B - 1)`. Then:
+
+- the **volume curve** is `w_j = V_j / sum V`, the share of the session's
+  volume traded in bin `j`;
+- the **realised variance** of bin `j` is the sum of squared log returns of
+  the mid ending in it, `RV_j = sum r_i^2`, and the daily volatility is
+  `sqrt(sum_j RV_j)` (Andersen, Bollerslev, Diebold and Labys 2001,
+  published);
+- the **spread statistics** are the mean and median of the quoted spread in
+  ticks and in bps;
+- the **fill intensity** fits `lambda(delta) = A exp(-k delta)` to the rate
+  at which market orders reach distance `delta` from the mid, by least
+  squares on `ln(count)` weighted by the count. The weight is there because
+  a Poisson count `c` has `Var(ln c) ~ 1/c` (delta method, derived): without
+  it the sparse tail buckets set the slope.
+
+**Worked example** (measured; `data/calibration/fitted_20191230.json`,
+table in `API_SPEC.md` 11.6). On the NASDAQ ITCH sample day 2019-12-30, AAPL
+traded 5,678,176 shares on NASDAQ in the continuous session, with an
+open-to-close realised volatility of 1.157% and a mean quoted spread of
+2.64 ticks (0.91 bps). Its market orders reached 0.5, 1.5 and 2.5 ticks from
+the mid 43,334, 11,235 and 1,307 times. The fit gives
+`touch_fills_per_day = 22,070` per side and `halving_ticks = 0.460`, which
+`as_params_from_market` turns into `k = 150.684169686945` per dollar and
+`A = 46,882.2935867192` per day (COOKBOOK recipe 18, asserted round trip).
+The fitted volume curve puts 19.9% of the day's volume in the first half
+hour and 14.5% in the last, against 12% and 14% in the illustrative curve
+of Section 3.9.
+
+**What one day and three names can tell you** (judgement, with the
+arithmetic derived):
+
+- *Orders of magnitude and shapes.* The spread is a few ticks for AAPL and
+  about one tick for MSFT and QQQ; mean and median agree, so the estimate
+  is not driven by a few wide moments. Volume is U-shaped. These are
+  stable features of large US names and one day is enough to see them.
+- *Not the sampling error.* Under i.i.d. Gaussian returns the relative
+  standard error of a realised volatility built from `n` returns is about
+  `1/sqrt(2n)` (derived): 12.9% for a thirty-minute bin of 30 one-minute
+  returns and 3.6% for the whole day of 390. That is the *best* case; real
+  returns have fat tails and volatility clustering, so the true error is
+  larger. Day-to-day variation, the larger effect, cannot be measured from
+  a single day at all.
+- *Not impact.* The day contains trades, not parent orders, so the
+  square-root prefactor `Y` and exponent `alpha` of Section 3.9 are not
+  fitted; they come from the literature. The fitted presets combine
+  measured market inputs with assumed impact parameters.
+- *Not the consolidated market.* NASDAQ is one venue. Its volume is a lower
+  bound on consolidated ADV, so impact calibrated on it is pessimistic; its
+  best quotes are never tighter than the NBBO.
+- *Not a typical day.* The day falls between Christmas and New Year, when
+  US volume is usually light.
+- *Not an exponential.* The fill counts fall by a factor of 3.9 from 0.5 to
+  1.5 ticks and by 8.6 from 1.5 to 2.5 ticks for AAPL (measured): the decay
+  is not a constant ratio, so `A exp(-k delta)` is a convenient fit, not a
+  law. The weighted fit gets the touch rate right to within 2% and
+  understates the tail (`API_SPEC.md` 11.6).
+
+The honest use of these numbers is as a sanity anchor: a model whose spread
+is ten times the measured one, or whose volume curve is flat, is wrong.
+Using them as precise inputs would need many days, the consolidated tape and
+a standard error on every estimate.
+
+### 3.11 Transient impact and resilience (Obizhaeva-Wang)
+
+**The plain idea.** When you sell into the book you eat the resting bids,
+and the price drops. Then new bids arrive and the price recovers part of the
+way: the book is *resilient*. Almgren-Chriss treats the temporary part of
+impact as gone by the next interval and the permanent part as there forever.
+Real impact sits in between and decays over minutes. If it decays, the
+timing of trades matters in a new way: a trade made right after another one
+pays for the first one's unrecovered push.
+
+**The formal statement** (Obizhaeva and Wang 2013, published; discrete form
+pinned in `API_SPEC.md` 12.1). Trading `n` shares moves the price by
+`kappa n` (the inverse of book depth). The displacement decays by a factor
+`a = exp(-rho tau)` per interval, so before trade `j` it is
+`D_j = a (D_{j-1} + kappa n_{j-1})`, and
+
+$$
+E[\text{IS}] = \tfrac12 \gamma_p X^2 + \sum_j \Big[ \tfrac12(\kappa - \gamma_p)\, n_j^2 + n_j D_j \Big]
+             = \tfrac12 \gamma_p X^2 + \tfrac12\, n^\top A\, n,
+\qquad A = \kappa K - \gamma_p I,\; K_{ij} = a^{|i-j|}.
+$$
+
+`K` is a Kac-Murdock-Szegő matrix, whose inverse is tridiagonal, so the
+optimum `n = X y / sum(y)` with `A y = 1` comes from one Thomas solve, with
+no iteration (`docs/ARCHITECTURE.md` Section 3). The cost is convex in the
+trades exactly when `gamma_p < kappa (1 - a)/(1 + a)` (asserted). With
+`gamma_p = 0` the optimal trades are proportional to
+`[1, 1-a, ..., 1-a, 1]`: a block at the start, a constant rate in between,
+a block at the end (Obizhaeva and Wang 2013; Alfonsi, Fruth and Schied 2010,
+published; asserted by every suite).
+
+**Worked example** (COOKBOOK recipe 19). Sell 1,000,000 shares in 10
+intervals of `tau = 0.1` with `kappa = 1e-6` and `rho = 5`, so
+`a = exp(-0.5) = 0.607`. The optimum trades 194,259 shares at each end and
+76,435 in each of the eight middle intervals; `76,435 / 194,259 = 0.393 =
+1 - a` (derived). Its expected cost is 156,041.881012075 against
+165,236.399784175 for TWAP, 5.6% less. The first block is cheap because the
+book is untouched; the middle trades are small because each one pays for
+the decaying push of the ones before; the last block is cheap because no
+later trade will pay for its push.
+
+**The link to Almgren-Chriss** (asserted). With `kappa = 2 eta / tau` and
+resilience so fast that `a` underflows to 0, every push is gone by the
+next interval, the cost equals Section 3.2's expected cost with
+`lambda_ra = 0`, and the optimum is TWAP. Almgren-Chriss is the
+instant-resilience limit of this model.
+
+**What it leaves out.** The model is risk-neutral (no variance term), the
+decay is exponential, and the book shape is flat (linear impact). Gatheral
+(2010) shows that some combinations of decay kernel and impact shape admit
+price manipulation; the exponential-linear pair used here does not
+(published).
+
+### 3.12 When does re-planning help? Time consistency
+
+**The plain idea.** An execution algorithm can follow a schedule fixed at
+the start, or re-solve the problem every interval from wherever it now is.
+It seems obvious that re-solving should do better. In the Almgren-Chriss
+model, with nothing new learned along the way, it does exactly as well and
+no better: re-solving from the realised state gives back the remaining
+part of the original plan. Re-planning pays only when the trader learns
+something the plan did not know.
+
+**The formal statement** (`API_SPEC.md` 12.2). The re-plan at decision `k`
+with holding `h` and an observed drift signal `s` minimises the remaining
+mean-variance cost minus the signal's expected gain. The solution is linear
+in `(h, s)`: the next child order is `c_m h - d_m s` with `m` intervals left.
+With `s = 0` the re-plan from the planned holding reproduces the planned
+tail exactly. That is time consistency: the plan made at time 0 is still
+optimal when evaluated at any later time, from the state it predicted, and
+from any other state too, because the problem from `(k, h)` has the same
+shape as the original (asserted to `1e-9 X`).
+
+**Worked example** (COOKBOOK recipe 20). Liquid parameters, 20,000 paths,
+seed 1:
+
+| signal and fills | static mean IS | adaptive mean IS | paired saving (SE) |
+|---|---|---|---|
+| none, full fills | 1,081,939 | 1,081,939 | 0 (0) |
+| AR(1) drift, `phi = 0.7`, `signal_sd = 0.5` | 1,082,614 | 1,035,683 | 46,931 (815) |
+| random fills, `fill_risk = 0.5` | 880,416 | 830,959 | 49,457 (1,716) |
+
+The first row is zero on every path, not just on average (asserted). The
+signal row saves 4.3% of the static cost at more than 50 standard errors:
+the adaptive trader sells faster when the signal says the price is about to
+fall. The fill-risk row saves because the static plan, having fallen short,
+dumps the shortfall in the last interval, while the re-planner spreads it
+over the remaining ones. The coefficients make this concrete: with four
+intervals left, `c_4 = 0.573184071592799`, so a holding of 428,598.85 shares
+(the static plan's) gives a child order of 245,666, exactly the static
+plan's second trade (derived from `replan_coefficients`). With
+`d_4 = 122,742.71`, a signal of `s = +0.2` (the price expected to rise)
+cuts that child order by 24,549 shares, and `s = -0.2` adds as many.
+
+**What this does and does not show.** Almgren and Lorenz (2007, published)
+find a different gain that this model excludes: if the trader is judged on
+one mean-variance criterion for the whole trade, rather than re-optimising
+the same criterion each period, a rule that sells faster after gains and
+slower after losses beats the static optimum. That rule is not time
+consistent and is not implemented here.
+
+### 3.13 Internalisation economics
+
+**The plain idea.** A broker that holds a client buy order and a client
+sell order in the same stock can cross them against each other at the mid
+and send only the difference to the market. Both clients avoid the impact
+the crossed shares would have caused. Because impact grows faster than
+linearly in size, the saving is larger than the crossed fraction alone
+suggests.
+
+**The formal statement** (`API_SPEC.md` 12.3). Let `C(Q)` be the Section
+3.9 expected cost of working `Q` shares on the VWAP schedule. With buys
+summing to `B` and sells to `S`, the baseline sends both, costing
+`C(B) + C(S)`; internalising sends only `|B - S|`, costing `C(|B - S|)`.
+`C` is increasing and `C(0) = 0`, so the saving is never negative
+(asserted on random order sets). Under the square-root law the temporary
+cost per share grows like `Q^(1/2)`, so the total grows like `Q^(3/2)`.
+
+**Worked example** (COOKBOOK recipe 21). Buys of 200,000 and 50,000, a sell
+of 150,000, on the US large-cap inputs with the illustrative volume curve.
+150,000 shares cross; 100,000 net buy go to the market. The impact bill
+falls from 123,600.89 to 21,304.64, a saving of 102,296.25, or 25.57 bps of
+the 400,000 gross shares. A pure `Q^(3/2)` law predicts the ratio
+`100^1.5 / (250^1.5 + 150^1.5) = 0.1727` (derived); the model gives
+0.1724, the difference being the permanent-impact term.
+
+**Who gets the saving** (judgement). The contract allocates pro rata within
+each side: every buy saves 25.25 bps and the sell 26.12 bps. Other rules are
+defensible (all to the smaller side, which made the cross possible; or
+split by notional), and regulation cares about this. In the EU a firm that
+crosses client orders still owes each client best execution (MiFID II,
+Directive 2014/65/EU, Article 27); in the US, execution quality and order
+routing are disclosed under SEC Rules 605 and 606. Crossing also leaks
+information if done carelessly, and a client who learns that the other side
+was a large seller may judge the "saving" differently. The numbers here
+are the impact arithmetic only.
 
 ---
 
-## 4. Implementation-shortfall decomposition (Perold)
+## 4. Post-trade analysis: implementation shortfall, benchmarks, markouts
+
+### 4.1 Implementation-shortfall decomposition (Perold)
 
 Perold (1988) compared a real portfolio to a **paper portfolio** that
 executes instantly, for free, at the decision price. The difference — the
@@ -446,6 +672,114 @@ and it is the first sanity check to run on any TCA vendor's numbers.
 
 The buy case (`is_decomposition_buy`) mirrors the prices and yields the same
 components — a deliberate symmetry check.
+
+### 4.2 Benchmarks, and why interval VWAP
+
+**The plain idea.** "How much did this order cost?" needs a reference
+price, and each common reference answers a different question. The
+*arrival* price (the mid when the order reached the desk) measures the
+whole cost of trading, including the market moving while you traded. The
+*VWAP* of the day asks whether you traded at the market's average price.
+The *close* asks how you did against the price at which the order's
+performance is often marked. A benchmark that the trader influences, or
+that includes prices the order could never have traded at, gives a
+misleading score.
+
+**The formal statement** (`API_SPEC.md` 10.1). With fills `(n_j, p_j)`,
+average price `pbar` and `sign = +1` for a sell, the cost against a
+benchmark `B` is `1e4 * sign * (B - pbar) / B` bps, positive meaning
+worse than the benchmark. The *interval VWAP* restricts the market VWAP to
+the bins in which the order traded:
+
+$$
+\text{interval VWAP} = \frac{\sum_{b \in S} V_b P_b}{\sum_{b \in S} V_b},
+\qquad S = \{\, b : \text{the order filled in bin } b \,\}.
+$$
+
+**Worked example** (COOKBOOK recipe 15). A sell of 70,000 shares in the
+first three of four bins of a falling market:
+
+| benchmark | price | cost (bps) |
+|---|---|---|
+| arrival | 100.00 | 10.3571428571428 |
+| full-day VWAP | 99.8766666666667 | -1.97863078749529 |
+| interval VWAP | 99.905 | 0.857957917164196 |
+| close | 99.80 | -9.66218150586925 |
+
+Against the day's VWAP and the close the order seems to have beaten the
+market, only because it finished before the last, lowest-priced bin. The
+interval VWAP compares the order with the market over the time it was
+actually trading and shows a small cost.
+
+**Why interval VWAP** (judgement, with published support). Berkowitz, Logue
+and Noser (1988) proposed the day's VWAP as a benchmark because it needs no
+model and cannot be gamed by choosing a single print. Its weakness is the
+one in the example: an order that trades over part of the day is scored
+against prices it could not reach, so the score mostly measures the
+market's drift. The interval VWAP keeps the model-free property and removes
+the timing luck. It has its own flaw: for an order that is a large part of
+the volume in its bins, the benchmark contains the order's own fills and
+impact, and flatters it (a 100%-participation order matches its interval
+VWAP exactly). Use it next to arrival cost, which charges the order for
+everything it did, and alongside participation (10.3).
+
+### 4.3 Markouts
+
+**The plain idea.** A markout asks what the mid did after each fill. If
+prices keep moving against the side you traded on (they rise after you buy),
+your counterparties were trading on information you lacked, or the fill was
+too early. If they move your way, you were either well informed or pushing
+the price yourself.
+
+**The formal statement** (`API_SPEC.md` 10.2). For fill `j` at step `t_j`
+and horizon `h`, `mk_j(h) = d (m_{t_j + h} - m_{t_j})` with `d = +1` for a
+buy and `-1` for a sell, in currency per share. Negative is adverse. The
+module reports the average per fill and the quantity-weighted average per
+share. Fill prices are not inputs: a markout measures the information in
+the timing of the fill, not the spread paid.
+
+**Worked example** (COOKBOOK recipe 15). The four sells, marked one and
+three steps later, average +1.6 and +4.9 cents per share (per share,
+`0.0157142857142836` and `0.048571428571426`). The mid kept falling after
+each sale, favourable to a seller. On an order that is 4.7% of the volume,
+part of that fall is the order's own impact (Section 3.11). A market maker
+reads the same statistic the other way: negative markouts on its passive
+fills are adverse selection, the cost Section 6 does not model
+(Glosten and Milgrom 1985, published, for why informed flow makes it
+unavoidable).
+
+### 4.4 Comparing algorithms: is the difference real?
+
+**The plain idea.** Algo A cost 2.9 bps on average and algo B 0.7 bps. Is A
+worse, or did it get the harder orders, or was it unlucky? Per-order costs
+are noisy (a standard deviation of 10 bps or more is common for liquid
+names, judgement), so a few orders prove little.
+
+**The formal statement** (`API_SPEC.md` 10.4). Welch's t-test (Welch 1947,
+published) compares two means without assuming equal variances:
+`t = (mean_a - mean_b) / sqrt(v_a/n_a + v_b/n_b)` with the
+Welch-Satterthwaite degrees of freedom
+`df = (v_a/n_a + v_b/n_b)^2 / ((v_a/n_a)^2/(n_a-1) + (v_b/n_b)^2/(n_b-1))`.
+The two-sided p-value uses the Student t distribution, computed through the
+regularised incomplete beta function (pinned so that every port gives the
+same p-value; `docs/ARCHITECTURE.md` Section 3).
+
+**Worked example** (golden `welch_unequal_variance`, COOKBOOK recipe 16).
+Eight orders of A with mean 2.85 bps, six of B with mean 0.683 bps:
+`t = 3.76751684064683`, `df = 10.1837133791222`,
+`p = 0.00356077027255458` (SciPy agrees).
+
+**How many orders a comparison needs** (derived). To detect a true
+difference `delta` with 80% power at the 5% level, each arm needs about
+`n = 2 (z_0.975 + z_0.8)^2 (sigma/delta)^2 = 15.7 (sigma/delta)^2` orders.
+With `sigma = 10` bps and `delta = 1` bp that is 1,570 orders per algorithm.
+
+**What the test assumes** (judgement). Orders are independent (they are
+not, when several are worked at once in the same name), the two samples
+face the same order mix (randomise the assignment of orders to algorithms,
+or the test compares order mixes), and the cost is measured against the
+same benchmark. With costs skewed by a few large orders, also look at the
+median and a trimmed mean.
 
 ---
 
@@ -617,10 +951,10 @@ bands.
 
 | Assumption | Reality |
 |---|---|
-| Linear impact `eta*v`, `gamma_p*n` (AC) | Empirical impact is concave, roughly square-root in participation ("square-root law"). Linear over-penalizes big clips and under-penalizes small ones. Section 3.9 adds the power-law model; its impact is still instantaneous, with no decay kernel. |
-| Impact parameters known and constant | `eta` must be estimated (`estimate_impact` in `analytics` does a toy version by OLS, Section 10); it varies by name, time of day, and regime. The presets and the volume curve are illustrative, not fitted. |
+| Linear impact `eta*v`, `gamma_p*n` (AC) | Empirical impact is concave, roughly square-root in participation ("square-root law"). Linear over-penalizes big clips and under-penalizes small ones. Section 3.9 adds the power-law model, with instantaneous impact; Section 3.11 adds exponential decay, but only with linear impact. |
+| Impact parameters known and constant | `eta` must be estimated (`estimate_impact` in `analytics` does a toy version by OLS, Section 10); it varies by name, time of day, and regime. Five presets and the pinned volume curve are illustrative; three presets and a second curve are fitted to one ITCH day (Section 3.10), and even those take their impact prefactor from the literature. |
 | Arithmetic random walk, no drift | Fine intraday; over days, drift and mean reversion matter. Negative prices possible (documented). No fat tails, no jumps — variance understates tail risk. |
-| Static AC trajectory | The 2000 solution is deterministic (pre-committed). With linear impact and no signals, the static path is also dynamically optimal — but real algos adapt to fills, news, and volume surprises. |
+| Static AC trajectory | The 2000 solution is deterministic (pre-committed). With linear impact and no signals, the static path is also dynamically optimal (Section 3.12) — but real algos adapt to fills, news, and volume surprises; the `execution` module measures what re-planning gains from a drift signal or partial fills. |
 | Poisson arrivals `A e^{-k delta}` (A-S) | No adverse selection: fills are independent of future price moves. Real fills are informative — makers add alpha signals and quote-fade protection. |
 | Unit fill size, one venue, continuous quoting | Real fills are lumpy, markets fragmented, quoting throttled by messaging limits and tick sizes. |
 | Exponential utility, terminal-wealth horizon | Gives clean closed forms; real desks think in drawdown limits, VaR budgets and overnight caps rather than gamma. |
@@ -631,8 +965,8 @@ bands.
 ## 8. Practical market conventions: equity vs FX
 
 The three bundled parameter sets below are calibrated caricatures in model
-units; `data/presets.json` states five instruments in market units instead
-(Section 3.8):
+units; `data/presets.json` states eight instruments in market units instead
+(Section 3.8), three of them fitted to recorded data (Section 3.10):
 
 - **Liquid large-cap equity** (`params_liquid.json`): sigma = 0.95 \$/sqrt
   (interval) on a \$100 stock, eta = 2.5e-6 (selling 100k shares in one
@@ -655,7 +989,8 @@ Equity conventions worth knowing: order sizes in shares with round lots,
 prices on a tick grid (\$0.01), volume follows a U-shaped intraday curve
 (open/close auctions heaviest), short-sale rules constrain the sell side.
 Only the volume curve is modelled here (as liquidity weights in the
-power-law model of Section 3.9, with an illustrative pinned curve); lots,
+power-law model of Section 3.9, with an illustrative pinned curve and one
+fitted in Section 3.10); lots,
 the tick grid and short-sale rules are not. The models live in a
 friction-free mid-price world, which is exactly why the core of them is
 teachable in closed form.
@@ -895,6 +1230,53 @@ statistics. Investigate only if it exceeds 4 SE, drifts systematically with
 M, or co-occurs with other near-band misses; first suspects are draw order,
 ddof, and the cap's always-draw rule — not the RNG itself.
 
+**Q11. An algo beat the day's VWAP by 2 bps on a sell order that finished
+by noon in a falling market. Is that good execution?** Not necessarily.
+The day's VWAP includes the afternoon's lower prices, which the order never
+faced, so the 2 bps may be the market's drift. Compare against the interval
+VWAP over the bins it traded, and against arrival (Section 4.2; the recipe
+15 example beats the day's VWAP by 1.98 bps and loses 0.86 bps to its
+interval VWAP).
+
+**Q12. Your sell fills show positive markouts: the mid keeps falling after
+each fill. Should you be pleased?** Only partly. It means you sold ahead of
+a fall, which is what an informed seller wants, but on an order that is a
+noticeable share of volume some of the fall is your own impact still
+working through (Section 4.3 and 3.11). Compare markouts on fills of
+different sizes: impact grows with size, information does not.
+
+**Q13. Algo A averaged 1 bp less than B over 200 orders each, with a
+per-order standard deviation of 10 bps. Switch?** The standard error of the
+difference is `10 sqrt(2/200) = 1` bp, so `t` is about 1 and the
+difference is noise. Detecting 1 bp at 80% power needs about 1,570 orders
+per algo (Section 4.4), with orders randomised between the two.
+
+**Q14. Why can a realised volatility from one day not be trusted to two
+digits?** Even in the ideal i.i.d. case the relative standard error with
+390 one-minute returns is `1/sqrt(780) = 3.6%`, and 12.9% for a half-hour
+bin of 30 returns; fat tails make it worse, and one day says nothing about
+how volatility varies between days (Section 3.10).
+
+**Q15. In the transient-impact model with no permanent impact, why does the
+optimum trade blocks at the start and end?** The first trade meets an
+untouched book; the last trade's push is never paid for by a later trade.
+Every middle trade pays for the decaying push of its predecessors, so the
+middle runs at a constant, smaller rate, `1 - a` of the end blocks
+(Section 3.11).
+
+**Q16. You re-plan an Almgren-Chriss schedule every interval with no signal
+and full fills. What do you gain?** Nothing, on every path: the optimum is
+time-consistent and the re-plan reproduces the remaining plan (Section
+3.12; the simulation saving is exactly 0). Gains come from information the
+plan lacked, such as a drift signal or partial fills.
+
+**Q17. Crossing a 150,000-share buy against a 150,000-share sell saves more
+than twice the cost of a 75,000-share order. Why?** Under the square-root
+law the total cost of an order grows like `Q^(3/2)`; avoiding two
+150,000-share orders saves `2 C(150,000)`, about `2 * 2^(3/2) = 5.7` times
+`C(75,000)`; the model with the US large-cap inputs gives 5.67 (Section
+3.13).
+
 ---
 
 ## 14. Further reading
@@ -931,3 +1313,64 @@ ddof, and the cap's always-draw rule — not the RNG itself.
   liquidity in financial markets", *Physical Review X* 1, 021006.
 - ESMA MiFID II best-execution guidance and SEC Rules 605/606 — the
   regulatory texts behind Section 12.
+- A. A. Obizhaeva, J. Wang (2013), "Optimal trading strategy and
+  supply/demand dynamics", *Journal of Financial Markets* 16(1), 1–32: the
+  transient-impact model of Section 3.11.
+- A. Alfonsi, A. Fruth, A. Schied (2010), "Optimal execution strategies in
+  limit order books with general shape functions", *Quantitative Finance*
+  10(2), 143–157: the discrete-time solution with its end blocks.
+- J. Gatheral (2010), "No-dynamic-arbitrage and market impact",
+  *Quantitative Finance* 10(7), 749–759: which decay kernels and impact
+  shapes are consistent.
+- R. Almgren, J. Lorenz (2007), "Adaptive arrival price", *Trading*
+  2007(1), 59–66: the non-time-consistent adaptive gain of Section 3.12.
+- T. G. Andersen, T. Bollerslev, F. X. Diebold, P. Labys (2001), "The
+  distribution of realized exchange rate volatility", *Journal of the
+  American Statistical Association* 96(453), 42–55: realised variance
+  (Section 3.10).
+- S. A. Berkowitz, D. E. Logue, E. A. Noser (1988), "The total cost of
+  transactions on the NYSE", *Journal of Finance* 43(1), 97–112: VWAP as an
+  execution benchmark (Section 4.2).
+- L. R. Glosten, P. R. Milgrom (1985), "Bid, ask and transaction prices in
+  a specialist market with heterogeneously informed traders", *Journal of
+  Financial Economics* 14(1), 71–100: adverse selection (Section 4.3).
+- B. L. Welch (1947), "The generalization of 'Student's' problem when
+  several different population variances are involved", *Biometrika*
+  34(1–2), 28–35; F. E. Satterthwaite (1946), *Biometrics Bulletin* 2(6),
+  110–114: the test and degrees of freedom of Section 4.4.
+- W. H. Press, S. A. Teukolsky, W. T. Vetterling, B. P. Flannery,
+  *Numerical Recipes*, 3rd ed., Sections 6.1 and 6.4: the incomplete beta
+  function behind the pinned t CDF.
+
+---
+
+## 15. Glossary
+
+| term | meaning | where |
+|---|---|---|
+| ADV | average daily volume, shares per day; the fitted presets use one day's NASDAQ volume | 3.8, 3.10 |
+| arrival price | the mid when the order reaches the desk; the benchmark of implementation shortfall | 4.1, 4.2 |
+| basis point (bp) | one hundredth of a percent of notional; `bps(x, N) = 1e4 x / N` | 3.8 |
+| child order | one slice of a parent order, sent in one interval | 3.7 |
+| efficient frontier | the set of schedules with the least expected cost for each variance | 3.5 |
+| fill intensity | the rate `A exp(-k delta)` at which a quote `delta` from the mid is hit | 6.1, 3.10 |
+| half-life | the time `ln 2 / kappa` over which an optimal schedule halves its holding | 3.4 |
+| implementation shortfall (IS) | paper-portfolio value minus realised value; delay + trading + opportunity | 4.1 |
+| internalisation | crossing opposite client orders at the mid and sending only the net | 3.13 |
+| interval VWAP | market VWAP over only the bins in which the order traded | 4.2 |
+| kappa (Almgren-Chriss) | urgency of the optimal schedule, from `cosh(kappa tau)` | 3.3, 3.4 |
+| kappa (transient) | price displacement per share traded, the inverse of book depth | 3.11 |
+| markout | the mid's move after a fill, signed so that negative is adverse | 4.3 |
+| participation | the order's share of market volume, per bin or overall | 3.7, 4.2 |
+| permanent impact | the part of a trade's price move that never decays (`gamma_p`) | 1.2 |
+| POV | percentage-of-volume schedule | 3.7 |
+| realised variance | the sum of squared intraday log returns | 3.10 |
+| reservation price | the market maker's indifference price given its inventory | 6.2 |
+| resilience | the rate `rho` at which the book refills after a trade | 3.11 |
+| square-root law | cost per share grows like the square root of order size over ADV | 3.9 |
+| temporary impact | the part of a trade's price move that lasts only while trading (`eta`) | 1.2 |
+| time consistency | a plan stays optimal when re-solved later from the state it reaches | 3.12 |
+| TWAP | equal slices over time | 3.7 |
+| VWAP | volume-weighted average price, or the schedule that trades in proportion to volume | 3.7, 4.2 |
+| Welch's t-test | a two-sample test of means that does not assume equal variances | 4.4 |
+
