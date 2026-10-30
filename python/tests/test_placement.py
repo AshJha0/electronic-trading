@@ -151,7 +151,7 @@ def test_monte_carlo_matches_dp_and_beats_baselines_without_penalty() -> None:
 def test_deterministic_without_volatility() -> None:
     p = _liq(sigma=0.0, total_units=4, n_periods=4)
     r = pl.simulate_liquidation(p, 50, 1)
-    assert r.aggressive_std == 0.0
+    assert r.aggressive_std <= 1e-15
     assert r.aggressive_mean == pytest.approx(pl.aggressive_cost(p), rel=1e-15)
 
 

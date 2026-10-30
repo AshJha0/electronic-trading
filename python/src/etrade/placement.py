@@ -339,6 +339,14 @@ def liquidation_policy(p: LiquidationParams) -> LiquidationPolicy:
 
 def aggressive_schedule(total_units: int, n_periods: int) -> list[int]:
     """Even market-order schedule ``n_j = floor(Q (j+1)/N) - floor(Q j/N)``."""
+    _require(
+        _is_int(total_units) and 1 <= total_units <= MAX_LIQ_UNITS,
+        f"total_units must be an integer in [1, {MAX_LIQ_UNITS}]",
+    )
+    _require(
+        _is_int(n_periods) and 1 <= n_periods <= MAX_LIQ_PERIODS,
+        f"n_periods must be an integer in [1, {MAX_LIQ_PERIODS}]",
+    )
     return [
         (total_units * (j + 1)) // n_periods - (total_units * j) // n_periods
         for j in range(n_periods)
