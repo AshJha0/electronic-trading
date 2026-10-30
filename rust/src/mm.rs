@@ -210,7 +210,7 @@ impl Default for MMConfig {
 }
 
 impl MMConfig {
-    fn validate(&self) -> Result<(), EtradeError> {
+    pub(crate) fn validate(&self) -> Result<(), EtradeError> {
         require(
             self.tick.is_finite() && self.tick >= 0.0,
             "tick must be finite and >= 0",

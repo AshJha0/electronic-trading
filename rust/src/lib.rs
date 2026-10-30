@@ -18,6 +18,8 @@
 //!   and internalisation of opposite parent orders;
 //! * [`mm`] — market making with frictions: ticks, fees, latency, informed
 //!   flow, fair-value signals, GLFT quotes and PnL attribution;
+//! * [`hedging`] — the market maker hedged in a correlated instrument, with
+//!   loss limit, position limit, quote throttle and kill switch;
 //! * [`placement`] — queue-position fill probability, passive or aggressive
 //!   for one child order, liquidation with limit and market orders.
 //!
@@ -34,6 +36,7 @@ pub mod avellaneda_stoikov;
 pub mod calibration;
 mod error;
 pub mod execution;
+pub mod hedging;
 pub mod impact;
 pub mod market;
 pub mod mm;
