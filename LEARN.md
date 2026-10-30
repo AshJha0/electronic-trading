@@ -1,6 +1,6 @@
 # LEARN — Electronic Trading: Optimal Execution and Market Making
 
-This document teaches the theory behind the `etrade` package: how modern
+This document teaches the theory behind the `etrade` research platform: how modern
 electronic markets work at the microstructure level, why executing a large
 order is a genuine optimization problem, the Almgren-Chriss solution to it,
 the Perold implementation-shortfall framework used to measure execution

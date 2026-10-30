@@ -263,6 +263,65 @@ fn analytics_section(order: &Value) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Presets in market units, results in bps (API_SPEC Section 7).
+fn market_section() -> Result<(), Box<dyn Error>> {
+    use etrade::market::{
+        ac_params_from_market, as_params_from_market, bps, half_spread_cost, ACMarket, ASMarket,
+    };
+    hdr("Market presets in bps (execution: sell order; market making: A-S spread)");
+    let presets = load("presets.json")?;
+    println!(
+        "{:>26} {:>10} {:>8} {:>8} {:>9} {:>22}",
+        "preset", "order %ADV", "E[IS]", "sd", "half-sprd", "A-S spread open/close"
+    );
+    for (name, body) in presets.as_object().ok_or("presets must be an object")? {
+        let ac = &body["ac"];
+        let m = ACMarket {
+            price: f(ac, "price"),
+            spread: f(ac, "spread"),
+            adv: f(ac, "adv"),
+            daily_vol: f(ac, "daily_vol"),
+            total_shares: f(ac, "total_shares"),
+            n_intervals: f(ac, "n_intervals") as usize,
+            tau: f(ac, "tau"),
+            lambda_ra: f(ac, "lambda_ra"),
+            ..ACMarket::default()
+        };
+        let p = ac_params_from_market(&m)?;
+        let notional = m.total_shares * m.price;
+        let e = bps(etrade::expected_cost(&p, None)?, notional)?;
+        let sd = bps(etrade::variance_cost(&p, None)?.sqrt(), notional)?;
+        let hs = bps(half_spread_cost(m.spread, m.total_shares)?, notional)?;
+        let mut mm = String::from("-");
+        if let Some(asb) = body.get("as") {
+            let am = ASMarket {
+                price: f(asb, "price"),
+                tick: f(asb, "tick"),
+                daily_vol: f(asb, "daily_vol"),
+                touch_fills_per_day: f(asb, "touch_fills_per_day"),
+                halving_ticks: f(asb, "halving_ticks"),
+                skew_ticks: f(asb, "skew_ticks"),
+                q_max: f(asb, "q_max") as u32,
+                liq_ticks: f(asb, "liq_ticks"),
+                dt_seconds: f(asb, "dt_seconds"),
+                session_seconds: f(asb, "session_seconds"),
+                horizon_days: f(asb, "horizon_days"),
+            };
+            let a = as_params_from_market(&am)?;
+            mm = format!(
+                "{:8.2} / {:6.2} bps",
+                bps(etrade::optimal_spread(&a, 0.0)?, a.s0())?,
+                bps(etrade::optimal_spread(&a, a.horizon())?, a.s0())?
+            );
+        }
+        println!(
+            "{name:>26} {:9.1}% {e:6.2}bp {sd:6.2}bp {hs:7.2}bp {mm:>22}",
+            m.total_shares / m.adv * 100.0
+        );
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     println!("etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov market making (Rust)");
     let liq = load("params_liquid.json")?;
@@ -272,6 +331,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     as_section(&liq, "liquid large-cap", 42)?;
     as_section(&fx, "FX-like: tight spread, high k", 7)?;
     analytics_section(&order)?;
+    market_section()?;
     println!("\ndone.");
     Ok(())
 }

@@ -147,6 +147,48 @@ public final class Demo {
                 reg.intercept(), reg.slope(), reg.rSquared(), reg.nObs());
     }
 
+    /** Presets in market units, results in bps (mirrors data/presets.json). */
+    private static void marketSection() {
+        hdr("Market presets in bps (execution: sell order; market making: A-S spread)");
+        String[] names = {"paper_almgren_chriss_2000", "us_large_cap", "us_small_cap", "us_etf",
+            "eurusd"};
+        Market.ACMarket[] ac = {
+            Market.ACMarket.of(50.0, 0.125, 5e6, 0.019, 1e6, 5, 1.0, 2e-6),
+            Market.ACMarket.of(100.0, 0.01, 5e6, 0.015, 250_000.0, 13, 1.0 / 13.0, 1e-7),
+            Market.ACMarket.of(20.0, 0.05, 3e5, 0.035, 30_000.0, 13, 1.0 / 13.0, 3e-5),
+            Market.ACMarket.of(500.0, 0.01, 6e7, 0.01, 600_000.0, 13, 1.0 / 13.0, 7e-10),
+            Market.ACMarket.of(1.10, 5e-5, 2e9, 0.005, 1e8, 24, 1.0 / 24.0, 8e-8),
+        };
+        Market.ASMarket[] mm = {
+            null,
+            new Market.ASMarket(100.0, 0.01, 0.015, 1170.0, 0.462, 2.25, 50, 1.0, 5.0, 23_400.0,
+                1.0),
+            new Market.ASMarket(20.0, 0.01, 0.035, 195.0, 2.0, 5.0, 10, 5.0, 5.0, 23_400.0, 1.0),
+            new Market.ASMarket(500.0, 0.01, 0.01, 11_700.0, 0.5, 1.0, 200, 1.0, 1.0, 23_400.0,
+                1.0),
+            new Market.ASMarket(1.10, 1e-5, 0.005, 8640.0, 2.0, 3.0, 50, 2.0, 5.0, 86_400.0, 1.0),
+        };
+        System.out.printf(Locale.ROOT, "%26s %10s %8s %8s %9s %22s%n", "preset", "order %ADV",
+                "E[IS]", "sd", "half-sprd", "A-S spread open/close");
+        for (int i = 0; i < names.length; i++) {
+            ACParams p = Market.acParamsFromMarket(ac[i]);
+            double notional = ac[i].totalShares() * ac[i].price();
+            double e = Market.bps(AlmgrenChriss.expectedCost(p), notional);
+            double sd = Market.bps(Math.sqrt(AlmgrenChriss.varianceCost(p)), notional);
+            double hs = Market.bps(Market.halfSpreadCost(ac[i].spread(), ac[i].totalShares()),
+                    notional);
+            String spread = "-";
+            if (mm[i] != null) {
+                ASParams a = Market.asParamsFromMarket(mm[i]);
+                spread = String.format(Locale.ROOT, "%8.2f / %6.2f bps",
+                        Market.bps(AvellanedaStoikov.optimalSpread(a, 0.0), a.s0()),
+                        Market.bps(AvellanedaStoikov.optimalSpread(a, a.horizon()), a.s0()));
+            }
+            System.out.printf(Locale.ROOT, "%26s %9.1f%% %6.2fbp %6.2fbp %7.2fbp %22s%n",
+                    names[i], ac[i].totalShares() / ac[i].adv() * 100.0, e, sd, hs, spread);
+        }
+    }
+
     /**
      * Runs the demo.
      *
@@ -162,6 +204,7 @@ public final class Demo {
         asSection(new ASParams(1.1, 0.004, 1.0, 0.005, 100.0, 2000.0, 500.0, 50, 2e-4),
                 "FX-like: tight spread, high k", 7);
         analyticsSection();
+        marketSection();
         System.out.println();
         System.out.println("done.");
     }

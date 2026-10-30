@@ -4,6 +4,16 @@ All notable changes to this project. Dates are UTC.
 
 ## Unreleased
 
+### Market units and repositioning (F1)
+
+- New market-unit layer in all four languages (API_SPEC Section 7): Almgren-Chriss parameters from price, quoted spread, ADV and daily volatility using the paper's own impact calibration; Avellaneda-Stoikov parameters from tick, touch fill rate, halving distance and opening skew; `bps` and `half_spread_cost` reporting helpers.
+- Five presets in `data/presets.json` (US large cap, US small cap, US ETF, EUR/USD, the Almgren-Chriss example) and nine market golden cases in `data/golden/market_golden.json`. The paper preset reproduces `params_liquid.json` exactly.
+- Every demo prints the presets in basis points.
+- Repositioned as an execution and market-making research platform (README, landing page, LEARN introduction), with the roadmap and current limitations stated.
+- Test counts: Python 139, C++ 83, Rust 62, Java 77 (361 in total).
+
+### Build and CI (Phase 0+1)
+
 - Continuous integration on Linux, Windows and macOS for all four languages.
 - Python is an installable package (`pip install -e python`), linted with ruff and type-checked with mypy.
 - C++ builds on MSVC as well as GCC and Clang; GoogleTest is fetched when not installed; tests are optional.

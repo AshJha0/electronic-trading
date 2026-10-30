@@ -14,8 +14,9 @@ Three independent modules per language, mirrored one-to-one across ports:
 | `almgren_chriss` | `ACParams` validation (incl. size bounds), `kappa` (`log1p` form), `exp/expm1`-form sinh trajectory with exact TWAP branch, trade lists, exact discrete E/Var sums, TWAP/POV/instantaneous baselines, efficient frontier, Monte Carlo IS check | RNG (MC only) |
 | `avellaneda_stoikov` | `ASParams` validation, reservation price / optimal spread / quotes closed forms, intensity and fill probability, the pinned path simulation with inventory cap, stress vol and terminal liquidation, per-path and aggregate statistics | RNG (simulation only) |
 | `analytics` | Perold IS decomposition (buy/sell), participation rate, native closed-form OLS, pinned RNG-free synthetic impact fills | nothing stochastic |
+| `market` | conversion from market units (price, spread, tick, ADV, daily vol, touch fill rate, halving distance, opening skew) to `ACParams`/`ASParams`; bps and half-spread reporting helpers (API_SPEC Section 7) | `almgren_chriss`, `avellaneda_stoikov` (parameter types only) |
 
-The modules do not import each other. Parameter objects are immutable value
+The three model modules do not import each other; `market` only builds their parameter objects. Parameter objects are immutable value
 types (frozen dataclasses in Python, plain structs/records elsewhere) that
 validate **at construction**, so every downstream function can assume valid
 inputs and stay branch-free. Functions that take user data (holdings paths,
@@ -347,8 +348,8 @@ exception is a port bug that the tests catch.
 
 ## 5. Testing strategy
 
-Five layers, replicated per language (Python 107 tests, C++ 76, Rust 47,
-Java 70 — 300 in total):
+Five layers, replicated per language (Python 139 tests, C++ 83, Rust 62,
+Java 77, 361 in total):
 
 1. **Golden values** (`data/golden/golden.json`, 19 cases; every suite
    asserts the count exactly and that every case is handled).

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>electronic-trading — Almgren-Chriss optimal execution and Avellaneda-Stoikov market making in four languages</title>
+<title>electronic-trading: execution and market-making research</title>
 <!-- GitHub Pages landing page. If the repository is renamed, update the
      github.com/AshJha0/electronic-trading links below to match. -->
 <style>
@@ -38,7 +38,7 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
 <header>
   <div class="wrap">
     <h1>electronic-trading</h1>
-    <p>Optimal execution and market making implemented four times over (Python / C++ / Rust / Java) from one pinned contract: Almgren-Chriss (2000) discrete mean-variance execution with an efficient frontier and TWAP / POV / instantaneous baselines, Avellaneda-Stoikov (2008) finite-horizon market making with a pinned simulation loop, and execution analytics (Perold implementation-shortfall decomposition, participation rate, a native OLS for impact estimation). The Python package is the reference; the ports mirror API_SPEC.md and are held to 19 shared golden cases, exact ones at 1e-10 to 1e-12 and Monte Carlo ones within 4 standard errors.</p>
+    <p>A research platform for executing large orders at low cost and making markets profitably. It starts from the canonical models (Almgren-Chriss optimal execution, Avellaneda-Stoikov market making, implementation-shortfall analytics) and builds towards what decides money in practice: realistic costs, informed flow, fees and ticks, fair-value signals and post-trade measurement. Implemented in Python, C++, Rust and Java from one pinned contract, cross-checked by shared golden values in CI on Linux, Windows and macOS.</p>
     <nav>
       <a href="https://github.com/AshJha0/electronic-trading/blob/main/LEARN.md">Learn (guide)</a>
       <a class="secondary" href="https://github.com/AshJha0/electronic-trading/blob/main/COOKBOOK.md">Cookbook</a>
@@ -55,7 +55,7 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
   <h2>Measured, not claimed</h2>
   <p><a href="https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml"><img src="https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml/badge.svg" alt="CI status"></a> Every number below is re-checked by CI on Linux, Windows and macOS on every push.</p>
   <div class="numbers"><table>
-    <tr><td>Cross-language parity</td><td>python 107 · cpp 76 · rust 47 · java 70 tests — 300 in total, every suite loading the same 19 golden cases</td></tr>
+    <tr><td>Cross-language parity</td><td>python 139 · cpp 83 · rust 62 · java 77 tests, 361 in total; every suite loads the same 19 model golden cases and 9 market golden cases</td></tr>
     <tr><td>Golden suite</td><td>exact cases (AC kappa / x_j / n_1 / E / Var on two parameter sets, TWAP/POV costs, A-S closed forms, both IS decompositions, the impact fit) at |actual − expected| ≤ tol·max(1, |expected|) with tol between 1e-10 and 1e-12</td></tr>
     <tr><td>Statistical cases</td><td>Python 20,000-path Monte Carlo references stored with their standard errors; each port runs M ≥ 2000 paths on its own RNG and must satisfy |stat − ref| ≤ 4·sqrt(se_ref² + se_own²)</td></tr>
     <tr><td>Literature check</td><td>the paper's hyperbolic closed forms for E[IS] and Var[IS] equal the discrete sums to 1e-12 in every suite (measured rel. diff 2e-16 on the liquid set)</td></tr>
@@ -65,6 +65,15 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
     <tr><td>Demo agreement</td><td>A-S mean fills 85.6 (Python) vs 85.2 / 85.5 / 85.3 (C++ / Rust / Java) on 2,000-path samples; MC E[IS] 1,075,336 vs closed form 1,078,215 with se 3,177</td></tr>
   </table></div>
 
+
+  <h2>Market presets in basis points</h2>
+  <div class="numbers"><table>
+    <tr><td>US large cap</td><td>sell 5% ADV in a day: E[IS] 5.4 bps, sd 75.5 bps; A-S quotes 3.6 bps wide at the open, 1.3 bps at the close (market spread 1 bp)</td></tr>
+    <tr><td>US small cap</td><td>sell 10% ADV: E[IS] 265 bps, sd 179 bps; A-S 54 / 29 bps (market spread 25 bps)</td></tr>
+    <tr><td>US ETF</td><td>sell 1% ADV: E[IS] 0.2 bps, sd 51 bps; A-S 0.5 / 0.3 bps (market spread 0.2 bp)</td></tr>
+    <tr><td>EUR/USD</td><td>sell 5% of venue volume: E[IS] 2.4 bps, sd 26 bps; A-S 0.8 / 0.5 bps (market spread 0.45 bp)</td></tr>
+    <tr><td>Caveat</td><td>presets are illustrative, not fitted; execution costs use the papers' linear impact, which under-prices small orders against the square-root law (next release)</td></tr>
+  </table></div>
 
   <h2>What's inside</h2>
   <div class="grid">
@@ -114,18 +123,18 @@ cd electronic-trading
 # Python (3.11+)
 pip install -e "python[dev]"
 python python/demo.py
-pytest python                                   # 107 tests
+pytest python                                   # 139 tests
 
 # C++ (C++17, CMake &gt;= 3.20; GCC, Clang or MSVC)
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release               # 76 tests
+ctest --test-dir build -C Release               # 83 tests
 
 # Rust (stable, MSRV 1.78)
-(cd rust &amp;&amp; cargo test --release &amp;&amp; cargo run --release --example demo)   # 47 tests
+(cd rust &amp;&amp; cargo test --release &amp;&amp; cargo run --release --example demo)   # 62 tests
 
 # Java (JDK 17+, Maven)
-(cd java &amp;&amp; mvn verify &amp;&amp; mvn -q exec:java)  # 70 tests</pre>
+(cd java &amp;&amp; mvn verify &amp;&amp; mvn -q exec:java)  # 77 tests</pre>
 
   <footer>electronic-trading is MIT-licensed and provided without warranty — a validated reference implementation of published models, not an order-management or risk system; see the <a href="https://github.com/AshJha0/electronic-trading#readme">README</a> and <a href="https://github.com/AshJha0/electronic-trading/blob/main/LICENSE">LICENSE</a> on GitHub.</footer>
 </div>
