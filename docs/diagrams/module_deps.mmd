@@ -1,0 +1,17 @@
+flowchart LR
+    AC["almgren_chriss<br/>(Section 1)"]
+    AS["avellaneda_stoikov<br/>(Section 2)"]
+    AN["analytics<br/>(Section 3)"]
+    IM["impact<br/>(Section 8)"]
+    MK["market<br/>(Sections 7, 8.3-8.4)"]
+    TC["tca<br/>(Section 10)"]
+    CA["calibration<br/>(Section 11)"]
+    EX["execution<br/>(Section 12)"]
+
+    MK --> AC
+    MK --> AS
+    MK --> IM
+    EX --> AC
+    EX --> IM
+    EX --> MK
+    TC -. "Side enum (Rust, C++)" .-> AN

@@ -1,57 +1,71 @@
 flowchart TB
+    subgraph EXT["outside the repository"]
+        ITCH["NASDAQ TotalView-ITCH 5.0 sample day<br/>12302019.NASDAQ_ITCH50"]
+        IAP["intraday-alpha-platform<br/>iap.marketdata ingest (ds3_20191230)"]
+        ITCH --> IAP
+    end
+
     subgraph DATA["data/ (shared, committed)"]
+        FIT["calibration/fit_itch.py<br/>(Python tooling, needs pyarrow)"]
+        FJ["calibration/fitted_20191230.json<br/>(aggregates only: curves, counts, fits)"]
         PJ["params_liquid.json<br/>params_illiquid.json<br/>params_fx.json"]
         PO["parent_order.json<br/>(X, lambda grid, IS fills)"]
-        PR["presets.json<br/>(5 instruments in market units)"]
+        PR["presets.json<br/>(8 instruments in market units,<br/>3 fitted to the ITCH day)"]
         GEN["generate_data.py<br/>(seeded, asserts AC closed forms vs MC)"]
         GENM["generate_market.py"]
         GENI["generate_impact.py"]
+        GENT["generate_tca.py"]
+        GENC["generate_calibration.py"]
+        GENX["generate_execution.py"]
         GOLD["golden/golden.json<br/>19 cases: exact + statistical"]
-        GOLDM["golden/market_golden.json<br/>9 cases"]
+        GOLDM["golden/market_golden.json<br/>15 cases"]
         GOLDI["golden/impact_golden.json<br/>8 cases"]
+        GOLDT["golden/tca_golden.json<br/>11 cases"]
+        GOLDC["golden/calibration_golden.json<br/>9 cases"]
+        GOLDX["golden/execution_golden.json<br/>8 cases: exact + statistical"]
+        FIT --> FJ
+        FJ --> GENM
         GEN --> PJ
         GEN --> PO
         GEN --> GOLD
         GENM --> PR
         GENM --> GOLDM
         GENI --> GOLDI
+        GENT --> GOLDT
+        GENC --> GOLDC
+        GENX --> GOLDX
     end
+
+    IAP --> FIT
 
     subgraph CORE["etrade core (identical in Python / C++ / Rust / Java)"]
-        ACP["ACParams<br/>validate: eta_tilde > 0, X >= 0,<br/>N <= MAX_AC_INTERVALS, ..."]
-        AC["almgren_chriss<br/>kappa, trajectory, trade list,<br/>E/Var sums, frontier,<br/>TWAP / POV / instant, MC check"]
-        ASP["ASParams<br/>validate: gamma > 0, T/dt integral,<br/>T/dt <= MAX_AS_STEPS, ..."]
-        AS["avellaneda_stoikov<br/>reservation price, spread, quotes,<br/>intensity, fill prob,<br/>pinned simulation loop"]
-        AN["analytics<br/>IS decomposition, participation,<br/>native OLS impact regression"]
-        IM["impact<br/>power-law cost, volume curve,<br/>VWAP, Newton solver + KKT"]
-        MK["market<br/>market units to parameters,<br/>bps helpers, pre-trade report"]
-        ACP --> AC
-        ASP --> AS
-        MK --> ACP
-        MK --> ASP
-        MK --> IM
+        AC["almgren_chriss"]
+        AS["avellaneda_stoikov"]
+        AN["analytics"]
+        IM["impact"]
+        MK["market"]
+        TC["tca"]
+        CA["calibration"]
+        EX["execution"]
     end
 
-    PJ --> ACP
-    PJ --> ASP
+    PJ --> AC
+    PJ --> AS
     PO --> AC
     PO --> AN
     PR --> MK
+    CA -. "estimators used by" .-> FIT
 
     subgraph OUT["outputs"]
         DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report)"]
         TESTS["4 language test suites<br/>exact cases: 1e-9..1e-12<br/>statistical cases: 4-SE band"]
     end
 
-    AC --> DEMO
-    AS --> DEMO
-    AN --> DEMO
-    MK --> DEMO
-    AC --> TESTS
-    AS --> TESTS
-    AN --> TESTS
-    IM --> TESTS
-    MK --> TESTS
+    CORE --> DEMO
+    CORE --> TESTS
     GOLD --> TESTS
     GOLDM --> TESTS
     GOLDI --> TESTS
+    GOLDT --> TESTS
+    GOLDC --> TESTS
+    GOLDX --> TESTS

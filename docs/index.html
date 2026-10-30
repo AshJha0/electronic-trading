@@ -55,7 +55,7 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
   <h2>Measured, not claimed</h2>
   <p><a href="https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml"><img src="https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml/badge.svg" alt="CI status"></a> Every number below is re-checked by CI on Linux, Windows and macOS on every push.</p>
   <div class="numbers"><table>
-    <tr><td>Cross-language parity</td><td>python 174 · cpp 91 · rust 78 · java 85 tests, 428 in total; every suite loads the same 19 model, 9 market and 8 impact golden cases</td></tr>
+    <tr><td>Cross-language parity</td><td>python 371 · cpp 127 · rust 151 · java 120 tests, 769 in total; every suite loads the same 70 golden cases: 19 model, 15 market, 8 impact, 11 TCA, 9 calibration and 8 execution</td></tr>
     <tr><td>Golden suite</td><td>exact cases (AC kappa / x_j / n_1 / E / Var on two parameter sets, TWAP/POV costs, A-S closed forms, both IS decompositions, the impact fit) at |actual − expected| ≤ tol·max(1, |expected|) with tol between 1e-10 and 1e-12</td></tr>
     <tr><td>Statistical cases</td><td>Python 20,000-path Monte Carlo references stored with their standard errors; each port runs M ≥ 2000 paths on its own RNG and must satisfy |stat − ref| ≤ 4·sqrt(se_ref² + se_own²)</td></tr>
     <tr><td>Literature check</td><td>the paper's hyperbolic closed forms for E[IS] and Var[IS] equal the discrete sums to 1e-12 in every suite (measured rel. diff 2e-16 on the liquid set)</td></tr>
@@ -73,7 +73,10 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
     <tr><td>US ETF</td><td>sell 1% ADV: E[IS] 0.2 bps, sd 51 bps; A-S 0.5 / 0.3 bps (market spread 0.2 bp)</td></tr>
     <tr><td>EUR/USD</td><td>sell 5% of venue volume: E[IS] 2.4 bps, sd 26 bps; A-S 0.8 / 0.5 bps (market spread 0.45 bp)</td></tr>
     <tr><td>Almgren-Chriss example</td><td>sell 20% ADV: E[IS] 216 bps, sd 90 bps (the paper's own parameters)</td></tr>
-    <tr><td>Caveat</td><td>presets are illustrative, not fitted to data; this table uses the Almgren-Chriss linear impact calibration; the pre-trade report below uses square-root impact</td></tr>
+    <tr><td>AAPL, fitted</td><td>NASDAQ ITCH 2019-12-30, price 289.72, spread 0.91 bp; sell 5% of NASDAQ volume: E[IS] 4.9 bps, sd 58.2 bps; A-S 1.2 / 0.5 bps</td></tr>
+    <tr><td>MSFT, fitted</td><td>same day, price 157.67, spread 0.78 bp: E[IS] 4.2 bps, sd 37.4 bps; A-S 1.9 / 0.5 bps</td></tr>
+    <tr><td>QQQ, fitted</td><td>same day, price 212.16, spread 0.55 bp: E[IS] 2.9 bps, sd 29.0 bps; A-S 0.8 / 0.3 bps</td></tr>
+    <tr><td>Caveat</td><td>the first five presets are illustrative; the fitted three rest on one day on one venue in the week after Christmas (API_SPEC §11.6); this table uses the Almgren-Chriss linear impact calibration; the pre-trade report below uses square-root impact</td></tr>
   </table></div>
 
   <h2>Pre-trade report (square-root impact)</h2>
@@ -95,16 +98,22 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
       <p>Reservation price, optimal spread <code>(2/γ)·ln(1 + γ/k)</code> and quotes; exponential arrival intensity <code>A·exp(−k·δ)</code> with thinned-Poisson fills; a simulation loop with pinned draw order, hard inventory cap, terminal liquidation penalty and an optional volatility stress after <code>T/2</code>. A fixed-spread comparison agent shares the same RNG mechanics.</p></div>
     <div class="card"><h3>Execution analytics</h3>
       <p>Perold (1988) implementation-shortfall decomposition into delay, trading and opportunity components for buy and sell orders (with the identity and price-shift invariance tested), participation rate, and a native two-variable OLS used to fit cost-per-share against participation on pinned RNG-free synthetic fills.</p></div>
+    <div class="card"><h3>Post-trade TCA</h3>
+      <p>Slippage against arrival, the day's VWAP, the interval VWAP of the bins the order traded in, and the close; markouts per fill and per share; per-bin participation; a Welch t-test for comparing algorithms, with the incomplete beta and Student t CDF pinned so every port gives the same p-value.</p></div>
+    <div class="card"><h3>Calibration from recorded data</h3>
+      <p>Volume curve, realised-volatility curve, spread statistics and a weighted fill-intensity fit on plain arrays; three presets and a volume curve fitted to the NASDAQ ITCH sample day 2019-12-30, with only aggregates committed.</p></div>
+    <div class="card"><h3>Execution extensions</h3>
+      <p>Transient impact with exponential resilience (Obizhaeva-Wang), its optimum from one tridiagonal solve; adaptive re-planning against the static schedule under a drift signal or partial fills; internalisation of opposite client orders.</p></div>
     <div class="card"><h3>Golden-value testing</h3>
-      <p><code>golden.json</code> with 19 model cases, <code>market_golden.json</code> with 9 and <code>impact_golden.json</code> with 8, loaded by all four suites: deterministic cases under a relative-or-absolute tolerance of 1e-9 to 1e-12, Monte Carlo cases as reference values plus standard errors. Sample values differ across languages by design; distributions must agree.</p></div>
+      <p>Six golden files with 70 cases (19 model, 15 market, 8 impact, 11 TCA, 9 calibration, 8 execution), loaded by all four suites: deterministic cases under a relative-or-absolute tolerance of 1e-9 to 1e-12, Monte Carlo cases as reference values plus standard errors. Sample values differ across languages by design; distributions must agree.</p></div>
     <div class="card"><h3>Property, numeric and validation tests</h3>
       <p>Per language: trajectory monotonicity, inventory cap respected at every step, frontier monotonicity, continuity across the TWAP branch, overflow safety at <code>kappa·T &gt; 2500</code>, <code>ac_kappa_small_tau</code> at millisecond tau, and every rule in API_SPEC §6 — NaN/inf, empty grids, non-liquidating schedules, participation above 1, sizes beyond the pinned bounds.</p></div>
     <div class="card"><h3>Error contract</h3>
-      <p>Identical rules in all four languages: Python <code>ValueError</code>, C++ <code>std::invalid_argument</code> (<code>std::domain_error</code> for the AC validity condition), Rust <code>Err(EtradeError)</code> with no panics, Java <code>IllegalArgumentException</code>. No function returns NaN or infinity from valid finite inputs.</p></div>
+      <p>Identical rules in all four languages: Python <code>ValueError</code>, C++ <code>std::invalid_argument</code> (<code>std::domain_error</code> for the AC validity condition), Rust <code>Err(EtradeError)</code> with no panics, Java <code>IllegalArgumentException</code>; solver failures are reported separately. No function returns NaN or infinity from valid finite inputs.</p></div>
     <div class="card"><h3>Reference papers</h3>
-      <p>Almgren &amp; Chriss (2000), <em>Journal of Risk</em>; Avellaneda &amp; Stoikov (2008), <em>Quantitative Finance</em>; Perold (1988) and Wagner &amp; Edwards (1993) for the shortfall decomposition and its naming; Guéant, Lehalle &amp; Fernandez-Tapia (2013) for the inventory-capped variant behind <code>q_max</code>; MiFID II Art. 17/27, Reg NMS Rules 605/606 and SEC Rule 15c3-5 in the LEARN guide's regulatory section.</p></div>
+      <p>Almgren &amp; Chriss (2000), <em>Journal of Risk</em>; Avellaneda &amp; Stoikov (2008), <em>Quantitative Finance</em>; Perold (1988) and Wagner &amp; Edwards (1993) for the shortfall decomposition and its naming; Guéant, Lehalle &amp; Fernandez-Tapia (2013) for the inventory-capped variant behind <code>q_max</code>; Obizhaeva &amp; Wang (2013) for transient impact; Almgren &amp; Lorenz (2007) for adaptive execution; Welch (1947) for the A/B test; MiFID II Art. 17/27, Reg NMS Rules 605/606 and SEC Rule 15c3-5 in the LEARN guide's regulatory section.</p></div>
     <div class="card"><h3>Units and what is out of scope</h3>
-      <p><code>tau</code>, <code>dt</code>, <code>T</code> in an abstract time unit (bundled sets use one trading day); <code>sigma</code> is arithmetic (currency per share per √time); prices may go negative; AC shares are fractional, A-S fills are one unit. Not covered yet: adaptive re-optimisation, adverse selection, decaying impact, order types, venues, ticks, lots, latency, calendars, and any calibration of <code>eta</code>, <code>alpha</code>, <code>gamma_p</code>, <code>A</code>, <code>k</code> or the volume curve to real markets.</p></div>
+      <p><code>tau</code>, <code>dt</code>, <code>T</code> in an abstract time unit (bundled sets use one trading day); <code>sigma</code> is arithmetic (currency per share per √time); prices may go negative; AC shares are fractional, A-S fills are one unit. Not covered yet: adverse selection in market making, limit-order placement, order types, venues, ticks, lots, latency, calendars, and any fit of the impact parameters <code>eta</code>, <code>alpha</code>, <code>gamma_p</code> and <code>Y</code> to real parent orders.</p></div>
   </div>
 
   <h2>Part of a wider portfolio</h2>
@@ -133,18 +142,18 @@ cd electronic-trading
 # Python (3.11+)
 pip install -e "python[dev]"
 python python/demo.py
-pytest python                                   # 174 tests
+pytest python                                   # 371 tests
 
 # C++ (C++17, CMake &gt;= 3.20; GCC, Clang or MSVC)
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release               # 91 tests
+ctest --test-dir build -C Release               # 127 tests
 
 # Rust (stable, MSRV 1.78)
-(cd rust &amp;&amp; cargo test --release &amp;&amp; cargo run --release --example demo)   # 78 tests
+(cd rust &amp;&amp; cargo test --release &amp;&amp; cargo run --release --example demo)   # 151 tests
 
 # Java (JDK 17+, Maven)
-(cd java &amp;&amp; mvn verify &amp;&amp; mvn -q exec:java)  # 85 tests</pre>
+(cd java &amp;&amp; mvn verify &amp;&amp; mvn -q exec:java)  # 120 tests</pre>
 
   <footer>electronic-trading is MIT-licensed and provided without warranty — a validated reference implementation of published models, not an order-management or risk system; see the <a href="https://github.com/AshJha0/electronic-trading#readme">README</a> and <a href="https://github.com/AshJha0/electronic-trading/blob/main/LICENSE">LICENSE</a> on GitHub.</footer>
 </div>

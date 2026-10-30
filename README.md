@@ -20,9 +20,15 @@ with results in basis points. Execution now has a power-law impact model
 (square-root by default) with intraday volume curves, alpha-aware schedules
 and a pre-trade cost report; at `alpha = 1` it reproduces the Almgren-Chriss
 trajectory (holdings within 1e-10 of `X`, costs within 1e-12 relative,
-asserted in every suite). Market-making simulation does not yet include
-informed flow, fees or latency; that work is in progress. Presets and the
-volume curve are illustrative, not fitted to data.
+asserted in every suite). Post-trade TCA measures slippage against four
+benchmarks, markouts and participation, and compares algorithms with a
+Welch t-test. Calibration estimators turn recorded data into model inputs,
+and three presets are fitted to one NASDAQ ITCH day (AAPL, MSFT, QQQ on
+2019-12-30, with the caveats of `API_SPEC.md` Section 11.6). Execution
+extensions add transient (decaying) impact, adaptive re-planning and
+internalisation. Market-making simulation does not yet include informed
+flow, fees or latency; that work is in progress. The other five presets and
+the pinned volume curve are illustrative, not fitted to data.
 
 Documentation site: https://ashjha0.github.io/electronic-trading/ (the guide,
 cookbook, contract, architecture notes and changelog, built from the Markdown
@@ -61,7 +67,15 @@ A-S spread at the open and at the close of the session):
 | US ETF ($500, 0.2 bp spread) | 1% ADV | 0.2 bps | 50.6 bps | 0.1 bps | 0.5 / 0.3 bps |
 | EUR/USD (0.45 bp spread) | 5% of volume | 2.4 bps | 26.2 bps | 0.2 bps | 0.8 / 0.5 bps |
 | Almgren-Chriss (2000) example | 20% ADV | 215.6 bps | 89.9 bps | 12.5 bps | |
+| AAPL, fitted to ITCH 2019-12-30 ($289.72, 0.91 bp spread) | 5% of NASDAQ volume | 4.9 bps | 58.2 bps | 0.5 bps | 1.2 / 0.5 bps |
+| MSFT, fitted to ITCH 2019-12-30 ($157.67, 0.78 bp spread) | 5% of NASDAQ volume | 4.2 bps | 37.4 bps | 0.4 bps | 1.9 / 0.5 bps |
+| QQQ, fitted to ITCH 2019-12-30 ($212.16, 0.55 bp spread) | 5% of NASDAQ volume | 2.9 bps | 29.0 bps | 0.3 bps | 0.8 / 0.3 bps |
 
+The fitted rows take price, spread, volatility, volume and the fill
+intensity from one day of NASDAQ data; order size, risk aversion and the
+market-making settings follow the US large-cap and ETF templates. One day
+on one venue in the week after Christmas: read them as realistic magnitudes,
+not as estimates with known error (`LEARN.md` Section 3.10).
 ### Roadmap
 
 1. **F1. Market units and realistic presets** (done; `API_SPEC.md`
@@ -72,12 +86,15 @@ A-S spread at the open and at the close of the session):
 3. **F3. Market making that can lose money** (in progress): informed flow,
    fees and rebates, tick grid, latency, PnL attribution, markouts,
    fair-value models.
-4. **F4. Calibration on recorded order-book data and post-trade TCA** (in
-   progress).
-5. **F5. Strategy extensions** (in progress): limit-order placement,
-   adaptive scheduling, internalisation, hedged market making, risk controls.
+4. **F4. Calibration on recorded order-book data and post-trade TCA**
+   (done; Sections 10 and 11): benchmark slippage, markouts, participation,
+   Welch A/B comparison; volume, volatility, spread and fill-intensity
+   estimators; three presets fitted to one NASDAQ ITCH day.
+5. **F5. Strategy extensions** (partly done; Section 12): adaptive
+   scheduling, transient impact and internalisation are done; limit-order
+   placement, hedged market making and risk controls are pending.
 
-Nothing from F3-F5 is on `main` yet; the rest of this README describes only
+Nothing from F3 is on `main` yet; the rest of this README describes only
 what is.
 
 Not investment advice and not a trading system; see the usage notes below.
@@ -105,16 +122,23 @@ Not investment advice and not a trading system; see the usage notes below.
 | Pinned size bounds (intervals, POV clips, steps, paths) — input errors, never UB/OOM | yes | yes | yes | yes |
 | Literature check: paper closed forms = discrete sums (1e-12) | yes | yes | yes | yes |
 | Market units: AC from price/spread/ADV/vol, A-S from tick/touch rate/halving/skew | yes | yes | yes | yes |
-| Reporting in bps; half-spread cost; 5 presets; 9 market golden cases | yes | yes | yes | yes |
+| Reporting in bps; half-spread cost; 8 presets (3 fitted) | yes | yes | yes | yes |
 | Power-law (square-root) impact, volume curve, drift-aware schedules; pinned Newton solver with KKT check | yes | yes | yes | yes |
 | Pre-trade report (TWAP, VWAP, optimal per lambda, square-root-law estimate); 8 impact golden cases | yes | yes | yes | yes |
+| TCA: slippage vs arrival / market VWAP / interval VWAP / close, markouts, per-bin participation | yes | yes | yes | yes |
+| TCA: Welch t-test with pinned `ln_gamma`, incomplete beta and Student t CDF; 11 TCA golden cases | yes | yes | yes | yes |
+| Calibration: volume curve, realised-volatility curve, spread statistics, weighted fill-intensity fit; 9 calibration golden cases | yes | yes | yes | yes |
+| Fitted presets (AAPL, MSFT, QQQ, one ITCH day) and fitted volume curve; 6 more market golden cases (15 in all) | yes | yes | yes | yes |
+| ITCH ingestion and fitting (`data/calibration/fit_itch.py`, tooling) | yes | | | |
+| Execution: transient impact (Obizhaeva-Wang) with exact Thomas-solved optimum | yes | yes | yes | yes |
+| Execution: adaptive re-planning vs static (drift signal, partial fills), internalisation; 8 execution golden cases | yes | yes | yes | yes |
 
 ## Directory layout
 
 ```
 electronic-trading/
   README.md                # this file
-  LEARN.md                 # theory: microstructure, AC, A-S, IS, regulation
+  LEARN.md                 # theory: microstructure, AC, A-S, impact, calibration, TCA, regulation
   COOKBOOK.md              # task-oriented recipes in all four languages
   API_SPEC.md              # the pinned cross-language contract (normative)
   CHANGELOG.md
@@ -130,15 +154,21 @@ electronic-trading/
     params_illiquid.json   # small-cap illiquid parameter set
     params_fx.json         # FX-like parameter set (tight spread, high k)
     parent_order.json      # parent order, lambda grid, IS decomposition inputs
-    presets.json           # market-unit presets (large cap, small cap, ETF, EUR/USD, paper)
+    presets.json           # market-unit presets (5 illustrative, 3 fitted to one ITCH day)
+    calibration/fit_itch.py           # ITCH dataset -> fitted aggregates (tooling, Python only)
+    calibration/fitted_20191230.json  # the fitted aggregates (no raw data)
     generate_data.py       # regenerates data + golden values (seeded)
     generate_market.py     # regenerates presets.json + market golden cases
     generate_impact.py     # regenerates the power-law impact golden cases
+    generate_tca.py  generate_calibration.py  generate_execution.py
     golden/golden.json     # 19 cross-language golden cases
-    golden/market_golden.json  # 9 market-unit golden cases
-    golden/impact_golden.json  # 8 power-law impact golden cases
+    golden/market_golden.json       # 15 market-unit golden cases
+    golden/impact_golden.json       # 8 power-law impact golden cases
+    golden/tca_golden.json          # 11 TCA golden cases
+    golden/calibration_golden.json  # 9 calibration golden cases
+    golden/execution_golden.json    # 8 execution-extension golden cases
   python/
-    src/etrade/            # reference package (almgren_chriss, avellaneda_stoikov, analytics, impact, market)
+    src/etrade/            # reference package (almgren_chriss, avellaneda_stoikov, analytics, impact, market, tca, calibration, execution)
     tests/                 # pytest suites incl. golden-value tests
     demo.py                # end-to-end demo report
     pyproject.toml  requirements.txt
@@ -165,7 +195,7 @@ and pull request (`.github/workflows/ci.yml`).
 ```bash
 pip install -e "python[dev]"         # installs etrade + pytest, ruff, mypy
 python python/demo.py                # run the demo
-pytest python                        # run the tests (174 tests)
+pytest python                        # run the tests (371 tests)
 ruff check . && (cd python && mypy)  # lint and type-check
 ```
 
@@ -174,7 +204,7 @@ ruff check . && (cd python && mypy)  # lint and type-check
 ```bash
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release   # GoogleTest is fetched if not installed
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release --output-on-failure   # run the tests (91 tests)
+ctest --test-dir build -C Release --output-on-failure   # run the tests (127 tests)
 ```
 
 The demo is `build/etrade_demo` (`build/Release/etrade_demo.exe` with MSVC).
@@ -185,7 +215,7 @@ Options: `-DETRADE_BUILD_TESTS=OFF`, `-DETRADE_WERROR=ON`,
 
 ```bash
 cd rust
-cargo test --release                 # run the tests (78 tests)
+cargo test --release                 # run the tests (151 tests, 3 of them doc-tests)
 cargo run --release --example demo   # run the demo
 ```
 
@@ -193,7 +223,7 @@ cargo run --release --example demo   # run the demo
 
 ```bash
 cd java
-mvn verify                           # compile with -Xlint:all -Werror and run the tests (85 tests)
+mvn verify                           # compile with -Xlint:all -Werror and run the tests (120 tests)
 mvn -q exec:java                     # run the demo
 ```
 
@@ -205,9 +235,10 @@ mkdocs serve                         # preview at http://127.0.0.1:8000/electron
 mkdocs build --strict                # what the Docs workflow runs on every PR
 ```
 
-Test counts above are the current suite sizes (Python 174, C++ 91, Rust 78,
-Java 85, 428 in total); every suite loads the same 19 model golden cases, the
-9 market golden cases and the 8 impact golden cases.
+Test counts above are the suite sizes measured by running each suite on
+2026-10-30 (Python 371, C++ 127, Rust 151, Java 120; 769 in total); every
+suite loads the same six golden files, 70 cases: 19 model, 15 market, 8
+impact, 11 TCA, 9 calibration and 8 execution.
 
 ## Sample demo output (Python reference, abridged)
 
@@ -304,13 +335,16 @@ at `kappa*T > 2500`, and every validation rule of `API_SPEC.md` Section 6
 (non-finite inputs, size bounds, non-liquidating schedules, participation
 above 1, ...).
 
-Two further golden files follow the same schema and comparison rule:
-`data/golden/market_golden.json` (9 market-unit cases, tolerance 1e-12,
-`API_SPEC.md` Section 7.4) and `data/golden/impact_golden.json` (8 power-law
-impact cases, tolerance 1e-9, Section 8.5). Regenerate the three files with
-`python3 data/generate_data.py`, `python3 data/generate_market.py` and
-`python3 data/generate_impact.py`, on Linux or macOS: the committed values
-come from there, and the last bit of some libm results differs on Windows.
+Five further golden files follow the same schema and comparison rule:
+`market_golden.json` (15 market-unit cases, 1e-12, `API_SPEC.md` Sections
+7.4 and 11.7), `impact_golden.json` (8 power-law impact cases, 1e-9,
+Section 8.5), `tca_golden.json` (11 cases, 1e-12, Section 10.6),
+`calibration_golden.json` (9 cases, 1e-12, Section 11.7) and
+`execution_golden.json` (8 cases, exact at 1e-9 and statistical at 4 SE,
+Section 12.4). Each has a generator, `data/generate_<name>.py`
+(`generate_data.py` for `golden.json`); `docs/ARCHITECTURE.md` lists them
+all. Regenerate on Linux or macOS: the committed values come from there,
+and the last bit of some libm results differs on Windows.
 
 ## Real-world usage notes
 
@@ -324,9 +358,12 @@ What a practitioner gets, and what is deliberately left out:
   rate; a two-variable OLS; a power-law (square-root by default)
   generalisation of the execution problem with intraday liquidity weights and
   an adverse drift, solved numerically (`API_SPEC.md` Section 8); conversion
-  from market units with reporting in basis points (Section 7). Nothing else:
-  no adaptive re-optimisation, no adverse selection, no transient (decaying)
-  impact, no order types, venues, ticks, lots or latency.
+  from market units with reporting in basis points (Section 7); post-trade
+  TCA (Section 10); calibration estimators on plain arrays (Section 11);
+  transient impact with exponential resilience, adaptive re-planning under a
+  drift signal and partial fills, and internalisation (Section 12). Nothing
+  else: no adverse selection in the market-making model, no order types,
+  venues, ticks, lots or latency.
 - **Units and conventions** (`API_SPEC.md` Section 0): `tau`, `dt`, `T` are in
   an abstract time unit (the bundled sets use 1 = one trading day) — nothing
   ties them to a clock or a calendar (no day-count conventions or holidays;
@@ -360,13 +397,16 @@ What a practitioner gets, and what is deliberately left out:
   and `Math.*` are not bit-specified); C++ is deterministic per standard
   library because `std::normal_distribution` is implementation-defined.
   Cross-language agreement is statistical (4-SE bands), never bitwise.
-- **What is verified.** 428 tests across the four suites: 19 shared model
-  golden cases at 1e-10..1e-12, 9 market-unit cases at 1e-12 and 8 power-law
-  impact cases at 1e-9, the paper's closed forms against the discrete sums
-  at 1e-12, Monte Carlo against closed forms at 4 SE, and every validation
-  rule; in the Python suite, the power-law solver against SciPy's
-  constrained optimiser. What is *not* verified: calibration of `eta`,
-  `gamma_p`, `alpha`, `Y`, `A`, `k` or the volume curve to any real market, and behaviour outside the documented model assumptions
+- **What is verified.** 769 tests across the four suites: 70 shared golden
+  cases (19 model at 1e-10..1e-12, 15 market-unit at 1e-12, 8 power-law
+  impact at 1e-9, 11 TCA and 9 calibration at 1e-12, 8 execution at 1e-9 or
+  4 SE), the paper's closed forms against the discrete sums at 1e-12, Monte
+  Carlo against closed forms at 4 SE, and every validation rule; in the
+  Python suite, the power-law solver against SciPy's constrained optimiser
+  and the t-test against SciPy. What is *not* verified: the impact
+  parameters `eta`, `gamma_p`, `alpha` and `Y` against real parent orders
+  (the fitted presets take them from the literature), the sampling error of
+  the one-day fits, and behaviour outside the documented model assumptions
   (`LEARN.md` Section 7).
 
 ## References
@@ -391,6 +431,20 @@ Papers and standards the code implements or the documentation relies on:
   and Financial Economics* 7(4), 477–507.
   https://doi.org/10.1007/s11579-012-0087-0 (the inventory-capped variant
   motivating `q_max`; cited in `LEARN.md`)
+- A. A. Obizhaeva and J. Wang (2013), "Optimal trading strategy and
+  supply/demand dynamics", *Journal of Financial Markets* 16(1), 1–32
+  (transient impact, `API_SPEC.md` Section 12.1).
+- R. Almgren and J. Lorenz (2007), "Adaptive arrival price", *Trading*
+  2007(1), 59–66 (adaptive execution, Section 12.2).
+- T. G. Andersen, T. Bollerslev, F. X. Diebold and P. Labys (2001), "The
+  distribution of realized exchange rate volatility", *Journal of the
+  American Statistical Association* 96(453), 42–55 (realised variance,
+  Section 11.3).
+- B. L. Welch (1947), "The generalization of 'Student's' problem when
+  several different population variances are involved", *Biometrika*
+  34(1–2), 28–35 (the A/B test, Section 10.4).
+- NASDAQ TotalView-ITCH 5.0 sample file `12302019.NASDAQ_ITCH50`
+  (emi.nasdaq.com/ITCH/), the source of the fitted presets (Section 11.6).
 - Regulatory texts cited in `LEARN.md` Section 12: Directive 2014/65/EU
   (MiFID II), Art. 17 and Art. 27; U.S. SEC Regulation NMS (17 CFR 242.600
   ff.), Rules 605/606; SEC Rule 15c3-5 (Market Access).

@@ -4,6 +4,13 @@ All notable changes to this project. Dates are UTC.
 
 ## Unreleased
 
+### Documentation
+
+- COOKBOOK recipes 15-23: benchmark slippage, participation and markouts; Welch A/B comparison; calibration from arrays; loading a fitted preset; transient impact and its optimum; adaptive re-planning vs static; internalisation; an end-to-end workflow (fitted preset, pre-trade report, optimal schedule, simulated execution, TCA); and the common validation errors per language. Each recipe was run as a program in all four languages and every quoted number is the printed output.
+- LEARN Sections 3.10-3.13 (calibration and what one day can tell you, transient impact, time consistency and when re-planning helps, internalisation economics) and 4.2-4.4 (benchmarks and interval VWAP, markouts, comparing algorithms); claims carry an evidence class; new knowledge-check questions Q11-Q17, a glossary (Section 15) and further reading.
+- ARCHITECTURE: eight-module table, a module-dependency diagram, the data flow from the ITCH file to `data/presets.json`, an inventory of all six golden files, numerics notes for the KKT certificate, the transient-impact Thomas solve, the re-plan coefficients and the pinned t CDF, the CI matrix, and a guide to adding a module in all four languages.
+- README and the landing pages: roadmap (F1, F2, F4 done; F3 in progress; F5 partly done), feature-matrix rows for TCA, calibration and execution, the three fitted presets, and test counts measured by running the suites (Python 371, C++ 127, Rust 151, Java 120; 769 in total). The site navigation adds the publishing notes.
+
 ### Execution extensions (F5a)
 
 - Transient impact in all four languages (API_SPEC Section 12): a discrete Obizhaeva-Wang propagator with exponential resilience `exp(-rho*t)`, expected cost of any schedule by the displacement recursion, and the exact static optimum from one tridiagonal solve (the Kac-Murdock-Szego inverse). The Obizhaeva-Wang shape (equal blocks at both ends, constant rate between, ratio `1 - exp(-rho*tau)`) and the reduction to Section 1 linear impact as `rho -> infinity` with `kappa = 2*eta/tau` are asserted.
