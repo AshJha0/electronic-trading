@@ -46,6 +46,10 @@ pub const MAX_AS_STEPS: usize = 10_000_000;
 /// Upper bound on Monte Carlo path counts (pinned, API_SPEC.md Section 0).
 pub const MAX_AS_PATHS: usize = 10_000_000;
 
+/// Upper bound on the total simulation work `n_paths * n_steps` of
+/// [`simulate`] (pinned, API_SPEC.md Section 0).
+pub const MAX_AS_WORK: u64 = 10_000_000_000;
+
 /// Avellaneda-Stoikov model parameters (validated at construction).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ASParams {
@@ -104,12 +108,12 @@ impl ASParams {
         )?;
         let n = horizon / dt;
         require(
-            (n - n.round()).abs() < 1e-9,
-            "horizon must be an integer multiple of dt",
-        )?;
-        require(
             n <= MAX_AS_STEPS as f64,
             "horizon/dt must be <= 10000000 steps",
+        )?;
+        require(
+            (n - n.round()).abs() < 1e-9,
+            "horizon must be an integer multiple of dt",
         )?;
         Ok(Self {
             s0,
@@ -387,6 +391,10 @@ pub fn simulate(
     require(
         (2..=MAX_AS_PATHS).contains(&n_paths),
         "n_paths must be in [2, 10000000]",
+    )?;
+    require(
+        (n_paths as u64).saturating_mul(params.n_steps() as u64) <= MAX_AS_WORK,
+        "n_paths * n_steps must be <= 10000000000",
     )?;
     require(
         config.stress_factor.is_finite() && config.stress_factor > 0.0,

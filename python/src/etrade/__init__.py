@@ -8,6 +8,7 @@ from . import calibration, execution, impact, market, mm, placement, tca
 from .almgren_chriss import (
     KAPPA_T_LIMIT,
     MAX_AC_INTERVALS,
+    MAX_MC_WORK,
     MAX_PATHS,
     MAX_POV_INTERVALS,
     ACParams,
@@ -38,6 +39,7 @@ from .analytics import (
 )
 from .avellaneda_stoikov import (
     MAX_AS_STEPS,
+    MAX_AS_WORK,
     ASParams,
     ASSimResult,
     average_as_spread,
@@ -53,6 +55,8 @@ __all__ = [
     "KAPPA_T_LIMIT",
     "MAX_AC_INTERVALS",
     "MAX_AS_STEPS",
+    "MAX_AS_WORK",
+    "MAX_MC_WORK",
     "MAX_PATHS",
     "MAX_POV_INTERVALS",
     "ACParams",

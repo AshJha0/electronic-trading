@@ -98,7 +98,11 @@ if(ETRADE_BUILD_TESTS)
     tests/test_placement.cpp
     tests/test_calibration.cpp
     tests/test_tca.cpp
-    tests/test_mm.cpp)
+    tests/test_mm.cpp
+    tests/test_numerics.cpp
+    tests/test_draw_order.cpp
+    tests/test_trajectory_golden.cpp
+    tests/test_properties.cpp)
   target_include_directories(etrade_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   target_compile_definitions(etrade_tests PRIVATE
     ETRADE_GOLDEN_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../data/golden/golden.json"

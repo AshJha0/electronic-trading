@@ -58,11 +58,11 @@ ASParams::ASParams(double s0_, double sigma_, double horizon_, double dt_,
     require(std::isfinite(a_rate) && a_rate > 0.0, "a_rate (A) must be > 0");
     require(q_max >= 0, "q_max must be an integer >= 0");
     require(std::isfinite(eta_liq) && eta_liq >= 0.0, "eta_liq must be >= 0");
-    const double n = horizon / dt;
-    require(std::abs(n - std::round(n)) < 1e-9,
-            "horizon must be an integer multiple of dt");
+    const double n = horizon / dt;  // may overflow to inf: bound it first
     require(n <= static_cast<double>(kMaxAsSteps),
             "horizon/dt must be <= 10000000 steps");
+    require(std::abs(n - std::round(n)) < 1e-9,
+            "horizon must be an integer multiple of dt");
 }
 
 int ASParams::n_steps() const {
@@ -140,6 +140,10 @@ ASSimResult simulate(const ASParams& params, int n_paths, std::uint64_t seed,
                      double stress_time_frac) {
     require(n_paths >= 2 && n_paths <= kMaxAsPaths,
             "n_paths must be an integer in [2, 10000000]");
+    require(static_cast<std::int64_t>(n_paths) *
+                    static_cast<std::int64_t>(params.n_steps()) <=
+                kMaxAsWork,
+            "n_paths * n_steps must be <= 10000000000");
     require(std::isfinite(stress_factor) && stress_factor > 0.0,
             "stress_factor must be > 0");
     require(std::isfinite(stress_time_frac) && stress_time_frac >= 0.0 &&

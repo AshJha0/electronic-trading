@@ -128,6 +128,9 @@ MAX_POV_INTERVALS: int = 10_000_000
 #: Upper bound on Monte Carlo path counts (pinned, API_SPEC §0).
 MAX_PATHS: int = 10_000_000
 
+#: Upper bound on the total Monte Carlo work n_paths * N of `simulate_is` (pinned, API_SPEC §0).
+MAX_MC_WORK: int = 1_000_000_000
+
 
 def _require(cond: bool, msg: str) -> None:
     if not cond:
@@ -333,7 +336,8 @@ def pov_holdings(
     clip = participation * market_volume_rate * tau
     if total_shares == 0.0:
         return np.zeros(2)
-    ratio = total_shares / clip
+    # The clip can underflow to 0 for tiny inputs: that is "too small" too.
+    ratio = total_shares / clip if clip > 0.0 else math.inf
     _require(
         ratio <= MAX_POV_INTERVALS,
         f"POV clip too small: would need > {MAX_POV_INTERVALS} intervals",
@@ -437,6 +441,10 @@ def simulate_is(
     )
     x = ac_trajectory(params) if holdings is None else _holdings_array(holdings)
     _require_liquidating(x)
+    _require(
+        n_paths * (x.size - 1) <= MAX_MC_WORK,
+        f"n_paths * n_intervals must be <= {MAX_MC_WORK}",
+    )
     n = -np.diff(x)
     rng = np.random.default_rng(seed)
     n_int = n.size

@@ -206,6 +206,10 @@ ISSimResult simulate_is(const ACParams& params, const std::vector<double>& holdi
             "n_paths must be an integer in [2, 10000000]");
     require_holdings(holdings);
     require_liquidating(holdings);
+    require(static_cast<std::int64_t>(n_paths) *
+                    static_cast<std::int64_t>(holdings.size() - 1) <=
+                kMaxMcWork,
+            "n_paths * n_intervals must be <= 1000000000");
     const std::vector<double> n = trades_from_holdings(holdings);
     std::mt19937_64 rng(seed);
     std::normal_distribution<double> normal(0.0, 1.0);

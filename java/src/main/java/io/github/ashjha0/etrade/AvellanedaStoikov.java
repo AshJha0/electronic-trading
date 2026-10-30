@@ -43,6 +43,9 @@ public final class AvellanedaStoikov {
     /** Upper bound on Monte Carlo path counts (pinned, API_SPEC 0). */
     public static final int MAX_AS_PATHS = 10_000_000;
 
+    /** Upper bound on the work {@code nPaths * nSteps} of simulate (pinned, API_SPEC 0). */
+    public static final long MAX_AS_WORK = 10_000_000_000L;
+
     /** Quoting agent for {@link #simulate}. */
     public enum Agent {
         /** Avellaneda-Stoikov: reservation price +/- half the optimal spread. */
@@ -194,6 +197,8 @@ public final class AvellanedaStoikov {
                                        double stressTimeFrac) {
         require(nPaths >= 2 && nPaths <= MAX_AS_PATHS,
                 "nPaths must be an integer in [2, 10000000]");
+        require((long) nPaths * (long) params.nSteps() <= MAX_AS_WORK,
+                "n_paths * n_steps must be <= " + MAX_AS_WORK);
         require(agent != null, "agent must be 'as' or 'fixed'");
         require(Double.isFinite(stressFactor) && stressFactor > 0.0,
                 "stressFactor must be > 0");
