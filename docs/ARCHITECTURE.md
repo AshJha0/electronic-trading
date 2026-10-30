@@ -658,7 +658,7 @@ Design points:
     `rand_chacha::ChaCha12Rng::seed_from_u64` pinned explicitly (the `rand`
     crate documents `StdRng` as free to change between releases); Java:
     `SplittableRandom` (`nextDouble` is a specified algorithm; `nextGaussian`
-    comes from the `RandomGenerator` default since Java 17 and is not
+    comes from the `RandomGenerator` interface default and is not
     specified, and `Math.*` may differ by 1 ulp across platforms, so Java
     determinism is guaranteed within one JVM build and platform only).
     Each language tests "same seed twice = identical results"; the golden
@@ -830,7 +830,7 @@ Two workflows run on every push to `main` and every pull request.
 | C++ sanitizers | Ubuntu, clang | Debug build with AddressSanitizer and UBSan (`-DETRADE_SANITIZE=ON`), `ctest`; UBSan halts on the first error |
 | Rust | Ubuntu, Windows, macOS, stable | `cargo fmt --check`, `cargo clippy --all-targets -D warnings`, `cargo test --release`, `cargo doc` with warnings as errors, the demo |
 | Rust MSRV | Ubuntu, Rust 1.78 | dependencies resolved to MSRV-compatible versions, `cargo test --release` |
-| Java | Ubuntu, Windows, macOS x JDK 17, 21 | `mvn -B verify` (compiles with `-Xlint:all -Werror`), the demo |
+| Java | Ubuntu, Windows, macOS x JDK 25 (Temurin) | `mvn -B verify` (compiles with `-Xlint:all -Werror`), the demo |
 
 That is 20 jobs; `fail-fast` is off, so one platform failing does not hide
 another. Running every suite on three operating systems is what catches

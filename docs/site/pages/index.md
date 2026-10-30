@@ -321,7 +321,7 @@ pip install -e "python[dev]"
 python python/demo.py
 pytest python                                   # 487 tests
 
-# C++ (C++17, CMake >= 3.20; GCC, Clang or MSVC)
+# C++ (C++26, CMake >= 3.25; GCC 14+, recent Clang, MSVC /std:c++latest, LLVM Clang on macOS)
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
 ctest --test-dir build -C Release               # 153 tests
@@ -329,7 +329,7 @@ ctest --test-dir build -C Release               # 153 tests
 # Rust (stable, MSRV 1.78)
 (cd rust && cargo test --release && cargo run --release --example demo)   # 200 tests
 
-# Java (JDK 17+, Maven)
+# Java (JDK 25 LTS, Maven)
 (cd java && mvn verify && mvn -q exec:java)     # 142 tests
 ```
 

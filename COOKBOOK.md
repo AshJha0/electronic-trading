@@ -4,7 +4,7 @@ Task-oriented recipes in all four languages. Python snippets run as-is
 against the reference package (`cd python && PYTHONPATH=src python3`, then
 paste; `import etrade as et` is assumed once per session). Every C++, Rust
 and Java snippet below has been compiled and run against the shipped
-library (C++17 with `-I cpp/include` linking `libetrade.a`; Rust as a
+library (C++26 with `-I cpp/include` linking `libetrade.a`; Rust as a
 `main()` body returning `Result<(), Box<dyn std::error::Error>>` so `?`
 works; Java inside a class in package `io.github.ashjha0.etrade` or with the
 imports shown). The Rust snippets assume

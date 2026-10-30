@@ -206,7 +206,7 @@ electronic-trading/
     demo.py                # end-to-end demo report
     pyproject.toml  requirements.txt
   cpp/
-    include/etrade/*.hpp   # C++17 library headers
+    include/etrade/*.hpp   # C++26 library headers
     src/*.cpp  tests/*.cpp
     CMakeLists.txt  build.sh
   rust/
@@ -232,7 +232,7 @@ pytest python                        # run the tests (487 tests; 6 benchmarks mo
 ruff check . && (cd python && mypy)  # lint and type-check
 ```
 
-### C++ (C++17, CMake >= 3.20; GCC, Clang or MSVC)
+### C++ (C++26, CMake >= 3.25; GCC 14+, recent Clang, MSVC with `/std:c++latest`, LLVM Clang on macOS)
 
 ```bash
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release   # GoogleTest is fetched if not installed
@@ -252,7 +252,7 @@ cargo test --release                 # run the tests (200 tests, 4 of them doc-t
 cargo run --release --example demo   # run the demo
 ```
 
-### Java (JDK 17+, Maven)
+### Java (JDK 25, the latest LTS; Maven)
 
 ```bash
 cd java

@@ -157,7 +157,7 @@ pip install -e "python[dev]"
 python python/demo.py
 pytest python                                   # 487 tests
 
-# C++ (C++17, CMake &gt;= 3.20; GCC, Clang or MSVC)
+# C++ (C++26, CMake &gt;= 3.25; GCC 14+, recent Clang, MSVC /std:c++latest, LLVM Clang on macOS)
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
 ctest --test-dir build -C Release               # 153 tests
@@ -165,7 +165,7 @@ ctest --test-dir build -C Release               # 153 tests
 # Rust (stable, MSRV 1.78)
 (cd rust &amp;&amp; cargo test --release &amp;&amp; cargo run --release --example demo)   # 200 tests
 
-# Java (JDK 17+, Maven)
+# Java (JDK 25 LTS, Maven)
 (cd java &amp;&amp; mvn verify &amp;&amp; mvn -q exec:java)  # 142 tests</pre>
 
   <footer>electronic-trading is MIT-licensed and provided without warranty — a validated reference implementation of published models, not an order-management or risk system; see the <a href="https://github.com/AshJha0/electronic-trading#readme">README</a> and <a href="https://github.com/AshJha0/electronic-trading/blob/main/LICENSE">LICENSE</a> on GitHub.</footer>
