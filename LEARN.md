@@ -51,7 +51,7 @@ Empirically this movement has two components:
 Almgren-Chriss makes both linear: selling at rate `v` costs `h(v) = eta*v`
 per share temporarily and depresses the price permanently by `g(v)*tau =
 gamma_p * n` per interval. Linearity is a modelling choice, not an empirical
-fact (real-world impact is closer to square-root in size, Section 12), but it
+fact (real-world impact is closer to square-root in size, Section 11), but it
 is what makes the problem solvable in closed form.
 
 ### 1.3 Which price did you actually get?
@@ -206,8 +206,11 @@ cancellation that costs `acosh(1+x)` about `eps/x` relative digits when
 `tau` is a second rather than a day; and the sinh ratio is evaluated as
 `exp(-kappa t_j) * expm1(-2 kappa (T - t_j)) / expm1(-2 kappa T)`, which is
 the same number for every `kappa > 0` but cannot overflow (`sinh` overflows
-at `kappa T > 710`, i.e. a horizon of more than ~710 half-lives — a
-one-minute grid over a day at moderate urgency reaches that).
+at `kappa T > 710`, i.e. a horizon of more than ~710 characteristic times).
+Note that `kappa T` does not depend on the grid: refining `tau` at a fixed
+horizon leaves it essentially unchanged (0.8497 at N = 390 and at
+N = 23,400 on the liquid set). It is reached by very urgent schedules or very
+long horizons, not by fine grids.
 
 ### 3.4 Reading kappa: urgency and half-life
 
@@ -359,7 +362,7 @@ risks dominate the business:
   about to fall. In intensity language: your fills are correlated with
   subsequent price moves against you. A-S models arrivals as
   price-insensitive Poisson flow (no adverse selection); real makers add
-  protections — see Section 12.
+  protections — see Section 11.
 
 The maker's controls are the **skew** (where to centre the quotes relative
 to the mid) and the **width** (how much spread to demand). Avellaneda-
@@ -518,7 +521,7 @@ bands.
 | Poisson arrivals `A e^{-k delta}` (A-S) | No adverse selection: fills are independent of future price moves. Real fills are informative — makers add alpha signals and quote-fade protection. |
 | Unit fill size, one venue, continuous quoting | Real fills are lumpy, markets fragmented, quoting throttled by messaging limits and tick sizes. |
 | Exponential utility, terminal-wealth horizon | Gives clean closed forms; real desks think in drawdown limits, VaR budgets and overnight caps rather than gamma. |
-| Frictionless quote updates | Every A-S quote reprice is free; in reality cancels/replacements lose queue position (Section 12). |
+| Frictionless quote updates | Every A-S quote reprice is free; in reality cancels/replacements lose queue position (Section 11). |
 
 ---
 
@@ -567,7 +570,7 @@ mid-price world — which is exactly why they are teachable in closed form.
    Two related traps: `sinh(kappa(T-t))/sinh(kappa T)` overflows to
    `inf/inf = NaN` for `kappa T > 710` (use the pinned `exp/expm1` form),
    and `acosh(1 + x)` for `kappa` loses `eps/x` digits when `tau` is small
-   (use the pinned `log1p` form) — both bite on second-resolution grids.
+   (use the pinned `log1p` form) — the first bites on very urgent or very long schedules, the second on fine grids.
 3. **Forgetting `eta_tilde`.** Using raw `eta` in the cost sum double-counts
    permanent impact (the `gamma_p*tau/2` correction removes the overlap
    between the within-interval permanent move and the temporary cost). And
@@ -599,7 +602,7 @@ mid-price world — which is exactly why they are teachable in closed form.
 
 ---
 
-## 9a. How a desk would use this
+## 10. How a desk would use this
 
 A concrete workflow for the pieces that are here, in the order a desk would
 run them:
@@ -649,7 +652,7 @@ selection — is listed in the README's real-world usage notes.
 
 ---
 
-## 10. How real e-trading desks differ
+## 11. How real e-trading desks differ
 
 The models here are the intellectual core of real systems, wrapped in layers
 this project deliberately omits:
@@ -677,7 +680,7 @@ this project deliberately omits:
   self-match prevention, messaging throttles, and exchange-mandated market
   maker obligations (max spread, min size, min uptime).
 
-## 11. Regulatory context
+## 12. Regulatory context
 
 - **Best execution.** Brokers must take *all sufficient steps* (MiFID II
   wording; FINRA: *reasonable diligence*) to obtain the best possible result
@@ -701,7 +704,7 @@ this project deliberately omits:
 
 ---
 
-## 12. Interview-style Q&A
+## 13. Knowledge check
 
 **Q1. Why is the optimal AC trajectory front-loaded for lambda > 0?**
 Variance comes from inventory held (`sigma^2 tau sum x_j^2`), cost from
@@ -737,7 +740,7 @@ liquidation.
 **Q5. Decompose implementation shortfall and state the identity.**
 Delay `Q(P_d − P_0)` + trading `sum n_j (P_0 − p_j)` + opportunity
 `R(P_d − P_T)` (sell signs), summing *exactly* to
-`X P_d − sum n_j p_j − R P_T`. Interview follow-up: a desk with great
+`X P_d − sum n_j p_j − R P_T`. Follow-up: a desk with great
 "trading" numbers but chronic delay cost has a decision-to-desk latency
 problem, not an execution problem.
 
@@ -780,7 +783,7 @@ ddof, and the cap's always-draw rule — not the RNG itself.
 
 ---
 
-## 13. Further reading
+## 14. Further reading
 
 - R. Almgren, N. Chriss (2000), "Optimal execution of portfolio
   transactions", *Journal of Risk* 3(2), 5–39 — the AC model, exactly as
@@ -805,4 +808,4 @@ ddof, and the cap's always-draw rule — not the RNG itself.
 - J.-P. Bouchaud et al., *Trades, Quotes and Prices* — empirical impact,
   the square-root law, order-book dynamics.
 - ESMA MiFID II best-execution guidance and SEC Rules 605/606 — the
-  regulatory texts behind Section 11.
+  regulatory texts behind Section 12.

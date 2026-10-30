@@ -1,0 +1,11 @@
+# Repository-wide ruff settings (the Python package keeps its own copy in
+# python/pyproject.toml so `ruff` works from either directory).
+extend = "python/pyproject.toml"
+extend-exclude = ["review_experiments"]
+
+[lint.per-file-ignores]
+"data/generate_data.py" = ["E402"]
+"python/demo.py" = ["E402"]
+
+[format]
+exclude = ["*.md"]

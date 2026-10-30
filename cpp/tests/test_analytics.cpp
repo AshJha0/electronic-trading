@@ -126,7 +126,7 @@ TEST(Impact, RegressionRecoversSlopeApproximately) {
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// Robustness tests (T-9, T-13)
+// Robustness tests: price-shift invariance, empty fills, participation above 1
 // ---------------------------------------------------------------------------
 
 namespace {

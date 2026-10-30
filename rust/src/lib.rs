@@ -20,7 +20,7 @@
 //! paths — is bounded by a pinned constant before any allocation).  Prices
 //! are arithmetic and may go negative — a documented model property of both
 //! models, never an error.  Seeded simulations use `ChaCha12Rng` explicitly
-//! so "same seed, same results" holds across `rand` releases.
+//! so "same seed, same results" holds across `rand` 0.8.x releases.
 
 pub mod almgren_chriss;
 pub mod analytics;
@@ -28,10 +28,10 @@ pub mod avellaneda_stoikov;
 mod error;
 
 pub use almgren_chriss::{
-    ac_kappa, ac_trade_list, ac_trajectory, characteristic_time, efficient_frontier,
-    expected_cost, half_life, instantaneous_cost, pov_holdings, simulate_is,
-    trades_from_holdings, twap_holdings, variance_cost, ACParams, FrontierPoint, ISSimResult,
-    KAPPA_T_LIMIT, MAX_AC_INTERVALS, MAX_PATHS, MAX_POV_INTERVALS,
+    ac_kappa, ac_trade_list, ac_trajectory, characteristic_time, efficient_frontier, expected_cost,
+    half_life, instantaneous_cost, pov_holdings, simulate_is, trades_from_holdings, twap_holdings,
+    variance_cost, ACParams, FrontierPoint, ISSimResult, KAPPA_T_LIMIT, MAX_AC_INTERVALS,
+    MAX_PATHS, MAX_POV_INTERVALS,
 };
 pub use analytics::{
     decompose_shortfall, estimate_impact, ols, participation_rate, synthetic_impact_fills,

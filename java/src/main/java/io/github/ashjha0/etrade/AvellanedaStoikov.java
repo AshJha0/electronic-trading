@@ -1,6 +1,6 @@
-package com.quant.etrade;
+package io.github.ashjha0.etrade;
 
-import static com.quant.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.require;
 
 import java.util.SplittableRandom;
 

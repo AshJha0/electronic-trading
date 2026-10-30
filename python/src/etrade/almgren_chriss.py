@@ -76,7 +76,7 @@ Numerical evaluation (pinned in API_SPEC.md)
 --------------------------------------------
 * ``kappa`` is evaluated as ``log1p(x + sqrt(x*(2 + x))) / tau`` with
   ``x = kappa_tilde^2 * tau^2 / 2`` — algebraically ``arccosh(1 + x)`` but
-  accurate to 1 ulp for small ``x`` (the ``acosh(1 + x)`` form loses
+  free of cancellation for small ``x`` (the ``acosh(1 + x)`` form loses
   ``~eps/x`` relative digits by cancellation, e.g. for ``tau`` in seconds).
 * The sinh ratio is evaluated in the overflow-free form
 
@@ -84,7 +84,8 @@ Numerical evaluation (pinned in API_SPEC.md)
 
   which is exactly ``sinh(kappa*(T - t_j))/sinh(kappa*T)`` for every
   ``kappa > 0`` and never overflows (``sinh`` overflows at ``kappa*T > 710``,
-  which a 1-second grid over a day reaches easily).
+  reached by very urgent or very long schedules; ``kappa*T`` is essentially
+  independent of the grid at a fixed horizon).
 
 Small-``kappa`` limit (``lambda_ra -> 0``)
 ------------------------------------------
@@ -106,10 +107,14 @@ from __future__ import annotations
 
 import math
 import numbers
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import numpy as np
+import numpy.typing as npt
+
+#: A holdings path: any 1-D float sequence or NumPy array.
+Holdings = Sequence[float] | npt.NDArray[np.float64]
 
 #: Threshold on kappa*T below which the exact linear (TWAP) limit branch is used.
 KAPPA_T_LIMIT: float = 1e-6
@@ -163,21 +168,25 @@ class ACParams:
     lambda_ra: float
 
     def __post_init__(self) -> None:
-        _require(math.isfinite(self.total_shares) and self.total_shares >= 0.0,
-                 "total_shares must be finite and >= 0")
-        _require(_is_int(self.n_intervals) and 1 <= self.n_intervals <= MAX_AC_INTERVALS,
-                 f"n_intervals must be an integer in [1, {MAX_AC_INTERVALS}]")
+        _require(
+            math.isfinite(self.total_shares) and self.total_shares >= 0.0,
+            "total_shares must be finite and >= 0",
+        )
+        _require(
+            _is_int(self.n_intervals) and 1 <= self.n_intervals <= MAX_AC_INTERVALS,
+            f"n_intervals must be an integer in [1, {MAX_AC_INTERVALS}]",
+        )
         _require(math.isfinite(self.tau) and self.tau > 0.0, "tau must be > 0")
         _require(math.isfinite(self.sigma) and self.sigma >= 0.0, "sigma must be >= 0")
         _require(math.isfinite(self.eta) and self.eta > 0.0, "eta must be > 0")
-        _require(math.isfinite(self.gamma_p) and self.gamma_p >= 0.0,
-                 "gamma_p must be >= 0")
-        _require(math.isfinite(self.lambda_ra) and self.lambda_ra >= 0.0,
-                 "lambda_ra must be >= 0")
+        _require(math.isfinite(self.gamma_p) and self.gamma_p >= 0.0, "gamma_p must be >= 0")
+        _require(math.isfinite(self.lambda_ra) and self.lambda_ra >= 0.0, "lambda_ra must be >= 0")
         # Paper validity condition: eta_tilde = eta - gamma_p*tau/2 must be > 0.
-        _require(self.gamma_p * self.tau < 2.0 * self.eta,
-                 "model invalid: gamma_p*tau >= 2*eta (eta_tilde <= 0); "
-                 "see Almgren-Chriss (2000) footnote")
+        _require(
+            self.gamma_p * self.tau < 2.0 * self.eta,
+            "model invalid: gamma_p*tau >= 2*eta (eta_tilde <= 0); "
+            "see Almgren-Chriss (2000) footnote",
+        )
 
     @property
     def horizon(self) -> float:
@@ -189,10 +198,17 @@ class ACParams:
         """Adjusted temporary impact eta_tilde = eta*(1 - gamma_p*tau/(2*eta))."""
         return self.eta * (1.0 - self.gamma_p * self.tau / (2.0 * self.eta))
 
-    def with_lambda(self, lambda_ra: float) -> "ACParams":
+    def with_lambda(self, lambda_ra: float) -> ACParams:
         """Copy of these params with a different risk aversion (revalidated)."""
-        return ACParams(self.total_shares, self.n_intervals, self.tau,
-                        self.sigma, self.eta, self.gamma_p, lambda_ra)
+        return ACParams(
+            self.total_shares,
+            self.n_intervals,
+            self.tau,
+            self.sigma,
+            self.eta,
+            self.gamma_p,
+            lambda_ra,
+        )
 
 
 def ac_kappa(params: ACParams) -> float:
@@ -205,10 +221,10 @@ def ac_kappa(params: ACParams) -> float:
     (identical to ``arccosh(1 + x)/tau`` but free of cancellation for small
     ``x``; pinned in API_SPEC.md Section 1.4).
     """
-    kt2 = params.lambda_ra * params.sigma ** 2 / params.eta_tilde
+    kt2 = params.lambda_ra * params.sigma**2 / params.eta_tilde
     if kt2 == 0.0:
         return 0.0
-    x = 0.5 * kt2 * params.tau ** 2
+    x = 0.5 * kt2 * params.tau**2
     return math.log1p(x + math.sqrt(x * (2.0 + x))) / params.tau
 
 
@@ -244,7 +260,7 @@ def ac_trajectory(params: ACParams) -> np.ndarray:
     t_j = j * params.tau
     big_t = params.horizon
     if kappa * big_t < KAPPA_T_LIMIT:
-        x = x0 * (n - j) / n          # exact TWAP limit, no 0/0
+        x = x0 * (n - j) / n  # exact TWAP limit, no 0/0
     else:
         # sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT);
         # the ratio is formed first so that x_0 == X exactly (1 * 1 * X).
@@ -259,7 +275,7 @@ def ac_trade_list(params: ACParams) -> np.ndarray:
     return trades_from_holdings(ac_trajectory(params))
 
 
-def _holdings_array(holdings: Sequence[float]) -> np.ndarray:
+def _holdings_array(holdings: Holdings) -> np.ndarray:
     x = np.asarray(holdings, dtype=float)
     _require(x.ndim == 1 and x.size >= 2, "holdings must be a 1-D array, length >= 2")
     _require(bool(np.all(np.isfinite(x))), "holdings must be finite")
@@ -267,27 +283,33 @@ def _holdings_array(holdings: Sequence[float]) -> np.ndarray:
 
 
 def _require_liquidating(x: np.ndarray) -> None:
-    _require(abs(float(x[-1])) <= 1e-9 * max(1.0, abs(float(x[0]))),
-             "holdings path must fully liquidate (x_N = 0)")
+    _require(
+        abs(float(x[-1])) <= 1e-9 * max(1.0, abs(float(x[0]))),
+        "holdings path must fully liquidate (x_N = 0)",
+    )
 
 
-def trades_from_holdings(holdings: Sequence[float]) -> np.ndarray:
+def trades_from_holdings(holdings: Holdings) -> np.ndarray:
     """Trade list n_j = x_{j-1} - x_j from a (finite) holdings path."""
     return -np.diff(_holdings_array(holdings))
 
 
 def twap_holdings(total_shares: float, n_intervals: int) -> np.ndarray:
     """Linear TWAP holdings path x_j = X*(N-j)/N."""
-    _require(math.isfinite(total_shares) and total_shares >= 0.0,
-             "total_shares must be finite and >= 0")
-    _require(_is_int(n_intervals) and 1 <= n_intervals <= MAX_AC_INTERVALS,
-             f"n_intervals must be an integer in [1, {MAX_AC_INTERVALS}]")
+    _require(
+        math.isfinite(total_shares) and total_shares >= 0.0, "total_shares must be finite and >= 0"
+    )
+    _require(
+        _is_int(n_intervals) and 1 <= n_intervals <= MAX_AC_INTERVALS,
+        f"n_intervals must be an integer in [1, {MAX_AC_INTERVALS}]",
+    )
     j = np.arange(n_intervals + 1, dtype=float)
     return total_shares * (n_intervals - j) / n_intervals
 
 
-def pov_holdings(total_shares: float, tau: float, market_volume_rate: float,
-                 participation: float) -> np.ndarray:
+def pov_holdings(
+    total_shares: float, tau: float, market_volume_rate: float, participation: float
+) -> np.ndarray:
     """POV (percentage-of-volume) holdings path.
 
     Sells ``participation * market_volume_rate * tau`` shares per interval
@@ -296,27 +318,34 @@ def pov_holdings(total_shares: float, tau: float, market_volume_rate: float,
     1e-12)`` intervals, with ``X/clip <= MAX_POV_INTERVALS`` required (a clip
     too small for the order is an input error, never a huge allocation).
     """
-    _require(math.isfinite(total_shares) and total_shares >= 0.0,
-             "total_shares must be finite and >= 0")
+    _require(
+        math.isfinite(total_shares) and total_shares >= 0.0, "total_shares must be finite and >= 0"
+    )
     _require(math.isfinite(tau) and tau > 0.0, "tau must be > 0")
-    _require(math.isfinite(market_volume_rate) and market_volume_rate > 0.0,
-             "market_volume_rate must be > 0")
-    _require(math.isfinite(participation) and 0.0 < participation < 1.0,
-             "participation must be in (0, 1)")
+    _require(
+        math.isfinite(market_volume_rate) and market_volume_rate > 0.0,
+        "market_volume_rate must be > 0",
+    )
+    _require(
+        math.isfinite(participation) and 0.0 < participation < 1.0,
+        "participation must be in (0, 1)",
+    )
     clip = participation * market_volume_rate * tau
     if total_shares == 0.0:
         return np.zeros(2)
     ratio = total_shares / clip
-    _require(ratio <= MAX_POV_INTERVALS,
-             f"POV clip too small: would need > {MAX_POV_INTERVALS} intervals")
-    n_int = int(math.ceil(ratio - 1e-12))
+    _require(
+        ratio <= MAX_POV_INTERVALS,
+        f"POV clip too small: would need > {MAX_POV_INTERVALS} intervals",
+    )
+    n_int = math.ceil(ratio - 1e-12)
     x = total_shares - clip * np.arange(n_int + 1, dtype=float)
     x = np.maximum(x, 0.0)
     x[-1] = 0.0
     return x
 
 
-def expected_cost(params: ACParams, holdings: Sequence[float] | None = None) -> float:
+def expected_cost(params: ACParams, holdings: Holdings | None = None) -> float:
     """E[IS] = 0.5*gamma_p*X^2 + (eta_tilde/tau)*sum n_j^2 (exact discrete sum).
 
     ``holdings`` defaults to the optimal trajectory; any fully-liquidating
@@ -328,16 +357,16 @@ def expected_cost(params: ACParams, holdings: Sequence[float] | None = None) -> 
     _require_liquidating(x)
     n = -np.diff(x)
     x0 = float(x[0])
-    return 0.5 * params.gamma_p * x0 ** 2 + params.eta_tilde / params.tau * float(np.sum(n ** 2))
+    return 0.5 * params.gamma_p * x0**2 + params.eta_tilde / params.tau * float(np.sum(n**2))
 
 
-def variance_cost(params: ACParams, holdings: Sequence[float] | None = None) -> float:
+def variance_cost(params: ACParams, holdings: Holdings | None = None) -> float:
     """Var[IS] = sigma^2 * tau * sum_{j=1}^{N} x_j^2 (exact discrete sum).
 
     ``holdings`` (length >= 2, finite) defaults to the optimal trajectory.
     """
     x = ac_trajectory(params) if holdings is None else _holdings_array(holdings)
-    return params.sigma ** 2 * params.tau * float(np.sum(x[1:] ** 2))
+    return params.sigma**2 * params.tau * float(np.sum(x[1:] ** 2))
 
 
 def instantaneous_cost(params: ACParams) -> tuple[float, float]:
@@ -346,7 +375,7 @@ def instantaneous_cost(params: ACParams) -> tuple[float, float]:
     E = 0.5*gamma_p*X^2 + eta_tilde*X^2/tau,  Var = 0 (no residual exposure).
     """
     x0 = params.total_shares
-    e = 0.5 * params.gamma_p * x0 ** 2 + params.eta_tilde * x0 ** 2 / params.tau
+    e = 0.5 * params.gamma_p * x0**2 + params.eta_tilde * x0**2 / params.tau
     return e, 0.0
 
 
@@ -361,8 +390,7 @@ class FrontierPoint:
     std_cost: float
 
 
-def efficient_frontier(params: ACParams,
-                       lambdas: Sequence[float]) -> list[FrontierPoint]:
+def efficient_frontier(params: ACParams, lambdas: Sequence[float]) -> list[FrontierPoint]:
     """Sweep a risk-aversion grid; return (lambda, kappa, E, Var, sqrt(Var)).
 
     The grid must be non-empty and every entry finite and >= 0; order is
@@ -389,8 +417,9 @@ class ISSimResult:
     n_paths: int
 
 
-def simulate_is(params: ACParams, holdings: Sequence[float] | None = None,
-                n_paths: int = 10_000, seed: int = 0) -> ISSimResult:
+def simulate_is(
+    params: ACParams, holdings: Holdings | None = None, n_paths: int = 10_000, seed: int = 0
+) -> ISSimResult:
     """Simulate IS of a schedule under the arithmetic random walk.
 
     Per path: S_j = S_{j-1} + sigma*sqrt(tau)*xi_j - gamma_p*n_j, trade j
@@ -402,8 +431,10 @@ def simulate_is(params: ACParams, holdings: Sequence[float] | None = None,
     the sample variance uses the normal approximation ``var * sqrt(2/(M-1))``
     (exact here: IS is Gaussian in this model).
     """
-    _require(_is_int(n_paths) and 2 <= n_paths <= MAX_PATHS,
-             f"n_paths must be an integer in [2, {MAX_PATHS}]")
+    _require(
+        _is_int(n_paths) and 2 <= n_paths <= MAX_PATHS,
+        f"n_paths must be an integer in [2, {MAX_PATHS}]",
+    )
     x = ac_trajectory(params) if holdings is None else _holdings_array(holdings)
     _require_liquidating(x)
     n = -np.diff(x)

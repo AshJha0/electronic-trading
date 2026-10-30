@@ -7,6 +7,10 @@
 /// `|actual - expected| <= tol * max(1, |expected|)`.  Statistical cases run
 /// this port's own std::mt19937_64 simulation (>= 2000 paths) and assert
 /// `|stat - ref| <= 4 * sqrt(se_ref^2 + se_own^2)` per API_SPEC section 4.
+#ifndef ETRADE_GOLDEN_PATH
+#define ETRADE_GOLDEN_PATH "../data/golden/golden.json"
+#endif
+
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -24,7 +28,7 @@ namespace {
 using mini_json::Value;
 
 const Value& golden() {
-    static const Value doc = mini_json::parse_file("../data/golden/golden.json");
+    static const Value doc = mini_json::parse_file(ETRADE_GOLDEN_PATH);
     return doc;
 }
 

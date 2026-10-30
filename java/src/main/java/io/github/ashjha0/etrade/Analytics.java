@@ -1,7 +1,7 @@
-package com.quant.etrade;
+package io.github.ashjha0.etrade;
 
-import static com.quant.etrade.Validation.require;
-import static com.quant.etrade.Validation.requireFinite;
+import static io.github.ashjha0.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.requireFinite;
 
 /**
  * Execution analytics: implementation-shortfall decomposition (Perold

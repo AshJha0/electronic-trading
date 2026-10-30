@@ -48,7 +48,10 @@ fn buy_and_sell_mirror_each_other() {
 
 #[test]
 fn participation_rate_basic_and_errors() {
-    assert_eq!(etrade::participation_rate(120_000.0, 1_500_000.0).unwrap(), 0.08);
+    assert_eq!(
+        etrade::participation_rate(120_000.0, 1_500_000.0).unwrap(),
+        0.08
+    );
     assert_eq!(etrade::participation_rate(0.0, 1.0).unwrap(), 0.0);
     assert!(etrade::participation_rate(-1.0, 1.0).is_err());
     assert!(etrade::participation_rate(1.0, 0.0).is_err());
@@ -92,10 +95,13 @@ fn error_paths_are_reported_not_panicked() {
     // Decomposition errors.
     let ok_q = [500.0];
     let ok_p = [99.0];
-    assert!(etrade::decompose_shortfall(Side::Sell, f64::NAN, 99.5, 98.8, 1000.0, &ok_q, &ok_p)
-        .is_err());
-    assert!(etrade::decompose_shortfall(Side::Sell, 100.0, 99.5, 98.8, -1.0, &ok_q, &ok_p)
-        .is_err());
+    assert!(
+        etrade::decompose_shortfall(Side::Sell, f64::NAN, 99.5, 98.8, 1000.0, &ok_q, &ok_p)
+            .is_err()
+    );
+    assert!(
+        etrade::decompose_shortfall(Side::Sell, 100.0, 99.5, 98.8, -1.0, &ok_q, &ok_p).is_err()
+    );
     assert!(etrade::decompose_shortfall(
         Side::Sell,
         100.0,
@@ -106,10 +112,12 @@ fn error_paths_are_reported_not_panicked() {
         &ok_p
     )
     .is_err()); // length mismatch
-    assert!(etrade::decompose_shortfall(Side::Sell, 100.0, 99.5, 98.8, 1000.0, &[-1.0], &ok_p)
-        .is_err()); // negative fill
-    assert!(etrade::decompose_shortfall(Side::Sell, 100.0, 99.5, 98.8, 100.0, &ok_q, &ok_p)
-        .is_err()); // over-execution
+    assert!(
+        etrade::decompose_shortfall(Side::Sell, 100.0, 99.5, 98.8, 1000.0, &[-1.0], &ok_p).is_err()
+    ); // negative fill
+    assert!(
+        etrade::decompose_shortfall(Side::Sell, 100.0, 99.5, 98.8, 100.0, &ok_q, &ok_p).is_err()
+    ); // over-execution
     assert!(etrade::decompose_shortfall(
         Side::Sell,
         100.0,
@@ -129,7 +137,7 @@ fn error_paths_are_reported_not_panicked() {
 }
 
 // ---------------------------------------------------------------------------
-// Robustness tests (T-9, T-13)
+// Robustness tests: price-shift invariance, empty fills, participation above 1
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -141,8 +149,9 @@ fn is_decomposition_price_shift_invariance() {
     let px_c: Vec<f64> = px.iter().map(|p| p + c).collect();
     for side in [Side::Sell, Side::Buy] {
         let d0 = etrade::decompose_shortfall(side, 100.0, 99.5, 98.8, 1000.0, &qty, &px).unwrap();
-        let d1 = etrade::decompose_shortfall(side, 100.0 + c, 99.5 + c, 98.8 + c, 1000.0, &qty, &px_c)
-            .unwrap();
+        let d1 =
+            etrade::decompose_shortfall(side, 100.0 + c, 99.5 + c, 98.8 + c, 1000.0, &qty, &px_c)
+                .unwrap();
         assert!((d0.total - d1.total).abs() < 1e-9);
         assert!((d0.delay - d1.delay).abs() < 1e-9);
         assert!((d0.trading - d1.trading).abs() < 1e-9);

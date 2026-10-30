@@ -5,3 +5,7 @@ java/out/
 __pycache__/
 *.pyc
 .pytest_cache/
+java/target/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/

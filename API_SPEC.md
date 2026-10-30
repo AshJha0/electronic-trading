@@ -1,7 +1,7 @@
 # `etrade` — API contract (pinned, cross-language)
 
 This document is the normative contract for all ports (Python `etrade`,
-C++ `etrade::`, Rust crate `etrade`, Java `com.quant.etrade`).  Every formula,
+C++ `etrade::`, Rust crate `etrade`, Java `io.github.ashjha0.etrade`).  Every formula,
 evaluation form, branch threshold, size bound, loop order and golden tolerance
 below is pinned; ports must reproduce them exactly (up to floating point)
 except where the RNG note says otherwise.  The Python implementation under
@@ -125,8 +125,8 @@ n_j           = x_{j-1} - x_j
 
 ```
 x     = kappa_tilde^2 * tau^2 / 2
-kappa = log1p(x + sqrt(x*(2 + x))) / tau          (== arccosh(1 + x)/tau; exact to
-                                                   1 ulp for small x, where
+kappa = log1p(x + sqrt(x*(2 + x))) / tau          (== arccosh(1 + x)/tau; free of
+                                                   cancellation for small x, where
                                                    acosh(1 + x) loses ~eps/x digits)
 ratio_j = expm1(-2*kappa*(T - t_j)) / expm1(-2*kappa*T)
 x_j     = X * exp(-kappa*t_j) * ratio_j            (== sinh(kappa(T-t_j))/sinh(kappa T);
@@ -342,7 +342,7 @@ values.  The generators are pinned per language:
 | Python | `numpy.random.default_rng(seed)` (PCG64) | bit-stable across NumPy releases (PCG64 stream is versioned) |
 | C++ | `std::mt19937_64(seed)` + `std::uniform_real_distribution` / `std::normal_distribution` | bit-stable within one standard library; the distribution algorithms are implementation-defined, so libstdc++ / libc++ / MSVC differ for the same seed |
 | Rust | `rand_chacha::ChaCha12Rng::seed_from_u64(seed)` + `rand_distr::StandardNormal` | pinned explicitly (not `StdRng`, which `rand` documents as free to change between releases); bit-stable across `rand` 0.8.x |
-| Java | `java.util.SplittableRandom(seed)` (`nextDouble`, `nextGaussian`) | bit-stable across JDK releases (algorithm specified) |
+| Java | `java.util.SplittableRandom(seed)` (`nextDouble`, `nextGaussian`) | bit-stable within one JVM build and platform; `nextDouble` is specified, but `nextGaussian` is a `RandomGenerator` default and `Math.*` may differ by 1 ulp across platforms, so cross-JDK bit-stability is not guaranteed |
 
 Therefore:
 

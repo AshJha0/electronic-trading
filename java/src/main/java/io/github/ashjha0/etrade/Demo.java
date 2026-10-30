@@ -1,4 +1,4 @@
-package com.quant.etrade;
+package io.github.ashjha0.etrade;
 
 import java.util.Locale;
 

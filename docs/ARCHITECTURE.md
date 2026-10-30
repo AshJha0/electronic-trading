@@ -250,14 +250,14 @@ Design points:
    `x = kappa_tilde^2 tau^2/2` is the exact root of the discrete
    characteristic equation — no iterative solve, no tolerance to pin. It is
    evaluated as `log1p(x + sqrt(x(2 + x)))/tau`, which is the same function
-   but exact to 1 ulp for small `x`; the literal `acosh(1 + x)` loses
+   but free of cancellation for small `x` (a few ulp); the literal `acosh(1 + x)` loses
    `~eps/x` relative digits by cancellation, i.e. it degrades *worst*
    exactly as `tau -> 0` (measured: `x = 2e-9` gives 1.2e-8 relative error,
    above the 1e-10 golden tolerance; `x = 5e-16` gives 6%). Golden case
    `ac_kappa_small_tau` pins this.
 3. **`exp/expm1` form for the sinh ratio.** `sinh(kappa(T-t_j))/sinh(kappa T)`
-   overflows to `inf/inf = NaN` at `kappa T > 710` — a 1-second grid over a
-   day at moderate urgency. It is evaluated as
+   overflows to `inf/inf = NaN` at `kappa T > 710` — a very urgent schedule or a
+   very long horizon (`kappa T` is essentially grid-independent at fixed `T`). It is evaluated as
    `exp(-kappa t_j) expm1(-2 kappa (T-t_j)) / expm1(-2 kappa T)`, identical
    for every `kappa > 0`, finite for every valid input, with the ratio formed
    first so `x_0 == X` exactly. Far out on a very urgent schedule `exp`
@@ -310,8 +310,10 @@ Design points:
     libc++ and MSVC differ for the same seed); Rust:
     `rand_chacha::ChaCha12Rng::seed_from_u64` pinned explicitly (the `rand`
     crate documents `StdRng` as free to change between releases); Java:
-    `SplittableRandom` (specified algorithm, `nextGaussian` since Java 17,
-    faster and better-distributed than the 48-bit LCG `java.util.Random`).
+    `SplittableRandom` (`nextDouble` is a specified algorithm; `nextGaussian`
+    comes from the `RandomGenerator` default since Java 17 and is not
+    specified, and `Math.*` may differ by 1 ulp across platforms, so Java
+    determinism is guaranteed within one JVM build and platform only).
     Each language tests "same seed twice = identical results"; the golden
     file stores Python's 20k-path references *with standard errors* so any
     port with `M >= 2000` paths can verify

@@ -2,14 +2,26 @@
 name = "etrade"
 version = "1.1.0"
 edition = "2021"
-description = "Electronic trading models: Almgren-Chriss optimal execution, Avellaneda-Stoikov market making, execution analytics"
+rust-version = "1.78"
+description = "Execution and market-making research: Almgren-Chriss optimal execution, Avellaneda-Stoikov market making, execution analytics"
+license = "MIT"
+repository = "https://github.com/AshJha0/electronic-trading"
+homepage = "https://ashjha0.github.io/electronic-trading/"
+readme = "../README.md"
+keywords = ["trading", "execution", "market-making", "quant", "finance"]
+categories = ["finance", "mathematics", "simulation"]
 
 [dependencies]
 rand = "0.8"
 rand_chacha = "0.3"
 rand_distr = "0.4"
+
+[dev-dependencies]
 serde_json = "1"
 
-[[bin]]
-name = "demo"
-path = "src/bin/demo.rs"
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

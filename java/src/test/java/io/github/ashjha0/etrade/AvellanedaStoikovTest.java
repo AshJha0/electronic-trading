@@ -1,4 +1,4 @@
-package com.quant.etrade;
+package io.github.ashjha0.etrade;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -170,7 +170,7 @@ public final class AvellanedaStoikovTest {
     }
 
     // -----------------------------------------------------------------------
-    // Robustness tests (review findings CRIT-1, MAJ-8, MIN-16, T-8, T-11, T-14)
+    // Robustness tests: per-side fill counting, finite inputs, stress edges, step and path bounds
     // -----------------------------------------------------------------------
 
     @Test

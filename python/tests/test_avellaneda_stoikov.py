@@ -26,8 +26,7 @@ def test_reservation_price_sign_conventions(ap: et.ASParams) -> None:
     assert et.reservation_price(ap, s, 5.0, t) < s
     assert et.reservation_price(ap, s, -5.0, t) > s
     skew = s - et.reservation_price(ap, s, 1.0, t)
-    assert skew == pytest.approx(ap.gamma * ap.sigma ** 2 * (ap.horizon - t),
-                                 rel=1e-12)
+    assert skew == pytest.approx(ap.gamma * ap.sigma**2 * (ap.horizon - t), rel=1e-12)
 
 
 def test_spread_positive_decreasing_to_terminal_floor(ap: et.ASParams) -> None:
@@ -72,22 +71,34 @@ def test_fill_probability_pinned_formula(ap: et.ASParams) -> None:
     assert et.fill_probability(ap, -0.5) < 1.0
 
 
-@pytest.mark.parametrize("kwargs", [
-    dict(gamma=0.0),           # gamma -> 0 limit is outside the model: floored
-    dict(gamma=-0.1),
-    dict(k=0.0),
-    dict(a_rate=0.0),
-    dict(sigma=-1.0),
-    dict(dt=0.0),
-    dict(dt=2.0),              # dt > horizon
-    dict(dt=0.3),              # horizon not an integer multiple of dt
-    dict(horizon=0.0),
-    dict(q_max=-1),
-    dict(eta_liq=-0.5),
-])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"gamma": 0.0},  # gamma -> 0 limit is outside the model: floored
+        {"gamma": -0.1},
+        {"k": 0.0},
+        {"a_rate": 0.0},
+        {"sigma": -1.0},
+        {"dt": 0.0},
+        {"dt": 2.0},  # dt > horizon
+        {"dt": 0.3},  # horizon not an integer multiple of dt
+        {"horizon": 0.0},
+        {"q_max": -1},
+        {"eta_liq": -0.5},
+    ],
+)
 def test_validation_errors(kwargs: dict) -> None:
-    base = dict(s0=100.0, sigma=2.0, horizon=1.0, dt=0.005, gamma=0.1,
-                k=1.5, a_rate=140.0, q_max=20, eta_liq=0.5)
+    base = {
+        "s0": 100.0,
+        "sigma": 2.0,
+        "horizon": 1.0,
+        "dt": 0.005,
+        "gamma": 0.1,
+        "k": 1.5,
+        "a_rate": 140.0,
+        "q_max": 20,
+        "eta_liq": 0.5,
+    }
     base.update(kwargs)
     with pytest.raises(ValueError):
         et.ASParams(**base)
@@ -105,14 +116,13 @@ def test_simulation_determinism(ap: et.ASParams) -> None:
 def test_inventory_cap_respected_every_step() -> None:
     p = et.ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 2, 0.5)
     res = et.simulate(p, n_paths=800, seed=3)
-    assert not res.cap_violated          # checked inside the loop, every step
+    assert not res.cap_violated  # checked inside the loop, every step
     assert res.overall_max_abs_q <= 2.0
-    assert res.mean_fills > 0.0          # one-sided quoting still trades
+    assert res.mean_fills > 0.0  # one-sided quoting still trades
 
 
 def test_qmax_zero_never_quotes(ap: et.ASParams) -> None:
-    p = et.ASParams(ap.s0, ap.sigma, ap.horizon, ap.dt, ap.gamma, ap.k,
-                    ap.a_rate, 0, ap.eta_liq)
+    p = et.ASParams(ap.s0, ap.sigma, ap.horizon, ap.dt, ap.gamma, ap.k, ap.a_rate, 0, ap.eta_liq)
     res = et.simulate(p, n_paths=50, seed=1)
     assert res.mean_fills == 0.0
     assert res.overall_max_abs_q == 0.0
@@ -132,8 +142,7 @@ def test_as_beats_fixed_on_inventory(ap: et.ASParams) -> None:
 
 def test_stress_double_vol_raises_pnl_dispersion(ap: et.ASParams) -> None:
     base = et.simulate(ap, n_paths=1500, seed=5)
-    stress = et.simulate(ap, n_paths=1500, seed=5, stress_factor=2.0,
-                         stress_time_frac=0.5)
+    stress = et.simulate(ap, n_paths=1500, seed=5, stress_factor=2.0, stress_time_frac=0.5)
     assert stress.std_pnl > base.std_pnl
 
 
@@ -168,14 +177,14 @@ def test_sharpe_and_result_shapes(ap: et.ASParams) -> None:
     assert res.n_paths == 300
     assert res.pnl.shape == (300,)
     assert res.sharpe == pytest.approx(res.mean_pnl / res.std_pnl, rel=1e-12)
-    for stat in ("mean_pnl", "std_pnl", "mean_abs_q", "mean_max_abs_q",
-                 "rms_q", "mean_fills"):
+    for stat in ("mean_pnl", "std_pnl", "mean_abs_q", "mean_max_abs_q", "rms_q", "mean_fills"):
         assert res.se(stat) > 0.0
 
 
 # ----------------------------------------------------------------------------
-# Robustness tests (review findings CRIT-1, MAJ-8, MIN-16, T-8, T-11, T-14)
+# Robustness tests: per-side fill counting, finite inputs, stress edges, step and path bounds
 # ----------------------------------------------------------------------------
+
 
 def _reference_loop(p: et.ASParams, n_paths: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
     """Independent scalar re-implementation of the pinned loop (API_SPEC 2.2)
@@ -189,16 +198,18 @@ def _reference_loop(p: et.ASParams, n_paths: int, seed: int) -> tuple[np.ndarray
     markup = 2.0 / p.gamma * math.log1p(p.gamma / p.k)
     for i in range(p.n_steps):
         t = i * p.dt
-        r = s - q * p.gamma * p.sigma ** 2 * (p.horizon - t)
-        half = 0.5 * (p.gamma * p.sigma ** 2 * (p.horizon - t) + markup)
+        r = s - q * p.gamma * p.sigma**2 * (p.horizon - t)
+        half = 0.5 * (p.gamma * p.sigma**2 * (p.horizon - t) + markup)
         ask, bid = r + half, r - half
         u_ask = rng.random(n_paths)
         u_bid = rng.random(n_paths)
         for m in range(n_paths):
             fa = q[m] > -p.q_max and u_ask[m] < -math.expm1(
-                -p.a_rate * math.exp(-p.k * (ask[m] - s[m])) * p.dt)
+                -p.a_rate * math.exp(-p.k * (ask[m] - s[m])) * p.dt
+            )
             fb = q[m] < p.q_max and u_bid[m] < -math.expm1(
-                -p.a_rate * math.exp(-p.k * (s[m] - bid[m])) * p.dt)
+                -p.a_rate * math.exp(-p.k * (s[m] - bid[m])) * p.dt
+            )
             if fa:
                 q[m] -= 1
                 cash[m] += ask[m]
@@ -214,10 +225,9 @@ def _reference_loop(p: et.ASParams, n_paths: int, seed: int) -> tuple[np.ndarray
 def test_mean_fills_counts_both_sides(ap: et.ASParams) -> None:
     # 1. Saturated book: P(fill) = 1 - exp(-1e6*exp(-k*delta)*dt) rounds to 1
     #    on both sides at every step, so fills == 2*n_steps exactly.
-    sat = et.ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, a_rate=1e6,
-                      q_max=10_000, eta_liq=0.0)
+    sat = et.ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, a_rate=1e6, q_max=10_000, eta_liq=0.0)
     res = et.simulate(sat, n_paths=50, seed=1)
-    assert res.mean_fills == 2.0 * sat.n_steps            # 400, not 200
+    assert res.mean_fills == 2.0 * sat.n_steps  # 400, not 200
     assert bool(np.all(res.fills_path == 2.0 * sat.n_steps))
     # 2. Liquid set: matches an independent scalar re-implementation exactly.
     fills_ref, pnl_ref = _reference_loop(ap, 60, 42)
@@ -272,7 +282,7 @@ def test_n_steps_integrality_float() -> None:
     assert p3.n_steps == 3
     with pytest.raises(ValueError):
         et.ASParams(100.0, 2.0, 1.0, 0.3, 0.1, 1.5, 140.0, 20, 0.5)
-    p1 = et.ASParams(100.0, 2.0, 1.0, 1.0, 0.1, 1.5, 140.0, 20, 0.5)   # dt = T
+    p1 = et.ASParams(100.0, 2.0, 1.0, 1.0, 0.1, 1.5, 140.0, 20, 0.5)  # dt = T
     assert p1.n_steps == 1
     res = et.simulate(p1, n_paths=200, seed=4)
     # one step: the time average of |q| is the single post-update value
@@ -288,7 +298,7 @@ def test_step_and_path_bounds_are_input_errors(ap: et.ASParams) -> None:
     with pytest.raises(ValueError):
         et.simulate(ap, n_paths=et.MAX_PATHS + 1, seed=0)
     with pytest.raises(ValueError):
-        et.simulate(ap, n_paths=10.0, seed=0)   # type: ignore[arg-type]
+        et.simulate(ap, n_paths=10.0, seed=0)  # type: ignore[arg-type]
     with pytest.raises(ValueError):
         et.ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, True, 0.5)
     assert et.ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, np.int64(3), 0.5).q_max == 3
@@ -297,6 +307,6 @@ def test_step_and_path_bounds_are_input_errors(ap: et.ASParams) -> None:
 def test_fills_bounded_by_two_per_step_and_inventory_consistent(ap: et.ASParams) -> None:
     res = et.simulate(ap, n_paths=400, seed=8)
     assert bool(np.all(res.fills_path <= 2.0 * ap.n_steps))
-    assert bool(np.all(res.fills_path >= res.max_abs_q_path))   # |q| needs fills
+    assert bool(np.all(res.fills_path >= res.max_abs_q_path))  # |q| needs fills
     assert bool(np.all(res.fills_path == np.round(res.fills_path)))
     assert res.se("mean_fills") > 0.0

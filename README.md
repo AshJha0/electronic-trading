@@ -1,5 +1,7 @@
 # Electronic Trading (`etrade`)
 
+[![CI](https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml/badge.svg)](https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml)
+
 Optimal execution and market making, implemented four times over from the same
 pinned contract: **Almgren-Chriss (2000)** discrete optimal execution,
 **Avellaneda-Stoikov (2008)** finite-horizon market making, and execution
@@ -7,7 +9,7 @@ analytics (Perold implementation-shortfall decomposition, participation rate,
 a tiny native OLS for market-impact estimation).
 
 The Python package `etrade` is the reference implementation; the C++
-(`etrade::` namespace), Rust (`etrade` crate) and Java (`com.quant.etrade`)
+(`etrade::` namespace), Rust (`etrade` crate) and Java (`io.github.ashjha0.etrade`)
 ports mirror `API_SPEC.md` exactly and are validated against shared golden
 values.
 
@@ -64,57 +66,57 @@ electronic-trading/
     CMakeLists.txt  build.sh
   rust/
     Cargo.toml  src/lib.rs src/*.rs
-    src/bin/demo.rs  tests/*.rs
+    examples/demo.rs  tests/*.rs
   java/
-    src/main/java/com/quant/etrade/*.java
-    src/test/java/com/quant/etrade/*Test.java
-    build.sh  test.sh  demo.sh
+    pom.xml
+    src/main/java/io/github/ashjha0/etrade/*.java
+    src/test/java/io/github/ashjha0/etrade/*Test.java
 ```
 
 ## Build, run, test
 
-All commands below work on a fresh Linux clone (the `.sh` scripts are invoked
-through `bash`, so they run whether or not the executable bit survived the
-checkout).
+Every command below runs in CI on Linux, Windows and macOS on every push
+and pull request (`.github/workflows/ci.yml`).
 
-### Python (3.11+, `numpy>=1.24`, `pytest>=7`)
-
-```bash
-cd python
-pip install -r requirements.txt      # numpy, pytest
-PYTHONPATH=src python3 demo.py       # run the demo
-PYTHONPATH=src python3 -m pytest -q  # run the tests (107 tests)
-```
-
-### C++ (C++17, CMake >= 3.16, GoogleTest)
+### Python (3.11+)
 
 ```bash
-cd cpp
-bash build.sh                        # cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j2
-./build/etrade_demo                  # run the demo
-ctest --test-dir build --output-on-failure   # run the tests (76 tests)
+pip install -e "python[dev]"         # installs etrade + pytest, ruff, mypy
+python python/demo.py                # run the demo
+pytest python                        # run the tests (107 tests)
+ruff check . && (cd python && mypy)  # lint and type-check
 ```
 
-### Rust (edition 2021; crates `rand`, `rand_chacha`, `rand_distr`, `serde_json` from crates.io)
+### C++ (C++17, CMake >= 3.20; GCC, Clang or MSVC)
+
+```bash
+cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release   # GoogleTest is fetched if not installed
+cmake --build build --config Release --parallel
+ctest --test-dir build -C Release --output-on-failure   # run the tests (76 tests)
+```
+
+The demo is `build/etrade_demo` (`build/Release/etrade_demo.exe` with MSVC).
+Options: `-DETRADE_BUILD_TESTS=OFF`, `-DETRADE_WERROR=ON`,
+`-DETRADE_SANITIZE=ON` (ASan + UBSan, GCC/Clang).
+
+### Rust (stable, MSRV 1.78)
 
 ```bash
 cd rust
-cargo build --release                # zero warnings
-cargo run --release --bin demo       # run the demo
 cargo test --release                 # run the tests (47 tests)
+cargo run --release --example demo   # run the demo
 ```
 
-### Java (21, JUnit 4 at /usr/share/java/junit4.jar, Hamcrest at /usr/share/java/hamcrest.jar)
+### Java (JDK 17+, Maven)
 
 ```bash
 cd java
-bash build.sh                        # javac -Xlint:all everything into out/ (zero warnings)
-bash demo.sh                         # run the demo main
-bash test.sh                         # JUnitCore on all *Test classes (70 tests)
+mvn verify                           # compile with -Xlint:all -Werror and run the tests (70 tests)
+mvn -q exec:java                     # run the demo
 ```
 
 Test counts above are the current suite sizes (Python 107, C++ 76, Rust 47,
-Java 70 — 300 in total); every suite loads the same 19 golden cases.
+Java 70, 300 in total); every suite loads the same 19 golden cases.
 
 ## Sample demo output (Python reference, truncated)
 
@@ -236,10 +238,12 @@ What a practitioner gets, and what is deliberately left out:
   `Err(EtradeError)` (no panics), Java `IllegalArgumentException`. No
   function returns NaN or infinity from valid finite inputs; the AC
   trajectory is finite for any `kappa*T` (the `sinh` ratio is evaluated in
-  `exp/expm1` form) and `kappa` is accurate to 1 ulp for any `tau` (`log1p`
+  `exp/expm1` form) and `kappa` is free of cancellation for any `tau` (`log1p`
   form).
-- **Determinism.** Same seed, same results within a language and (for Python,
-  Rust, Java) across library releases; C++ is deterministic per standard
+- **Determinism.** Same seed, same results within a language. Python is
+  stable across NumPy releases (PCG64 is versioned) and Rust across `rand`
+  0.8.x; Java is guaranteed within one JVM build and platform (`nextGaussian`
+  and `Math.*` are not bit-specified); C++ is deterministic per standard
   library because `std::normal_distribution` is implementation-defined.
   Cross-language agreement is statistical (4-SE bands), never bitwise.
 - **What is verified.** 300 tests across the four suites: 19 shared golden
@@ -271,7 +275,7 @@ Papers and standards the code implements or the documentation relies on:
   and Financial Economics* 7(4), 477–507.
   https://doi.org/10.1007/s11579-012-0087-0 (the inventory-capped variant
   motivating `q_max`; cited in `LEARN.md`)
-- Regulatory texts cited in `LEARN.md` Section 11: Directive 2014/65/EU
+- Regulatory texts cited in `LEARN.md` Section 12: Directive 2014/65/EU
   (MiFID II), Art. 17 and Art. 27; U.S. SEC Regulation NMS (17 CFR 242.600
   ff.), Rules 605/606; SEC Rule 15c3-5 (Market Access).
 

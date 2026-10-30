@@ -1,4 +1,4 @@
-package com.quant.etrade;
+package io.github.ashjha0.etrade;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;

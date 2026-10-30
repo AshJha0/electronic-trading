@@ -134,16 +134,18 @@ class ASParams:
         _require(math.isfinite(self.s0), "s0 must be finite")
         _require(math.isfinite(self.sigma) and self.sigma >= 0.0, "sigma must be >= 0")
         _require(math.isfinite(self.horizon) and self.horizon > 0.0, "horizon must be > 0")
-        _require(math.isfinite(self.dt) and 0.0 < self.dt <= self.horizon,
-                 "dt must satisfy 0 < dt <= horizon")
-        _require(math.isfinite(self.gamma) and self.gamma > 0.0,
-                 "gamma must be > 0 (gamma = 0 is outside the A-S model)")
+        _require(
+            math.isfinite(self.dt) and 0.0 < self.dt <= self.horizon,
+            "dt must satisfy 0 < dt <= horizon",
+        )
+        _require(
+            math.isfinite(self.gamma) and self.gamma > 0.0,
+            "gamma must be > 0 (gamma = 0 is outside the A-S model)",
+        )
         _require(math.isfinite(self.k) and self.k > 0.0, "k must be > 0")
         _require(math.isfinite(self.a_rate) and self.a_rate > 0.0, "a_rate (A) must be > 0")
-        _require(_is_int(self.q_max) and self.q_max >= 0,
-                 "q_max must be an integer >= 0")
-        _require(math.isfinite(self.eta_liq) and self.eta_liq >= 0.0,
-                 "eta_liq must be >= 0")
+        _require(_is_int(self.q_max) and self.q_max >= 0, "q_max must be an integer >= 0")
+        _require(math.isfinite(self.eta_liq) and self.eta_liq >= 0.0, "eta_liq must be >= 0")
         n = self.horizon / self.dt
         _require(abs(n - round(n)) < 1e-9, "horizon must be an integer multiple of dt")
         _require(n <= MAX_AS_STEPS, f"horizon/dt must be <= {MAX_AS_STEPS} steps")
@@ -151,7 +153,7 @@ class ASParams:
     @property
     def n_steps(self) -> int:
         """Number of simulation steps T/dt."""
-        return int(round(self.horizon / self.dt))
+        return round(self.horizon / self.dt)
 
 
 def reservation_price(params: ASParams, s: float, q: float, t: float) -> float:
@@ -161,7 +163,7 @@ def reservation_price(params: ASParams, s: float, q: float, t: float) -> float:
     """
     _require(math.isfinite(s) and math.isfinite(q), "s and q must be finite")
     _require(0.0 <= t <= params.horizon, "t must be in [0, horizon]")
-    return s - q * params.gamma * params.sigma ** 2 * (params.horizon - t)
+    return s - q * params.gamma * params.sigma**2 * (params.horizon - t)
 
 
 def optimal_spread(params: ASParams, t: float) -> float:
@@ -171,8 +173,9 @@ def optimal_spread(params: ASParams, t: float) -> float:
     (2/gamma)*ln(1 + gamma/k) at t = T.
     """
     _require(0.0 <= t <= params.horizon, "t must be in [0, horizon]")
-    return (params.gamma * params.sigma ** 2 * (params.horizon - t)
-            + 2.0 / params.gamma * math.log1p(params.gamma / params.k))
+    return params.gamma * params.sigma**2 * (params.horizon - t) + 2.0 / params.gamma * math.log1p(
+        params.gamma / params.k
+    )
 
 
 def quotes(params: ASParams, s: float, q: float, t: float) -> tuple[float, float]:
@@ -202,8 +205,9 @@ def average_as_spread(params: ASParams) -> float:
 
     (1/T) * integral = gamma*sigma^2*T/2 + (2/gamma)*ln(1 + gamma/k).
     """
-    return (0.5 * params.gamma * params.sigma ** 2 * params.horizon
-            + 2.0 / params.gamma * math.log1p(params.gamma / params.k))
+    return 0.5 * params.gamma * params.sigma**2 * params.horizon + 2.0 / params.gamma * math.log1p(
+        params.gamma / params.k
+    )
 
 
 @dataclass(frozen=True)
@@ -265,9 +269,13 @@ class ASSimResult:
         """Standard error of an aggregate statistic ('mean_pnl', 'std_pnl',
         'mean_abs_q', 'mean_max_abs_q', 'rms_q', 'mean_fills')."""
         m = self.n_paths
-        arrays = {"mean_pnl": self.pnl, "mean_abs_q": self.mean_abs_q_path,
-                  "mean_max_abs_q": self.max_abs_q_path, "rms_q": self.rms_q_path,
-                  "mean_fills": self.fills_path}
+        arrays = {
+            "mean_pnl": self.pnl,
+            "mean_abs_q": self.mean_abs_q_path,
+            "mean_max_abs_q": self.max_abs_q_path,
+            "rms_q": self.rms_q_path,
+            "mean_fills": self.fills_path,
+        }
         if stat == "std_pnl":
             return self.std_pnl / math.sqrt(2.0 * (m - 1))
         if stat in arrays:
@@ -275,11 +283,15 @@ class ASSimResult:
         raise ValueError(f"unknown statistic '{stat}'")
 
 
-def simulate(params: ASParams, n_paths: int, seed: int,
-             agent: Literal["as", "fixed"] = "as",
-             fixed_spread: float | None = None,
-             stress_factor: float = 1.0,
-             stress_time_frac: float = 0.5) -> ASSimResult:
+def simulate(
+    params: ASParams,
+    n_paths: int,
+    seed: int,
+    agent: Literal["as", "fixed"] = "as",
+    fixed_spread: float | None = None,
+    stress_factor: float = 1.0,
+    stress_time_frac: float = 0.5,
+) -> ASSimResult:
     """Simulate the market maker over ``n_paths`` seeded paths.
 
     ``agent='as'`` quotes the A-S reservation price +/- half the optimal
@@ -290,22 +302,26 @@ def simulate(params: ASParams, n_paths: int, seed: int,
     in the module docstring / API_SPEC.md.  Deterministic per (seed, agent,
     n_paths).
     """
-    _require(_is_int(n_paths) and 2 <= n_paths <= MAX_PATHS,
-             f"n_paths must be an integer in [2, {MAX_PATHS}]")
-    _require(math.isfinite(stress_factor) and stress_factor > 0.0,
-             "stress_factor must be > 0")
-    _require(math.isfinite(stress_time_frac) and 0.0 <= stress_time_frac <= 1.0,
-             "stress_time_frac must be in [0, 1]")
+    _require(
+        _is_int(n_paths) and 2 <= n_paths <= MAX_PATHS,
+        f"n_paths must be an integer in [2, {MAX_PATHS}]",
+    )
+    _require(math.isfinite(stress_factor) and stress_factor > 0.0, "stress_factor must be > 0")
+    _require(
+        math.isfinite(stress_time_frac) and 0.0 <= stress_time_frac <= 1.0,
+        "stress_time_frac must be in [0, 1]",
+    )
     if agent not in ("as", "fixed"):
         raise ValueError("agent must be 'as' or 'fixed'")
     if fixed_spread is None:
         fixed_spread = average_as_spread(params)
-    _require(math.isfinite(fixed_spread) and fixed_spread > 0.0,
-             "fixed_spread must be finite and > 0")
+    _require(
+        math.isfinite(fixed_spread) and fixed_spread > 0.0, "fixed_spread must be finite and > 0"
+    )
 
     rng = np.random.default_rng(seed)
     n_steps = params.n_steps
-    g, sig2, big_t, dt = params.gamma, params.sigma ** 2, params.horizon, params.dt
+    g, sig2, big_t, dt = params.gamma, params.sigma**2, params.horizon, params.dt
     markup = 2.0 / g * math.log1p(g / params.k)
     sqdt = math.sqrt(dt)
 
@@ -341,7 +357,7 @@ def simulate(params: ASParams, n_paths: int, seed: int,
         # 3. inventory / cash update (unit fill size)
         q += fill_bid.astype(float) - fill_ask.astype(float)
         cash += np.where(fill_ask, ask, 0.0) - np.where(fill_bid, bid, 0.0)
-        fills += fill_ask.astype(float) + fill_bid.astype(float)   # count both sides
+        fills += fill_ask.astype(float) + fill_bid.astype(float)  # count both sides
         abs_q = np.abs(q)
         if np.any(abs_q > params.q_max + 1e-12):
             cap_violated = True

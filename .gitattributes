@@ -1,0 +1,7 @@
+# Normalise line endings in the repository; shell scripts must stay LF so
+# they run on Linux and macOS even when checked out on Windows.
+* text=auto
+*.sh text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.json text eol=lf

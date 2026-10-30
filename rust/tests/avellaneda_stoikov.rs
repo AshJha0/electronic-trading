@@ -16,7 +16,10 @@ fn reservation_price_sign_conventions() {
     // Short maker shades above; flat maker quotes the mid.
     let r_short = etrade::reservation_price(&p, 100.0, -3.0, 0.0).unwrap();
     assert!(r_short > 100.0);
-    assert_eq!(etrade::reservation_price(&p, 100.0, 0.0, 0.0).unwrap(), 100.0);
+    assert_eq!(
+        etrade::reservation_price(&p, 100.0, 0.0, 0.0).unwrap(),
+        100.0
+    );
     // At t = T the skew vanishes: r = s.
     assert_eq!(
         etrade::reservation_price(&p, 100.0, 5.0, p.horizon()).unwrap(),
@@ -38,7 +41,10 @@ fn spread_positive_and_decreasing_to_terminal_floor() {
         prev = s;
     }
     let terminal = etrade::optimal_spread(&p, p.horizon()).unwrap();
-    assert!((terminal - floor).abs() < 1e-15, "terminal spread equals the floor");
+    assert!(
+        (terminal - floor).abs() < 1e-15,
+        "terminal spread equals the floor"
+    );
 }
 
 #[test]
@@ -75,8 +81,8 @@ fn fill_probability_properties() {
 fn average_spread_matches_time_average() {
     let p = liquid();
     // avg = (spread(0) + terminal floor)/2 because the spread is linear in t.
-    let expected =
-        0.5 * (etrade::optimal_spread(&p, 0.0).unwrap()
+    let expected = 0.5
+        * (etrade::optimal_spread(&p, 0.0).unwrap()
             + etrade::optimal_spread(&p, p.horizon()).unwrap());
     assert!((etrade::average_as_spread(&p) - expected).abs() < 1e-12);
 }
@@ -104,7 +110,10 @@ fn tight_cap_binds_and_zero_cap_quotes_nothing() {
     let res = etrade::simulate(&tight, 300, 3, &SimConfig::default()).unwrap();
     assert!(!res.cap_violated);
     assert!(res.overall_max_abs_q <= 2.0);
-    assert!(res.overall_max_abs_q >= 2.0 - 1e-12, "cap should be reached");
+    assert!(
+        res.overall_max_abs_q >= 2.0 - 1e-12,
+        "cap should be reached"
+    );
     // q_max = 0: no quoting at all -> no fills, zero PnL.
     let none = ASParams::new(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 0, 0.5).unwrap();
     let res0 = etrade::simulate(&none, 100, 3, &SimConfig::default()).unwrap();
@@ -202,7 +211,7 @@ fn error_paths_are_reported_not_panicked() {
 }
 
 // ---------------------------------------------------------------------------
-// Robustness tests (review findings CRIT-1, MAJ-8, MIN-16, T-8, T-11, T-14)
+// Robustness tests: per-side fill counting, finite inputs, stress edges, step and path bounds
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -233,7 +242,10 @@ fn fixed_spread_must_be_finite_and_positive() {
             fixed_spread: Some(bad),
             ..SimConfig::default()
         };
-        assert!(etrade::simulate(&p, 10, 0, &cfg).is_err(), "fixed_spread {bad}");
+        assert!(
+            etrade::simulate(&p, 10, 0, &cfg).is_err(),
+            "fixed_spread {bad}"
+        );
     }
     let nan_frac = SimConfig {
         stress_time_frac: f64::NAN,

@@ -53,18 +53,18 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
 
 <div class="wrap">
   <h2>Measured, not claimed</h2>
+  <p><a href="https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml"><img src="https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml/badge.svg" alt="CI status"></a> Every number below is re-checked by CI on Linux, Windows and macOS on every push.</p>
   <div class="numbers"><table>
     <tr><td>Cross-language parity</td><td>python 107 · cpp 76 · rust 47 · java 70 tests — 300 in total, every suite loading the same 19 golden cases</td></tr>
     <tr><td>Golden suite</td><td>exact cases (AC kappa / x_j / n_1 / E / Var on two parameter sets, TWAP/POV costs, A-S closed forms, both IS decompositions, the impact fit) at |actual − expected| ≤ tol·max(1, |expected|) with tol between 1e-10 and 1e-12</td></tr>
     <tr><td>Statistical cases</td><td>Python 20,000-path Monte Carlo references stored with their standard errors; each port runs M ≥ 2000 paths on its own RNG and must satisfy |stat − ref| ≤ 4·sqrt(se_ref² + se_own²)</td></tr>
     <tr><td>Literature check</td><td>the paper's hyperbolic closed forms for E[IS] and Var[IS] equal the discrete sums to 1e-12 in every suite (measured rel. diff 2e-16 on the liquid set)</td></tr>
-    <tr><td>Numerics</td><td>kappa via log1p(x + sqrt(x(2+x)))/tau (1 ulp at any tau; naive acosh loses 8 digits at millisecond tau) · trajectory via exp/expm1 ratio, finite for any kappa·T (naive sinh ratio is NaN above kappa·T ≈ 710) · TWAP branch at kappa·T &lt; 1e-6</td></tr>
+    <tr><td>Numerics</td><td>kappa via log1p(x + sqrt(x(2+x)))/tau (cancellation-free at any tau; naive acosh loses 8 digits at millisecond tau) · trajectory via exp/expm1 ratio, finite for any kappa·T (naive sinh ratio is NaN above kappa·T ≈ 710) · TWAP branch at kappa·T &lt; 1e-6</td></tr>
     <tr><td>Pinned bounds</td><td>MAX_AC_INTERVALS / MAX_POV_INTERVALS / MAX_AS_STEPS / MAX_PATHS = 10 million, checked on the double ratio before any cast or allocation; participation &gt; 1 and non-liquidating schedules are input errors</td></tr>
     <tr><td>Determinism</td><td>same seed ⇒ identical results within a language (numpy PCG64, C++ mt19937_64, Rust ChaCha12Rng pinned, Java SplittableRandom); cross-language agreement is statistical, never bitwise</td></tr>
     <tr><td>Demo agreement</td><td>A-S mean fills 85.6 (Python) vs 85.2 / 85.5 / 85.3 (C++ / Rust / Java) on 2,000-path samples; MC E[IS] 1,075,336 vs closed form 1,078,215 with se 3,177</td></tr>
   </table></div>
 
-  <div class="honest"><strong>What the latest review changed.</strong> The review found that <code>mean_fills</code> in the Avellaneda-Stoikov simulation was a logical OR, not a count: the Python reference summed numpy <em>bool</em> arrays, so a step where both bid and ask filled counted once, and the three ports had copied the OR to match the golden. That undercounted fills by about 10% on the liquid set (77.2 vs 85.5). The fix is pinned in API_SPEC §2.2, the golden <code>as_sim_liquid.mean_fills</code> was regenerated (77.18 → 85.53), and a saturated-book test (P(fill) = 1 both sides ⇒ fills = 2·n_steps exactly) plus an independent scalar re-implementation of the loop keep the OR from returning. The same pass replaced the overflow-prone <code>sinh</code> ratio and the cancellation-prone <code>acosh</code> kappa, added the 10-million size bounds (previously a MemoryError / float-to-int UB / capacity abort / NegativeArraySizeException across the four ports) and made <code>simulate_is</code> enforce the liquidation check. Still by design: A-S fill probability is the exact thinned <code>1 − exp(−λdt)</code>, so mean PnL sits ~12% below the paper's Table 1 while the PnL standard deviations agree.</div>
 
   <h2>What's inside</h2>
   <div class="grid">
@@ -111,32 +111,21 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
 <pre>git clone https://github.com/AshJha0/electronic-trading.git
 cd electronic-trading
 
-# Python (3.11+, numpy &gt;= 1.24, pytest &gt;= 7)
-cd python
-pip install -r requirements.txt
-PYTHONPATH=src python3 demo.py       # run the demo
-PYTHONPATH=src python3 -m pytest -q  # 107 tests
-cd ..
+# Python (3.11+)
+pip install -e "python[dev]"
+python python/demo.py
+pytest python                                   # 107 tests
 
-# C++ (C++17, CMake &gt;= 3.16, GoogleTest)
-cd cpp
-bash build.sh                        # cmake configure + build (Release, -j2)
-./build/etrade_demo                  # run the demo
-ctest --test-dir build --output-on-failure   # 76 tests
-cd ..
+# C++ (C++17, CMake &gt;= 3.20; GCC, Clang or MSVC)
+cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release --parallel
+ctest --test-dir build -C Release               # 76 tests
 
-# Rust (edition 2021; rand, rand_chacha, rand_distr, serde_json)
-cd rust
-cargo build --release
-cargo run --release --bin demo
-cargo test --release                 # 47 tests
-cd ..
+# Rust (stable, MSRV 1.78)
+(cd rust &amp;&amp; cargo test --release &amp;&amp; cargo run --release --example demo)   # 47 tests
 
-# Java (21; JUnit 4 + Hamcrest, no Maven/Gradle)
-cd java
-bash build.sh    # javac -Xlint:all into out/
-bash demo.sh
-bash test.sh     # 70 tests</pre>
+# Java (JDK 17+, Maven)
+(cd java &amp;&amp; mvn verify &amp;&amp; mvn -q exec:java)  # 70 tests</pre>
 
   <footer>electronic-trading is MIT-licensed and provided without warranty — a validated reference implementation of published models, not an order-management or risk system; see the <a href="https://github.com/AshJha0/electronic-trading#readme">README</a> and <a href="https://github.com/AshJha0/electronic-trading/blob/main/LICENSE">LICENSE</a> on GitHub.</footer>
 </div>

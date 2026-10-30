@@ -1,4 +1,4 @@
-package com.quant.etrade;
+package io.github.ashjha0.etrade;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
@@ -132,7 +132,7 @@ public final class AnalyticsTest {
     }
 
     // -----------------------------------------------------------------------
-    // Robustness tests (T-9, T-13)
+    // Robustness tests: price-shift invariance, empty fills, participation above 1
     // -----------------------------------------------------------------------
 
     @Test

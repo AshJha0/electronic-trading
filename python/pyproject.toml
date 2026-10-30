@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "etrade"
+version = "1.1.0"
+description = "Execution and market-making research: Almgren-Chriss optimal execution, Avellaneda-Stoikov market making, execution analytics"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Ashish Jha" }]
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.24"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.6", "mypy>=1.10"]
+
+[project.urls]
+Homepage = "https://ashjha0.github.io/electronic-trading/"
+Repository = "https://github.com/AshJha0/electronic-trading"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+etrade = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "RUF", "C4"]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["etrade", "conftest"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src"]

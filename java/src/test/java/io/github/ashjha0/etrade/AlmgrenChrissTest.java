@@ -1,4 +1,4 @@
-package com.quant.etrade;
+package io.github.ashjha0.etrade;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
@@ -201,7 +201,7 @@ public final class AlmgrenChrissTest {
     }
 
     // -----------------------------------------------------------------------
-    // Robustness / literature tests (review findings MAJ-1..MAJ-5, MIN-3/4/5)
+    // Robustness and literature tests: overflow-free trajectory, log1p kappa, POV size bounds, liquidation checks, paper closed forms
     // -----------------------------------------------------------------------
 
     private static ACParams fxSet(int nIntervals) {
