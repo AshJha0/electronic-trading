@@ -51,6 +51,10 @@ inline constexpr int kMaxPovIntervals = 10'000'000;
 /// Upper bound on Monte Carlo path counts (pinned, API_SPEC 0).
 inline constexpr int kMaxPaths = 10'000'000;
 
+/// Upper bound on the total Monte Carlo work `n_paths * N` of simulate_is
+/// (pinned, API_SPEC 0; formed in 64-bit integers).
+inline constexpr std::int64_t kMaxMcWork = 1'000'000'000;
+
 /// Parameters of the discrete Almgren-Chriss problem (sell \c X shares).
 ///
 /// The constructor validates every field (std::invalid_argument) and the

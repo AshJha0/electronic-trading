@@ -50,6 +50,10 @@ inline constexpr int kMaxAsSteps = 10'000'000;
 /// Upper bound on Monte Carlo path counts (pinned, API_SPEC 0).
 inline constexpr int kMaxAsPaths = 10'000'000;
 
+/// Upper bound on the total simulation work `n_paths * n_steps` of simulate
+/// (pinned, API_SPEC 0; formed in 64-bit integers).
+inline constexpr std::int64_t kMaxAsWork = 10'000'000'000;
+
 /// Avellaneda-Stoikov model parameters.
 ///
 /// The constructor validates every field with std::invalid_argument,

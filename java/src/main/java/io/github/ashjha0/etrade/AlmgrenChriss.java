@@ -65,6 +65,9 @@ public final class AlmgrenChriss {
     /** Upper bound on Monte Carlo path counts (pinned, API_SPEC 0). */
     public static final int MAX_PATHS = 10_000_000;
 
+    /** Upper bound on the Monte Carlo work {@code nPaths * N} of simulateIS (pinned). */
+    public static final long MAX_MC_WORK = 1_000_000_000L;
+
     private AlmgrenChriss() {
     }
 
@@ -419,6 +422,8 @@ public final class AlmgrenChriss {
                 "nPaths must be an integer in [2, " + MAX_PATHS + "]");
         requireHoldings(holdings);
         requireLiquidating(holdings);
+        require((long) nPaths * (long) (holdings.length - 1) <= MAX_MC_WORK,
+                "n_paths * n_intervals must be <= " + MAX_MC_WORK);
         double[] n = tradesFromHoldings(holdings);
         NormalRng rng = new NormalRng(seed);
         double srt = params.sigma() * StrictMath.sqrt(params.tau());

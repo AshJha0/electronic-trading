@@ -56,6 +56,10 @@ pub const MAX_POV_INTERVALS: usize = 10_000_000;
 /// Upper bound on Monte Carlo path counts (pinned, API_SPEC.md Section 0).
 pub const MAX_PATHS: usize = 10_000_000;
 
+/// Upper bound on the total Monte Carlo work `n_paths * N` of [`simulate_is`]
+/// (pinned, API_SPEC.md Section 0).
+pub const MAX_MC_WORK: u64 = 1_000_000_000;
+
 /// Parameters of the discrete Almgren-Chriss problem (sell `X` shares).
 ///
 /// Constructed through [`ACParams::new`], which validates every field and
@@ -574,6 +578,10 @@ pub fn simulate_is(
     };
     require_holdings(x)?;
     require_liquidating(x)?;
+    require(
+        (n_paths as u64).saturating_mul((x.len() - 1) as u64) <= MAX_MC_WORK,
+        "n_paths * n_intervals must be <= 1000000000",
+    )?;
     let trades = trades_from_holdings(x)?;
     let mut rng = ChaCha12Rng::seed_from_u64(seed);
     let srt = params.sigma() * params.tau().sqrt();
