@@ -1,0 +1,25 @@
+name: Feature request
+description: A new model, analytic or tooling change.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you want to compute or do, and why the current library does not cover it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: >
+        The model or change, with a reference (paper, section, equation) where there is one.
+        New modules land in all four ports with a spec section and goldens (see CONTRIBUTING.md).
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: How to check it
+      description: Worked examples, limits that reduce to an existing module, or published numbers to match.
