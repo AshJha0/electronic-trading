@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import pytest
 
+pytest.importorskip("pytest_benchmark", reason="benchmarks need pytest-benchmark")
+
 import etrade as et
 from etrade.impact import ImpactParams, optimal_schedule
 

@@ -216,8 +216,9 @@ TEST(PlaceOrCross, BreakevenSeparatesChoices) {
         const double fp = i / 40.0;
         const auto d = etrade::place_or_cross(100.0, spread, fp, adv, 1e-4, 0.6, 0.2);
         EXPECT_NEAR(d.breakeven_fill_prob, adv / (adv + spread), 1e-15);
-        if (std::abs(fp - d.breakeven_fill_prob) > 1e-9)
+        if (std::abs(fp - d.breakeven_fill_prob) > 1e-9) {
             EXPECT_EQ(d.passive, fp > d.breakeven_fill_prob) << fp;
+        }
     }
     EXPECT_EQ(etrade::place_or_cross(100.0, 0.0, 0.5, 0.0, 1e-4, 0.6, 0.2).breakeven_fill_prob,
               1.0);
