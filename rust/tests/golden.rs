@@ -16,8 +16,8 @@ use etrade::{ASStat, Agent, SimConfig};
 
 fn load_golden() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/golden/golden.json");
-    let text = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    let text =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
     serde_json::from_str(&text).expect("golden.json must be valid JSON")
 }
 
@@ -99,7 +99,13 @@ fn golden_cases_all_pass() {
                 let n = etrade::ac_trade_list(&p);
                 let j = f(inp, "x_index") as usize;
                 check_exact(name, "kappa", etrade::ac_kappa(&p), f(exp, "kappa"), tol);
-                check_exact(name, "half_life", etrade::half_life(&p), f(exp, "half_life"), tol);
+                check_exact(
+                    name,
+                    "half_life",
+                    etrade::half_life(&p),
+                    f(exp, "half_life"),
+                    tol,
+                );
                 check_exact(name, "x_j", x[j], f(exp, "x_j"), tol);
                 check_exact(name, "n_1", n[0], f(exp, "n_1"), tol);
                 check_exact(
@@ -180,8 +186,20 @@ fn golden_cases_all_pass() {
                 let p = ac_params(inp);
                 assert_eq!(p.n_intervals(), 5000);
                 check_exact(name, "kappa", etrade::ac_kappa(&p), f(exp, "kappa"), tol);
-                check_exact(name, "half_life", etrade::half_life(&p), f(exp, "half_life"), tol);
-                check_exact(name, "x_1", etrade::ac_trajectory(&p)[1], f(exp, "x_1"), tol);
+                check_exact(
+                    name,
+                    "half_life",
+                    etrade::half_life(&p),
+                    f(exp, "half_life"),
+                    tol,
+                );
+                check_exact(
+                    name,
+                    "x_1",
+                    etrade::ac_trajectory(&p)[1],
+                    f(exp, "x_1"),
+                    tol,
+                );
             }
             "ac_lambda_zero_limit_liquid" => {
                 let p = ac_params(inp);
@@ -223,9 +241,15 @@ fn golden_cases_all_pass() {
             }
             "as_reservation_liquid" => {
                 let p = as_params(inp);
-                let r = etrade::reservation_price(&p, f(inp, "s"), f(inp, "q"), f(inp, "t"))
-                    .unwrap();
-                check_exact(name, "reservation_price", r, f(exp, "reservation_price"), tol);
+                let r =
+                    etrade::reservation_price(&p, f(inp, "s"), f(inp, "q"), f(inp, "t")).unwrap();
+                check_exact(
+                    name,
+                    "reservation_price",
+                    r,
+                    f(exp, "reservation_price"),
+                    tol,
+                );
             }
             "as_spread_liquid" => {
                 let p = as_params(inp);
@@ -291,8 +315,7 @@ fn golden_cases_all_pass() {
             "as_fixed_comparison_liquid" => {
                 let p = as_params(inp);
                 let seed = f(inp, "seed") as u64;
-                let res_as =
-                    etrade::simulate(&p, AS_PATHS, seed, &SimConfig::default()).unwrap();
+                let res_as = etrade::simulate(&p, AS_PATHS, seed, &SimConfig::default()).unwrap();
                 let cfg_fixed = SimConfig {
                     agent: Agent::Fixed,
                     fixed_spread: Some(f(inp, "fixed_spread")),
@@ -317,7 +340,11 @@ fn golden_cases_all_pass() {
                 );
             }
             "is_decomposition_sell" | "is_decomposition_buy" => {
-                let side = if name.ends_with("sell") { "sell" } else { "buy" };
+                let side = if name.ends_with("sell") {
+                    "sell"
+                } else {
+                    "buy"
+                };
                 let d = etrade::decompose_shortfall(
                     etrade::Side::from_str(side).unwrap(),
                     f(inp, "decision_price"),
@@ -331,14 +358,18 @@ fn golden_cases_all_pass() {
                 check_exact(name, "total", d.total, f(exp, "total"), tol);
                 check_exact(name, "delay", d.delay, f(exp, "delay"), tol);
                 check_exact(name, "trading", d.trading, f(exp, "trading"), tol);
-                check_exact(name, "opportunity", d.opportunity, f(exp, "opportunity"), tol);
+                check_exact(
+                    name,
+                    "opportunity",
+                    d.opportunity,
+                    f(exp, "opportunity"),
+                    tol,
+                );
             }
             "participation_rate" => {
-                let part = etrade::participation_rate(
-                    f(inp, "executed_volume"),
-                    f(inp, "market_volume"),
-                )
-                .unwrap();
+                let part =
+                    etrade::participation_rate(f(inp, "executed_volume"), f(inp, "market_volume"))
+                        .unwrap();
                 check_exact(name, "participation", part, f(exp, "participation"), tol);
             }
             "impact_regression" => {

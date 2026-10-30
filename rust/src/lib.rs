@@ -28,10 +28,10 @@ pub mod avellaneda_stoikov;
 mod error;
 
 pub use almgren_chriss::{
-    ac_kappa, ac_trade_list, ac_trajectory, characteristic_time, efficient_frontier,
-    expected_cost, half_life, instantaneous_cost, pov_holdings, simulate_is,
-    trades_from_holdings, twap_holdings, variance_cost, ACParams, FrontierPoint, ISSimResult,
-    KAPPA_T_LIMIT, MAX_AC_INTERVALS, MAX_PATHS, MAX_POV_INTERVALS,
+    ac_kappa, ac_trade_list, ac_trajectory, characteristic_time, efficient_frontier, expected_cost,
+    half_life, instantaneous_cost, pov_holdings, simulate_is, trades_from_holdings, twap_holdings,
+    variance_cost, ACParams, FrontierPoint, ISSimResult, KAPPA_T_LIMIT, MAX_AC_INTERVALS,
+    MAX_PATHS, MAX_POV_INTERVALS,
 };
 pub use analytics::{
     decompose_shortfall, estimate_impact, ols, participation_rate, synthetic_impact_fills,
