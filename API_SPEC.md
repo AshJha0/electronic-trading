@@ -24,17 +24,24 @@ behaviour, an integer overflow, an out-of-memory abort or a panic:
 | `MAX_POV_INTERVALS` | 10,000,000 | `pov_holdings`: `X/clip` (before the `ceil`) |
 | `MAX_AS_STEPS` | 10,000,000 | `ASParams`: `horizon/dt` |
 | `MAX_PATHS` | 10,000,000 | `n_paths` of `simulate_is` and `simulate` |
+| `MAX_IMPACT_INTERVALS` | 10,000 | `ImpactParams.n_intervals` (Section 8.1) |
 
 Names per language: Python `et.MAX_AC_INTERVALS` etc.; C++
 `etrade::kMaxAcIntervals`, `kMaxPovIntervals`, `kMaxPaths`, `kMaxAsSteps`,
 `kMaxAsPaths`; Rust `etrade::MAX_AC_INTERVALS`, `MAX_POV_INTERVALS`,
 `MAX_PATHS`, `MAX_AS_STEPS`, `MAX_AS_PATHS`; Java
 `AlmgrenChriss.MAX_AC_INTERVALS`, `MAX_POV_INTERVALS`, `MAX_PATHS`,
-`AvellanedaStoikov.MAX_AS_STEPS`, `MAX_AS_PATHS`.
+`AvellanedaStoikov.MAX_AS_STEPS`, `MAX_AS_PATHS`. Python has no separate
+`MAX_AS_PATHS`: `simulate` uses `MAX_PATHS`, which has the same value.
+`MAX_IMPACT_INTERVALS` is `etrade.impact.MAX_IMPACT_INTERVALS` (Python),
+`etrade::kMaxImpactIntervals` (C++), `etrade::impact::MAX_IMPACT_INTERVALS`
+(Rust) and
+`Impact.MAX_IMPACT_INTERVALS` (Java).
 
 Units are abstract but must be consistent within a parameter set; nothing
-ties `tau`/`dt` to a clock or calendar (no day-count, no holidays, no
-intraday volume curve):
+ties `tau`/`dt` to a clock or calendar (no day-count, no holidays). The
+intraday volume curve of Section 8.3 is a vector of per-interval weights,
+not a clock. Sections 7 and 8 fix the time unit to one trading day:
 
 | parameter | unit |
 |---|---|

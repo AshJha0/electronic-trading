@@ -1,0 +1,17 @@
+/* Landing page: the "measured" tables read as key/value lists. */
+.et-kv td:first-child {
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--md-primary-fg-color);
+}
+
+/* Long code lines and wide tables scroll inside their box, never the page. */
+.md-typeset pre > code {
+  white-space: pre;
+}
+
+@media screen and (max-width: 44.9375em) {
+  .et-kv td:first-child {
+    white-space: normal;
+  }
+}

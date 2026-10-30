@@ -25,7 +25,10 @@ import io.github.ashjha0.etrade.Analytics.OLSResult;
 
 Sample simulation numbers in comments are the Python demo's 2,000-path
 values; the native ports reproduce them statistically (4-SE bands), not
-bit-for-bit.
+bit-for-bit. Deterministic values are shown to 15 significant digits: the
+16th and 17th can differ by an ulp between platforms and languages (for
+example `kappa` prints as `...561` or `...562`), which the golden tolerances
+absorb.
 
 Parameter values throughout are the liquid large-cap set
 (`data/params_liquid.json`): X = 1e6 shares, N = 5, tau = 1, sigma = 0.95,
@@ -46,10 +49,10 @@ import etrade as et
 
 p = et.ACParams(total_shares=1_000_000.0, n_intervals=5, tau=1.0,
                 sigma=0.95, eta=2.5e-6, gamma_p=2.5e-7, lambda_ra=2e-6)
-print(et.ac_kappa(p))        # 0.8462971345012562
-print(et.half_life(p))       # 1.181618085696727
-print(et.ac_trajectory(p))   # [1000000, 428598.85, 182932.81, 76303.52, 27600.15, 0]
-print(et.ac_trade_list(p))   # [571401.15, 245666.03, ...]  sums to X
+print(et.ac_kappa(p))        # 0.846297134501256
+print(et.half_life(p))       # 1.18161808569673
+print(et.ac_trajectory(p))   # [1000000, 428598.85, 182932.81, 76295.72, 27643.38, 0]
+print(et.ac_trade_list(p))   # [571401.15, 245666.03, 106637.09, 48652.34, 27643.38], sums to X
 ```
 
 **C++**
@@ -58,7 +61,7 @@ print(et.ac_trade_list(p))   # [571401.15, 245666.03, ...]  sums to X
 #include <etrade/almgren_chriss.hpp>
 
 etrade::ACParams p{1'000'000.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6};
-double kappa = etrade::ac_kappa(p);            // 0.8462971345012562
+double kappa = etrade::ac_kappa(p);            // 0.846297134501256
 double theta = etrade::half_life(p);           // 1.1816...
 std::vector<double> x = etrade::ac_trajectory(p);   // size N+1, x[0]=X, x[N]=0
 std::vector<double> n = etrade::ac_trade_list(p);   // size N, sums to X
@@ -68,7 +71,7 @@ std::vector<double> n = etrade::ac_trade_list(p);   // size N, sums to X
 
 ```rust
 let p = ACParams::new(1_000_000.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6)?;
-let kappa = etrade::ac_kappa(&p);              // 0.8462971345012562
+let kappa = etrade::ac_kappa(&p);              // 0.846297134501256
 let theta = etrade::half_life(&p);             // 1.1816... (f64::INFINITY if kappa == 0)
 let x: Vec<f64> = etrade::ac_trajectory(&p);   // len N+1, x[0] == X, x[N] == 0
 let n: Vec<f64> = etrade::ac_trade_list(&p);   // len N, sums to X
@@ -81,7 +84,7 @@ import io.github.ashjha0.etrade.ACParams;
 import io.github.ashjha0.etrade.AlmgrenChriss;
 
 ACParams p = new ACParams(1_000_000.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6);
-double kappa = AlmgrenChriss.kappa(p);         // 0.8462971345012562
+double kappa = AlmgrenChriss.kappa(p);         // 0.846297134501256
 double theta = AlmgrenChriss.halfLife(p);      // 1.1816... (Double.POSITIVE_INFINITY if 0)
 double[] x = AlmgrenChriss.trajectory(p);      // length N+1
 double[] n = AlmgrenChriss.tradeList(p);       // length N
@@ -280,7 +283,7 @@ state `(s, q, t)`; `s` and `q` must be finite and `t` in `[0, T]`.
 ap = et.ASParams(s0=100.0, sigma=2.0, horizon=1.0, dt=0.005, gamma=0.1,
                  k=1.5, a_rate=140.0, q_max=20, eta_liq=0.5)
 r = et.reservation_price(ap, s=100.0, q=3.0, t=0.3)   # 99.16
-sp = et.optimal_spread(ap, t=0.3)                     # 1.5707704227514234
+sp = et.optimal_spread(ap, t=0.3)                     # 1.57077042275142
 bid, ask = et.quotes(ap, 100.0, 3.0, 0.3)             # (98.3746..., 99.9454...)
 ```
 
@@ -323,22 +326,22 @@ signed — a quote through the mid (`delta < 0`) is valid and fills faster.
 **Python**
 
 ```python
-lam = et.intensity(ap, delta=0.6)          # 56.919752363683884
-pf  = et.fill_probability(ap, delta=0.6)   # 0.24768394830642568
+lam = et.intensity(ap, delta=0.6)          # 56.9197523636839
+pf  = et.fill_probability(ap, delta=0.6)   # 0.247683948306426
 ```
 
 **C++**
 
 ```cpp
-double lam = etrade::intensity(ap, 0.6);          // 56.919752363683884
-double pf  = etrade::fill_probability(ap, 0.6);   // 0.24768394830642568
+double lam = etrade::intensity(ap, 0.6);          // 56.9197523636839
+double pf  = etrade::fill_probability(ap, 0.6);   // 0.247683948306426
 ```
 
 **Rust**
 
 ```rust
-let lam = etrade::intensity(&ap, 0.6)?;           // 56.919752363683884
-let pf  = etrade::fill_probability(&ap, 0.6)?;    // 0.24768394830642568
+let lam = etrade::intensity(&ap, 0.6)?;           // 56.9197523636839
+let pf  = etrade::fill_probability(&ap, 0.6)?;    // 0.247683948306426
 ```
 
 **Java**
@@ -463,7 +466,8 @@ d = et.decompose_shortfall("sell", decision_price=100.0, arrival_price=99.5,
                            close_price=98.8, total_qty=1000.0,
                            fill_qtys=[300.0, 400.0, 200.0],
                            fill_prices=[99.4, 99.2, 99.1])
-print(d.delay, d.trading, d.opportunity, d.total)   # 450.0 230.0 120.0 800.0
+print(d.delay, d.trading, d.opportunity, d.total)
+# 450.0 229.9999999999983 120.00000000000028 799.9999999999986 (230, 120, 800 up to rounding)
 assert abs(d.total - (d.delay + d.trading + d.opportunity)) < 1e-10
 ```
 
@@ -509,7 +513,7 @@ your own fills), so a rate above 1 is an input error.
 parts, costs = et.synthetic_impact_fills(25, 0.5, 8.0, 0.05)
 reg = et.estimate_impact(parts, costs)
 print(reg.slope, reg.intercept, reg.r_squared)
-# 7.970665291179456 0.503539513916228 0.9934209775967902
+# 7.97066529117945 0.503539513916228 0.99342097759679
 part = et.participation_rate(120_000.0, 1_500_000.0)   # 0.08
 ```
 
@@ -615,12 +619,12 @@ p = mk.ac_params_from_market(price=100.0, spread=0.01, adv=5e6, daily_vol=0.015,
                              total_shares=250_000.0, n_intervals=13, tau=1/13,
                              lambda_ra=1e-7)
 notional = 250_000.0 * 100.0
-print(mk.bps(et.expected_cost(p), notional))            # 5.35 bps
-print(mk.bps(mk.half_spread_cost(0.01, 250_000.0), notional))   # 0.50 bps
+print(mk.bps(et.expected_cost(p), notional))            # 5.345 (bps)
+print(mk.bps(mk.half_spread_cost(0.01, 250_000.0), notional))   # 0.5 (bps)
 a = mk.as_params_from_market(price=100.0, tick=0.01, daily_vol=0.015,
                              touch_fills_per_day=1170.0, halving_ticks=0.462,
                              skew_ticks=2.25, q_max=50, liq_ticks=1.0, dt_seconds=5.0)
-print(mk.bps(et.optimal_spread(a, 0.0), a.s0))          # 3.58 bps at the open
+print(mk.bps(et.optimal_spread(a, 0.0), a.s0))          # 3.583 (bps, at the open)
 ```
 
 **C++**
@@ -659,7 +663,7 @@ The presets in `data/presets.json` (US large cap, US small cap, US ETF,
 EUR/USD and the Almgren-Chriss paper example) use exactly these inputs; the
 paper preset reproduces `params_liquid.json`. They are illustrative, not
 fitted to data, and the linear impact under-prices small orders relative to
-the square-root law.
+the square-root law (recipe 14).
 
 ---
 
@@ -680,12 +684,12 @@ order = dict(price=100.0, spread=0.01, adv=5e6, daily_vol=0.015,
              total_shares=250_000.0, n_intervals=13, tau=1/13,
              weights=im.US_EQUITY_VOLUME_CURVE_13)
 rep = mk.pretrade_report(lambdas=[0.0, 1e-6], **order)
-print(rep.sqrt_law_bps)                   # 33.54
+print(rep.sqrt_law_bps)                   # 33.541
 print([(r.label, round(r.impact_bps, 2)) for r in rep.rows])
 # [('twap', 34.96), ('vwap', 33.77), ('optimal', 33.77), ('optimal', 36.95)]
 p = mk.impact_params_from_market(lambda_ra=0.0, drift_bps_per_day=50.0, **order)
 s = im.optimal_schedule(p)                # drift-aware schedule
-print(mk.bps(im.impact_expected_cost(p, s.holdings), 2.5e7))   # 52.13
+print(mk.bps(im.impact_expected_cost(p, s.holdings), 2.5e7))   # 52.130
 ```
 
 **C++**
