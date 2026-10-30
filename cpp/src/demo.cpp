@@ -5,11 +5,15 @@
 /// efficient frontier of execution, TWAP/POV/instantaneous baselines with an
 /// MC cross-check, Avellaneda-Stoikov market-making simulations (A-S vs
 /// fixed-spread agent, liquid and FX-like parameter sets), and an
-/// implementation-shortfall decomposition with a market-impact regression.
+/// implementation-shortfall decomposition with a market-impact regression,
+/// presets in bps, a pre-trade report, post-trade TCA, calibration with the
+/// fitted ITCH presets, execution extensions, the market-making friction
+/// ledger and limit-order placement.
 ///
 /// Parameter values mirror data/params_liquid.json, data/params_fx.json and
 /// data/parent_order.json (hardcoded so the demo runs from any directory).
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -18,7 +22,13 @@
 #include "etrade/almgren_chriss.hpp"
 #include "etrade/analytics.hpp"
 #include "etrade/avellaneda_stoikov.hpp"
+#include "etrade/calibration.hpp"
+#include "etrade/execution.hpp"
+#include "etrade/impact.hpp"
 #include "etrade/market.hpp"
+#include "etrade/mm.hpp"
+#include "etrade/placement.hpp"
+#include "etrade/tca.hpp"
 
 namespace {
 
@@ -244,6 +254,266 @@ void pretrade_section() {
                 "drift-aware schedule %.2f bps (saves %.2f bps)\n", e_v, e_o, e_v - e_o);
 }
 
+/// Post-trade TCA (API_SPEC Section 10); deterministic.
+void tca_section() {
+    hdr("Post-trade TCA: benchmarks, markouts, participation, A/B test");
+    const std::vector<int> fill_bins{0, 1, 1, 2};
+    const std::vector<double> fill_qtys{20000.0, 15000.0, 10000.0, 25000.0};
+    const std::vector<double> fill_prices{99.96, 99.91, 99.89, 99.84};
+    const std::vector<double> bin_volumes{400000.0, 300000.0, 300000.0, 500000.0};
+    const std::vector<double> bin_vwaps{99.95, 99.90, 99.85, 99.82};
+    const etrade::SlippageReport r =
+        etrade::slippage(etrade::Side::kSell, 100.0, 99.80, fill_bins, fill_qtys, fill_prices,
+                         bin_volumes, bin_vwaps);
+    std::printf("sell 70,000 at avg %.4f: arrival %.4f bps, full-day VWAP %.4f bps,\n",
+                r.avg_price, r.arrival_bps, r.vwap_bps);
+    std::printf("  interval VWAP %.4f bps, close %.4f bps (positive = cost)\n",
+                r.interval_vwap_bps, r.close_bps);
+    const etrade::ParticipationResult part =
+        etrade::participation(fill_bins, fill_qtys, bin_volumes);
+    const std::vector<double> mids{100.00, 99.98, 99.95, 99.93, 99.90,
+                                   99.91,  99.88, 99.86, 99.85, 99.84};
+    const etrade::MarkoutResult mo =
+        etrade::markouts(etrade::Side::kSell, {0, 2, 4, 6}, fill_qtys, mids, {1, 3});
+    std::printf("participation %.4f%%; markout per share after 1 step %.6f $, after 3 steps "
+                "%.6f $\n", 100.0 * part.overall, mo.per_share[0], mo.per_share[1]);
+    const etrade::WelchResult w = etrade::welch_ttest({1.2, 3.4, 2.2, 5.1, 0.7, 2.9, 4.0, 3.3},
+                                                      {0.4, 1.1, -0.2, 0.9, 1.6, 0.3});
+    std::printf("algo A vs B (8 vs 6 orders): diff %.4f bps, t = %.4f, df = %.4f, p = %.6f\n",
+                w.mean_diff, w.t_stat, w.df, w.p_value);
+}
+
+etrade::ACMarket make_ac(double price, double spread, double adv, double vol, double x,
+                         double lam) {
+    etrade::ACMarket m;
+    m.price = price;
+    m.spread = spread;
+    m.adv = adv;
+    m.daily_vol = vol;
+    m.total_shares = x;
+    m.n_intervals = 13;
+    m.tau = 1.0 / 13.0;
+    m.lambda_ra = lam;
+    return m;
+}
+
+etrade::ASMarket make_as(double price, double vol, double touch, double halving, double skew,
+                         int qmax, double dt) {
+    etrade::ASMarket m;
+    m.price = price;
+    m.tick = 0.01;
+    m.daily_vol = vol;
+    m.touch_fills_per_day = touch;
+    m.halving_ticks = halving;
+    m.skew_ticks = skew;
+    m.q_max = qmax;
+    m.liq_ticks = 1.0;
+    m.dt_seconds = dt;
+    return m;
+}
+
+/// Calibration estimators and the fitted ITCH presets (API_SPEC Section 11).
+void calibration_section() {
+    hdr("Calibration: fill intensity from 100 market orders; fitted ITCH presets");
+    std::vector<double> dist;
+    dist.insert(dist.end(), 60, 0.005);
+    dist.insert(dist.end(), 25, 0.015);
+    dist.insert(dist.end(), 10, 0.025);
+    dist.insert(dist.end(), 5, 0.035);
+    const etrade::FillIntensity fi = etrade::fill_intensity(dist, 0.01, 4, 1.0, 2.0);
+    std::printf("toy fit: A = %.4f/day, k = %.4f per $, touch fills %.4f/day, halving %.4f "
+                "ticks\n", fi.a_rate, fi.k, fi.touch_fills_per_day, fi.halving_ticks);
+    // data/presets.json, itch_*_20191230
+    struct Fitted {
+        const char* name;
+        etrade::ACMarket ac;
+        etrade::ASMarket as;
+    };
+    const Fitted rows[] = {
+        {"itch_aapl_20191230", make_ac(289.72, 0.026401, 5678176.0, 0.01157, 283900.0, 4.66e-8),
+         make_as(289.72, 0.01157, 22070.0, 0.46, 2.25, 50, 5.0)},
+        {"itch_msft_20191230", make_ac(157.67, 0.012285, 3625411.0, 0.007432, 181300.0, 2.78e-7),
+         make_as(157.67, 0.007432, 10507.0, 0.251, 2.25, 50, 5.0)},
+        {"itch_qqq_20191230", make_ac(212.16, 0.011602, 3713405.0, 0.005745, 185700.0, 2.21e-7),
+         make_as(212.16, 0.005745, 7532.0, 0.214, 1.0, 200, 1.0)},
+    };
+    std::printf("fitted to one NASDAQ ITCH day, 2019-12-30 (one venue; caveats in API_SPEC "
+                "11.6):\n");
+    std::printf("%20s %7s %8s %7s %10s %8s %9s %12s\n", "preset", "price", "spread", "vol",
+                "A /day", "k /$", "A-S open", "E[IS] 5% ADV");
+    for (const Fitted& f : rows) {
+        const etrade::ACParams p = etrade::ac_params_from_market(f.ac);
+        const etrade::ASParams a = etrade::as_params_from_market(f.as);
+        const double e =
+            etrade::bps(etrade::expected_cost(p), f.ac.total_shares * f.ac.price);
+        const double o = etrade::bps(etrade::optimal_spread(a, 0.0), a.s0);
+        std::printf("%20s %7.2f %6.3fbp %6.3f%% %10.1f %8.3f %7.4fbp %10.4fbp\n", f.name,
+                    f.ac.price, etrade::bps(f.ac.spread, f.ac.price), 100.0 * f.ac.daily_vol,
+                    a.a_rate, a.k, o, e);
+    }
+}
+
+/// Transient impact, adaptive re-planning, internalisation (API_SPEC Section 12).
+void execution_ext_section() {
+    hdr("Execution extensions: transient impact, adaptive vs static, internalisation");
+    const etrade::TransientParams tp(1e6, 10, 0.1, 1e-6, 5.0);
+    const std::vector<double> x = etrade::transient_optimal_schedule(tp);
+    const double e_opt = etrade::transient_expected_cost(tp, x);
+    const double e_twap = etrade::transient_expected_cost(tp, etrade::twap_holdings(1e6, 10));
+    std::printf("Obizhaeva-Wang, rho*tau = 0.5: first / middle / last trade %.2f / %.2f / "
+                "%.2f shares\n", x[0] - x[1], x[4] - x[5], x[9] - x[10]);
+    std::printf("  E[IS] optimal %.2f $ vs TWAP %.2f $ (saves %.4f%%)\n", e_opt, e_twap,
+                100.0 * (1.0 - e_opt / e_twap));
+    const etrade::ACParams p(1'000'000.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6);
+    std::printf("adaptive re-planning, liquid set, 20k paths (each language samples its own "
+                "paths):\n");
+    std::printf("%24s %13s %11s %9s %6s\n", "case", "static E[IS]", "adaptive", "saving", "se");
+    const struct {
+        const char* label;
+        etrade::SignalParams sig;
+    } cases[] = {
+        {"no signal, full fills", etrade::SignalParams{}},
+        {"AR(1) signal 0.7, 0.5", etrade::SignalParams{0.7, 0.5}},
+        {"fill risk 0.5", etrade::SignalParams{0.0, 0.0, 0.5}},
+    };
+    for (const auto& c : cases) {
+        const etrade::AdaptiveSimResult s = etrade::simulate_adaptive(p, c.sig, 20'000, 1);
+        std::printf("%24s %13.0f %11.0f %9.0f %6.0f\n", c.label, s.static_mean,
+                    s.adaptive_mean, s.saving_mean, s.saving_se);
+    }
+    const std::vector<double> w(etrade::kUsEquityVolumeCurve13.begin(),
+                                etrade::kUsEquityVolumeCurve13.end());
+    const etrade::InternalisationResult r = etrade::internalise(
+        {200'000.0, 50'000.0}, {150'000.0}, 100.0, 0.01, 5e6, 0.015, 13, 1.0 / 13.0, 0.5, 1.0,
+        0.10, w);
+    std::printf("internalise buys 200k + 50k against a 150k sell: cross %.0f, send %.0f (%s)\n",
+                r.crossed_shares, r.residual_shares, r.residual_side.c_str());
+    std::printf("  impact %.2f $ -> %.2f $, saves %.4f bps of gross notional\n",
+                r.baseline_cost, r.internal_cost, r.saved_bps);
+}
+
+/// Market making with frictions: the friction ledger (API_SPEC Section 9).
+void mm_frictions_section() {
+    hdr("Market making with frictions: US large-cap A-S preset, one-share quotes");
+    // data/presets.json, us_large_cap "as"
+    etrade::ASMarket am = make_as(100.0, 0.015, 1170.0, 0.462, 2.25, 50, 5.0);
+    const etrade::ASParams a = etrade::as_params_from_market(am);
+    std::printf("A = %.4f/day, k = %.4f per $, gamma = %.6f, %d steps of 5 s\n", a.a_rate, a.k,
+                a.gamma, a.n_steps());
+    for (double q : {0.0, 3.0}) {
+        const auto [db, da] = etrade::glft_half_spreads(a, q);
+        std::printf("GLFT half spreads at q = %+.0f: bid %.8f $, ask %.8f $\n", q, db, da);
+    }
+    const auto [rb, ra] = etrade::round_to_tick(99.9934, 100.0066, 0.01);
+    std::printf("tick rounding away from fair: 99.9934 / 100.0066 -> %.2f / %.2f; weighted mid "
+                "%.3f\n", rb, ra, etrade::weighted_mid(99.99, 100.01, 900.0, 100.0));
+    std::printf("friction ledger, $ per day, 5k paths (each language samples its own paths):\n");
+    std::printf("%20s %7s %5s | %7s %6s %7s %8s | %6s %8s\n", "case", "PnL", "se", "spread",
+                "fees", "invent", "markout", "fills", "informed");
+    auto cfg = [](etrade::MMAgent agent, double tick, double fee, int lat, double inf,
+                  double acc) {
+        etrade::MMConfig c;
+        c.agent = agent;
+        c.tick = tick;
+        c.maker_fee = fee;
+        c.latency_steps = lat;
+        c.informed_prob = inf;
+        c.signal_accuracy = acc;
+        return c;
+    };
+    using etrade::MMAgent;
+    // Seeds 101-106 are the mm_sim golden cases of API_SPEC 9.7; the fee row is extra.
+    const struct {
+        const char* label;
+        etrade::MMConfig c;
+        std::uint64_t seed;
+    } rows[] = {
+        {"frictionless", cfg(MMAgent::kAs, 0.0, 0.0, 0, 0.0, 0.5), 101},
+        {"tick + 0.2c rebate", cfg(MMAgent::kAs, 0.01, 0.002, 0, 0.0, 0.5), 102},
+        {"tick + 0.2c fee", cfg(MMAgent::kAs, 0.01, -0.002, 0, 0.0, 0.5), 107},
+        {"+ 15% informed flow", cfg(MMAgent::kAs, 0.01, 0.002, 0, 0.15, 0.5), 103},
+        {"+ 60% signal", cfg(MMAgent::kAs, 0.01, 0.002, 0, 0.15, 0.6), 104},
+        {"quotes 5 s stale", cfg(MMAgent::kAs, 0.01, 0.002, 1, 0.0, 0.5), 105},
+        {"GLFT, tick + rebate", cfg(MMAgent::kGlft, 0.01, 0.002, 0, 0.0, 0.5), 106},
+    };
+    using etrade::MMStat;
+    for (const auto& row : rows) {
+        const etrade::MMResult r = etrade::simulate_mm(a, 5'000, row.seed, row.c);
+        std::printf("%20s %7.2f %5.2f | %7.2f %6.2f %7.2f %8.2f | %6.1f %8.1f\n", row.label,
+                    r.mean(MMStat::kPnl), r.se(MMStat::kPnl), r.mean(MMStat::kSpread),
+                    r.mean(MMStat::kFees), r.mean(MMStat::kInventory),
+                    r.mean(MMStat::kMarkout), r.mean(MMStat::kFills),
+                    r.mean(MMStat::kInformedFills));
+    }
+    std::printf("PnL = spread + fees + inventory - liquidation on every path; the markout is "
+                "part\nof inventory (negative = adverse selection).\n");
+}
+
+/// Queue position, passive or aggressive, liquidation (API_SPEC Section 13).
+void placement_section() {
+    hdr("Limit-order placement: queue fill probability, post or cross, liquidation");
+    std::printf("%8s %5s %6s %6s %8s %14s\n", "q_ahead", "size", "mu", "theta", "horizon",
+                "P(full fill)");
+    const struct {
+        int qa;
+        int sz;
+        double mu, th, h;
+    } queues[] = {{0, 5, 10.0, 0.1, 0.5},
+                  {30, 5, 10.0, 0.0, 2.0},
+                  {50, 10, 20.0, 0.05, 3.0},
+                  {400, 50, 100.0, 0.2, 4.0}};
+    for (const auto& c : queues) {
+        std::printf("%8d %5d %6.1f %6.2f %8.1f %14.10f\n", c.qa, c.sz, c.mu, c.th, c.h,
+                    etrade::queue_fill_probability(c.qa, c.sz, c.mu, c.th, c.h));
+    }
+    const struct {
+        const char* label;
+        int qa;
+        double theta, horizon, adverse;
+    } decisions[] = {{"near the front", 5, 0.1, 1.0, 0.01}, {"deep in queue", 60, 0.05, 3.0, 0.03}};
+    for (const auto& c : decisions) {
+        const double pf = etrade::queue_fill_probability(c.qa, 2, 10.0, c.theta, c.horizon);
+        const etrade::PlacementDecision d =
+            etrade::place_or_cross(2000.0, 0.02, pf, c.adverse, 1e-4, 0.5, 1.0 / 13.0);
+        std::printf("sell 2,000 %s: P(fill) %.6f, post %.6f vs cross %.6f $/sh, breakeven "
+                    "%.4f: %s\n", c.label, pf, d.passive_cost, d.aggressive_cost,
+                    d.breakeven_fill_prob, d.passive ? "post" : "cross");
+    }
+    std::printf("liquidate 10 units over 50 periods (patient) or 20 with penalty phi = 0.05 "
+                "(urgent):\n");
+    std::printf("%8s %9s %8s %4s %7s | %8s %8s %8s %17s\n", "case", "DP cost", "depth", "mkt",
+                "all-mkt", "optimal", "all-mkt", "touch", "saving vs all-mkt");
+    const struct {
+        const char* label;
+        etrade::LiquidationParams lp;
+        std::uint64_t seed;
+    } liqs[] = {
+        {"patient", etrade::LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005), 201},
+        {"urgent", etrade::LiquidationParams(20, 50, 0.02, 0.5, 0.02, 50.0, 0.4, 0.005, 0.05),
+         202},
+    };
+    for (const auto& c : liqs) {
+        const etrade::LiquidationPolicy pol = etrade::liquidation_policy(c.lp);
+        int n_mkt = 0;
+        for (const auto& row : pol.market) {
+            for (std::size_t q = 1; q < row.size(); ++q) {
+                n_mkt += row[q] ? 1 : 0;
+            }
+        }
+        const etrade::LiquidationSimResult s = etrade::simulate_liquidation(c.lp, 20'000, c.seed);
+        std::printf("%8s %9.5f %8.5f %4d %7.3f | %8.4f %8.4f %8.4f %9.4f +- %.4f\n", c.label,
+                    pol.expected_cost(),
+                    pol.depth[0][static_cast<std::size_t>(c.lp.total_units)], n_mkt,
+                    etrade::aggressive_cost(c.lp), s.optimal_mean, s.aggressive_mean,
+                    s.passive_mean, s.saving_vs_aggressive_mean, s.saving_vs_aggressive_se);
+    }
+    std::printf("costs in $ per position against the starting mid (negative = sold above it); "
+                "the\nDP cost adds the urgency penalty, so it exceeds the simulated shortfall "
+                "when phi > 0;\ndepth = first posting depth in $; mkt = states where the policy "
+                "sends a market order;\nsimulations 20k paths, each language samples its own "
+                "paths.\n");
+}
+
 }  // namespace
 
 int main() {
@@ -262,6 +532,11 @@ int main() {
     analytics_section();
     market_section();
     pretrade_section();
+    tca_section();
+    calibration_section();
+    execution_ext_section();
+    mm_frictions_section();
+    placement_section();
     std::printf("\ndone.\n");
     return 0;
 }

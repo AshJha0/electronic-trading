@@ -4,7 +4,7 @@ Task-oriented recipes in all four languages. Python snippets run as-is
 against the reference package (`cd python && PYTHONPATH=src python3`, then
 paste; `import etrade as et` is assumed once per session). Every C++, Rust
 and Java snippet below has been compiled and run against the shipped
-library (C++17 with `-I cpp/include` linking `libetrade.a`; Rust as a
+library (C++26 with `-I cpp/include` linking `libetrade.a`; Rust as a
 `main()` body returning `Result<(), Box<dyn std::error::Error>>` so `?`
 works; Java inside a class in package `io.github.ashjha0.etrade` or with the
 imports shown). The Rust snippets assume
@@ -1532,3 +1532,178 @@ try {
     System.err.println(ex.getMessage());   // fill volume exceeds market volume in a bin
 }
 ```
+
+---
+
+## 24. How do I run the market maker with frictions and read its PnL attribution?
+
+`simulate_mm` runs the A-S (or GLFT, or fixed-spread) market maker with a
+price grid, maker fees or rebates, stale quotes, informed traders and a
+fair-value signal, each switched on in `MMConfig` (API_SPEC 9.1-9.4). Every
+path's PnL splits exactly into spread, fees, inventory and liquidation; the
+markout is the part of inventory earned in the step after each fill (9.5).
+The example is the informed-flow row of the friction ledger: the US
+large-cap preset with a 1-cent tick, a 0.2-cent rebate and informed traders
+present 15% of the time.
+
+**Python**
+
+```python
+import json
+from etrade import market as mk, mm
+
+with open("../data/presets.json") as f:
+    a = mk.as_params_from_market(**json.load(f)["us_large_cap"]["as"])
+print(mm.glft_half_spreads(a, 3.0))          # (0.00766899516689547, 0.00594791025950275)
+print(mm.weighted_mid(99.99, 100.01, 900.0, 100.0))   # 100.008
+cfg = mm.MMConfig(tick=0.01, maker_fee=0.002, informed_prob=0.15)
+r = mm.simulate_mm(a, 20_000, 103, cfg)
+print([round(r.mean(s), 2) for s in ("pnl", "spread", "fees", "inventory", "markout")])
+# [4.01, 10.25, 1.86, -8.07, -8.06]
+print(round(r.se("pnl"), 3), r.max_identity_error < 1e-9)   # 0.01 True
+```
+
+**C++**
+
+```cpp
+#include <etrade/market.hpp>
+#include <etrade/mm.hpp>
+
+etrade::ASMarket m;  // data/presets.json, us_large_cap "as"
+m.price = 100.0; m.tick = 0.01; m.daily_vol = 0.015; m.touch_fills_per_day = 1170.0;
+m.halving_ticks = 0.462; m.skew_ticks = 2.25; m.q_max = 50; m.liq_ticks = 1.0; m.dt_seconds = 5.0;
+etrade::ASParams a = etrade::as_params_from_market(m);
+auto [db, da] = etrade::glft_half_spreads(a, 3.0);   // 0.00766899516689547 0.00594791025950274
+etrade::MMConfig cfg;
+cfg.tick = 0.01; cfg.maker_fee = 0.002; cfg.informed_prob = 0.15;
+etrade::MMResult r = etrade::simulate_mm(a, 5'000, 103, cfg);
+// r.mean(etrade::MMStat::kPnl) 3.9994 (se 0.0209), kSpread 10.2537, kMarkout -8.0799,
+// kInformedFills 289.044, r.max_identity_error 4.3e-12
+```
+
+**Rust**
+
+```rust
+use etrade::market::{as_params_from_market, ASMarket};
+use etrade::mm::{glft_half_spreads, simulate_mm, MMConfig, MMStat};
+
+let a = as_params_from_market(&ASMarket {
+    price: 100.0, tick: 0.01, daily_vol: 0.015, touch_fills_per_day: 1170.0,
+    halving_ticks: 0.462, skew_ticks: 2.25, q_max: 50, liq_ticks: 1.0, dt_seconds: 5.0,
+    ..ASMarket::default()
+})?;
+let (db, da) = glft_half_spreads(&a, 3.0)?;   // 0.007668995166895468 0.005947910259502745
+let cfg = MMConfig { tick: 0.01, maker_fee: 0.002, informed_prob: 0.15, ..MMConfig::default() };
+let r = simulate_mm(&a, 5_000, 103, &cfg)?;
+// r.mean(MMStat::Pnl) 4.0046 (se 0.0205), Spread 10.2621, Markout -8.0717, InformedFills 289.0858
+```
+
+**Java**
+
+```java
+ASParams a = Market.asParamsFromMarket(new Market.ASMarket(100.0, 0.01, 0.015, 1170.0, 0.462,
+        2.25, 50, 1.0, 5.0, 23_400.0, 1.0));
+MarketMaking.HalfSpreads h = MarketMaking.glftHalfSpreads(a, 3.0);   // 0.00766899516689547, 0.00594791025950274
+MarketMaking.Config cfg = new MarketMaking.Config(MarketMaking.Agent.AS, 0.01, 0.002, 0, 0.15,
+        0.5, null);
+MarketMaking.Result r = MarketMaking.simulate(a, 5_000, 103L, cfg);
+// r.mean(MarketMaking.Stat.PNL) 3.9959 (se 0.0205), SPREAD 10.2492, MARKOUT -8.0762
+```
+
+The GLFT half spreads agree across the four ports to 15 digits; the
+simulations agree within their standard errors, since each port samples its
+own paths (API_SPEC 4). Reading the attribution: the spread column is the
+largest it is anywhere in the ledger (10.25 a day) and the PnL is among the
+smallest (4.01), because the markout, -8.06, takes back most of it. Almost
+all of the inventory term is in the markout: the loss comes from the step
+right after the informed fills, not from carrying a position. The other
+ledger rows come from the same call with the other `MMConfig` switches:
+`latency_steps=1` for stale quotes, `signal_accuracy=0.6` for a fair-value
+signal, `agent="glft"` for GLFT quotes, a negative `maker_fee` for a fee
+(LEARN Sections 6.7-6.12 discuss each).
+
+---
+
+## 25. Should a child order rest in the queue or cross, and how do I liquidate with both?
+
+`queue_fill_probability` gives the probability that a resting order is
+completely filled within a horizon, from its place in the queue and the
+rates of market orders and cancellations (API_SPEC 13.1). `place_or_cross`
+compares the expected cost of posting with that of crossing (13.2).
+`liquidation_policy` solves the multi-period problem with limit and market
+orders by backward induction, and `simulate_liquidation` checks it against
+two simple strategies on shared paths (13.3).
+
+**Python**
+
+```python
+from etrade import placement as pl
+
+p = pl.queue_fill_probability(5, 2, 10.0, 0.1, 1.0)   # 0.882592233494604
+d = pl.place_or_cross(2000.0, 0.02, p, 0.01, 1e-4, 0.5, 1 / 13)
+print(d.passive, d.passive_cost, d.aggressive_cost)   # True 0.00964674849175898 0.0261245154965971
+print(d.breakeven_fill_prob)                          # 0.333333333333333
+lp = pl.LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005)
+pol = pl.liquidation_policy(lp)
+print(pol.expected_cost, pol.depth[0, 10], pl.aggressive_cost(lp))
+# -0.205095993155636 0.0174145888001820 0.15
+s = pl.simulate_liquidation(lp, n_paths=20_000, seed=201)
+print(s.optimal_mean, s.saving_vs_aggressive_mean, s.saving_vs_aggressive_se)
+# -0.187424605121854 0.353065036162625 0.00477327948214878
+```
+
+**C++**
+
+```cpp
+#include <etrade/placement.hpp>
+
+double pf = etrade::queue_fill_probability(5, 2, 10.0, 0.1, 1.0);   // 0.882592233494604
+etrade::PlacementDecision d =
+    etrade::place_or_cross(2000.0, 0.02, pf, 0.01, 1e-4, 0.5, 1.0 / 13.0);   // d.passive true
+etrade::LiquidationParams lp(10, 50, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005);
+etrade::LiquidationPolicy pol = etrade::liquidation_policy(lp);
+// pol.expected_cost() -0.205095993155636, pol.depth[0][10] 0.0174145888001820
+etrade::LiquidationSimResult s = etrade::simulate_liquidation(lp, 20'000, 201);
+// s.optimal_mean -0.224640119504025, s.saving_vs_aggressive_mean 0.359874733664059 (se 0.00483)
+```
+
+**Rust**
+
+```rust
+use etrade::placement::{
+    liquidation_policy, place_or_cross, queue_fill_probability, simulate_liquidation,
+    LiquidationParams,
+};
+
+let pf = queue_fill_probability(5, 2, 10.0, 0.1, 1.0)?;                  // 0.882592233494604
+let d = place_or_cross(2000.0, 0.02, pf, 0.01, 1e-4, 0.5, 1.0 / 13.0)?;  // d.passive_cost 0.009646748491758977
+let lp = LiquidationParams::new(10, 50, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005, 0.0)?;
+let pol = liquidation_policy(&lp);                                        // pol.expected_cost() -0.2050959931556364
+let s = simulate_liquidation(&lp, 20_000, 201)?;
+// s.optimal_mean -0.2105849605671755, s.saving_vs_aggressive_mean 0.35881962044547183 (se 0.0048)
+```
+
+**Java**
+
+```java
+double pf = Placement.queueFillProbability(5, 2, 10.0, 0.1, 1.0);   // 0.882592233494604
+Placement.PlacementDecision d = Placement.placeOrCross(2000.0, 0.02, pf, 0.01, 1e-4, 0.5,
+        1.0 / 13.0);                                                 // d.passive() true
+Placement.LiquidationParams lp = new Placement.LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0,
+        0.3, 0.005, 0.0);
+Placement.LiquidationPolicy pol = Placement.liquidationPolicy(lp);  // pol.expectedCost() -0.2050959931556364
+Placement.LiquidationSimResult s = Placement.simulateLiquidation(lp, 20_000, 201L);
+// s.optimalMean() -0.17096924370659827, s.savingVsAggressiveMean() 0.35690147613272427 (se 0.0048)
+```
+
+Reading the numbers. Five units ahead of a two-unit order, with ten market
+orders per unit of time and some cancellation, fill within one time unit
+with probability 0.88. A miss costs one cent of adverse move, so posting
+pays whenever the fill probability exceeds one third; here it saves 1.65
+cents a share against crossing. The liquidation policy for ten units over
+fifty periods expects to sell 2.05 cents a unit above the starting mid,
+against 1.5 cents a unit below it for an even schedule of market orders.
+The simulated means differ between ports by about one or two standard
+errors (0.0217 per port), as samples of the same distribution should; the
+paired saving against all-market orders has a much smaller error (0.0048)
+because both strategies see the same prices (LEARN Sections 3.14-3.16).

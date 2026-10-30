@@ -1,7 +1,7 @@
 # Contributing
 
-`etrade` is one library written four times: a Python reference and C++17,
-Rust and Java 17 ports. They agree because each implements the same pinned
+`etrade` is one library written four times: a Python reference and C++26,
+Rust and Java 25 ports. They agree because each implements the same pinned
 contract in [`API_SPEC.md`](API_SPEC.md) and each is checked against the same
 golden files in `data/golden/`. A change is finished when all four ports pass
 those goldens on Linux, Windows and macOS in CI.
@@ -11,9 +11,9 @@ those goldens on Linux, Windows and macOS in CI.
 | language | version | build and test (from the repo root) |
 |---|---|---|
 | Python | 3.11+ (CI: 3.11 and 3.13) | `pip install -e "python[dev]"`, then `ruff check . && ruff format --check .`, `mypy` (in `python/`), `pytest -q python` |
-| C++ | C++17, CMake 3.20+; GCC, Clang or MSVC | `cmake -S cpp -B build -DETRADE_WERROR=ON`, `cmake --build build --config Release`, `ctest --test-dir build -C Release` |
+| C++ | C++26, CMake 3.25+; GCC 14+, recent Clang, MSVC (`/std:c++latest`), LLVM Clang on macOS if AppleClang lacks C++26 mode; only C++26 features all four compilers implement | `cmake -S cpp -B build -DETRADE_WERROR=ON`, `cmake --build build --config Release`, `ctest --test-dir build -C Release` |
 | Rust | MSRV 1.78, stable for development | in `rust/`: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --release` |
-| Java | JDK 17, Maven 3.9 | in `java/`: `mvn -B verify` (compiles with `-Xlint:all -Werror`) |
+| Java | JDK 25 (latest LTS; CI on Temurin 25), Maven 3.9 | in `java/`: `mvn -B verify` (compiles with `-Xlint:all -Werror`) |
 
 GoogleTest is taken from the system when CMake finds it, otherwise fetched at
 a pinned hash. The Rust MSRV job resolves dependencies with

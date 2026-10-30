@@ -3,14 +3,15 @@
 Design notes for the four parallel implementations (Python reference, C++,
 Rust, Java) of the Almgren-Chriss / Avellaneda-Stoikov / analytics stack,
 the power-law impact model, the market-unit layer, post-trade TCA,
-calibration from recorded data, and the execution extensions (transient
-impact, adaptive re-planning, internalisation).
+calibration from recorded data, the execution extensions (transient
+impact, adaptive re-planning, internalisation), market making with
+frictions, and limit-order placement.
 The normative contract is `../API_SPEC.md`; this document explains *why* it
 is shaped the way it is.
 
 ## 1. Component responsibilities
 
-Eight modules per language, mirrored one-to-one across ports:
+Ten modules per language, mirrored one-to-one across ports:
 
 | Module | Owns | Depends on |
 |---|---|---|
@@ -22,6 +23,8 @@ Eight modules per language, mirrored one-to-one across ports:
 | `tca` | post-trade slippage against arrival, market VWAP, interval VWAP and close; markouts per fill and per share; per-bin participation; Welch t-test with a pinned `ln_gamma` (Lanczos), regularised incomplete beta (modified Lentz) and Student t CDF (API_SPEC Section 10) | nothing (C++ and Rust reuse the `Side` enum of `analytics`; Python and Java take the side as a string) |
 | `calibration` | the pinned binning rule; volume curve, realised-volatility curve, spread statistics and the weighted log-linear fill-intensity fit, all on plain arrays; `FITTED_VOLUME_CURVE_13` (API_SPEC Section 11) | nothing |
 | `execution` | `TransientParams` (Obizhaeva-Wang) with exact cost and the Thomas-solved static optimum; `SignalParams`, the linear re-plan and its coefficients, the paired static-vs-adaptive simulation; `internalise` (API_SPEC Section 12) | `almgren_chriss` (`ACParams`, `MAX_PATHS`), `impact` (cost, VWAP schedule), `market` (`impact_params_from_market`, `bps`) |
+| `mm` | market making with frictions: `MMConfig` (agent `as`/`glft`/`fixed`, tick, maker fee or rebate, quote latency, informed-flow probability, signal accuracy), tick rounding away from fair value, GLFT closed-form half spreads, the pinned simulation loop with its exact per-path attribution `pnl = spread + fees + inventory - liquidation` and one-step markout, weighted mid and order-flow imbalance (API_SPEC Section 9) | `avellaneda_stoikov` (`ASParams`, the A-S closed forms, `MAX_PATHS`) |
+| `placement` | fill probability of a resting order by queue position (pinned uniformisation), passive-or-aggressive decision for one child order, `LiquidationParams` with the backward-induction policy for liquidating with limit and market orders, the all-market schedule and the paired three-strategy simulation (API_SPEC Section 13) | `almgren_chriss` (`MAX_PATHS` only) |
 
 The four model modules (`almgren_chriss`, `avellaneda_stoikov`, `analytics`,
 `impact`) do not import each other, and neither do `tca` and `calibration`,
@@ -29,7 +32,9 @@ which work on plain arrays. `market` builds the model parameter objects
 and, for the pre-trade report, calls the `impact` cost and schedule
 functions. `execution` is the only module above `market`: internalisation
 prices each side with the Section 8 cost of a VWAP schedule built from
-market inputs, and the adaptive simulation takes an `ACParams`. Parameter objects are immutable value
+market inputs, and the adaptive simulation takes an `ACParams`. `mm` sits
+on `avellaneda_stoikov` (it reuses `ASParams` and the A-S quotes) and
+`placement` imports only the path bound. Parameter objects are immutable value
 types (frozen dataclasses in Python, plain structs/records elsewhere) that
 validate **at construction**, so every downstream function can assume valid
 inputs and stay branch-free. Functions that take user data (holdings paths,
@@ -52,6 +57,8 @@ flowchart LR
     TC["tca<br/>(Section 10)"]
     CA["calibration<br/>(Section 11)"]
     EX["execution<br/>(Section 12)"]
+    MM["mm<br/>(Section 9)"]
+    PL["placement<br/>(Section 13)"]
 
     MK --> AC
     MK --> AS
@@ -59,6 +66,8 @@ flowchart LR
     EX --> AC
     EX --> IM
     EX --> MK
+    MM --> AS
+    PL -. "MAX_PATHS" .-> AC
     TC -. "Side enum (Rust, C++)" .-> AN
 ```
 
@@ -88,12 +97,16 @@ flowchart TB
         GENT["generate_tca.py"]
         GENC["generate_calibration.py"]
         GENX["generate_execution.py"]
+        GENMM["generate_mm.py"]
+        GENP["generate_placement.py"]
         GOLD["golden/golden.json<br/>19 cases: exact + statistical"]
         GOLDM["golden/market_golden.json<br/>15 cases"]
         GOLDI["golden/impact_golden.json<br/>8 cases"]
         GOLDT["golden/tca_golden.json<br/>11 cases"]
         GOLDC["golden/calibration_golden.json<br/>9 cases"]
         GOLDX["golden/execution_golden.json<br/>8 cases: exact + statistical"]
+        GOLDMM["golden/mm_golden.json<br/>14 cases: exact + statistical"]
+        GOLDP["golden/placement_golden.json<br/>11 cases: exact + statistical"]
         FIT --> FJ
         FJ --> GENM
         GEN --> PJ
@@ -105,6 +118,9 @@ flowchart TB
         GENT --> GOLDT
         GENC --> GOLDC
         GENX --> GOLDX
+        PR --> GENMM
+        GENMM --> GOLDMM
+        GENP --> GOLDP
     end
 
     IAP --> FIT
@@ -118,6 +134,8 @@ flowchart TB
         TC["tca"]
         CA["calibration"]
         EX["execution"]
+        MM["mm"]
+        PL["placement"]
     end
 
     PJ --> AC
@@ -128,7 +146,7 @@ flowchart TB
     CA -. "estimators used by" .-> FIT
 
     subgraph OUT["outputs"]
-        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report)"]
+        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report,<br/>TCA, calibration, execution extensions,<br/>friction ledger, placement)"]
         TESTS["4 language test suites<br/>exact cases: 1e-9..1e-12<br/>statistical cases: 4-SE band"]
     end
 
@@ -140,15 +158,18 @@ flowchart TB
     GOLDT --> TESTS
     GOLDC --> TESTS
     GOLDX --> TESTS
+    GOLDMM --> TESTS
+    GOLDP --> TESTS
 ```
 
-Six Python scripts are the single source of truth for the bundled JSON.
+Eight Python scripts are the single source of truth for the bundled JSON.
 `generate_data.py` writes the parameter sets, the parent order and the model
 golden values (after asserting the AC closed forms against its own Monte
 Carlo), all seeded; `generate_market.py` writes `presets.json` and the market
 golden cases; `generate_impact.py`, `generate_tca.py`,
-`generate_calibration.py` and `generate_execution.py` write the golden
-cases of Sections 8, 10, 11 and 12. Ports never regenerate data; they only
+`generate_calibration.py`, `generate_execution.py`, `generate_mm.py` and
+`generate_placement.py` write the golden cases of Sections 8 and 10-13
+(`generate_mm.py` reads the `us_large_cap` preset from `presets.json`). Ports never regenerate data; they only
 consume it.
 
 **From an ITCH file to a preset.** The recorded data never enters the
@@ -184,15 +205,20 @@ asserts the case count of every file and that each case is handled.
 | `tca_golden.json` | `generate_tca.py` | 11 | `slippage` (2), `markout` (2), `participation` (1), `welch` (2), `t_cdf` (4) | 1e-12 | 10.6 |
 | `calibration_golden.json` | `generate_calibration.py` | 9 | `cal_volume_curve` (2), `cal_volatility` (2), `cal_spread` (2), `cal_fill_intensity` (2), `cal_fitted_curve` (1) | 1e-12 | 11.7 |
 | `execution_golden.json` | `generate_execution.py` | 8 | `transient_schedule` (3), `internalise` (2), `adaptive_sim` (3) | 1e-9; 4 SE | 12.4 |
+| `mm_golden.json` | `generate_mm.py` | 14 | `mm_tick` (3), `mm_glft` (3), `mm_wmid` (1), `mm_ofi` (1), `mm_sim` (6) | 1e-12; 4 SE | 9.7 |
+| `placement_golden.json` | `generate_placement.py` | 11 | `fill_probability` (4), `placement_decision` (3), `liquidation_policy` (2), `liquidation_sim` (2) | 1e-10; 4 SE | 13.4 |
 
-70 cases in all. The case names say what each pins: for example
+95 cases in all. The case names say what each pins: for example
 `welch_constant_sample` (one sample with zero variance, the other not),
 `t_cdf_negative_fractional_df` (a negative `t` with non-integer degrees
 of freedom),
 `cal_spread_even_effective` (the even-count median),
 `cal_fill_intensity_two_days` (the `days` normalisation),
 `transient_slow_resilience` (`a` close to 1), `internalise_balanced_curve`
-(`B = S`, residual side `none`) and `adaptive_no_signal` (saving exactly 0).
+(`B = S`, residual side `none`), `adaptive_no_signal` (saving exactly 0),
+`mm_sim_latency` (quotes one step stale), `fill_no_cancellations` (the
+Poisson-tail case) and `decision_aggressive_zero_spread` (crossing wins
+with no spread).
 
 ### Module surface
 
@@ -371,6 +397,40 @@ classDiagram
         +simulate_adaptive(p, sig, n_paths, seed) AdaptiveSimResult
         +internalise(buys, sells, market inputs) InternalisationResult
     }
+    class MMConfig {
+        +agent
+        +float tick
+        +float maker_fee
+        +int latency_steps
+        +float informed_prob
+        +float signal_accuracy
+        +float fixed_spread
+    }
+    class mm {
+        +round_to_tick(bid, ask, tick) tuple
+        +glft_half_spreads(params, q) tuple
+        +weighted_mid(bid, ask, bid_size, ask_size) float
+        +order_flow_imbalance(bid_px, bid_sz, ask_px, ask_sz) array
+        +simulate_mm(params, n_paths, seed, config) MMResult
+    }
+    class LiquidationParams {
+        +int total_units
+        +int n_periods
+        +float dt
+        +float sigma
+        +float spread
+        +float kappa
+        +float p_touch
+        +float beta
+        +float phi
+    }
+    class placement {
+        +queue_fill_probability(q_ahead, size, mu, theta, horizon) float
+        +place_or_cross(size, spread, fill_prob, adverse_move, eta, alpha, weight) PlacementDecision
+        +liquidation_policy(p) LiquidationPolicy
+        +aggressive_cost(p) float
+        +simulate_liquidation(p, n_paths, seed) LiquidationSimResult
+    }
 
     almgren_chriss ..> ACParams : validates on construction
     almgren_chriss --> FrontierPoint
@@ -394,6 +454,13 @@ classDiagram
     execution --> InternalisationResult
     execution --> ACParams
     execution --> market
+    mm ..> MMConfig : validates on construction
+    mm --> ASParams
+    mm --> MMResult
+    placement ..> LiquidationParams : validates on construction
+    placement --> PlacementDecision
+    placement --> LiquidationPolicy
+    placement --> LiquidationSimResult
 ```
 
 ## 2. The pinned A-S simulation loop
@@ -591,13 +658,47 @@ Design points:
     `rand_chacha::ChaCha12Rng::seed_from_u64` pinned explicitly (the `rand`
     crate documents `StdRng` as free to change between releases); Java:
     `SplittableRandom` (`nextDouble` is a specified algorithm; `nextGaussian`
-    comes from the `RandomGenerator` default since Java 17 and is not
+    comes from the `RandomGenerator` interface default and is not
     specified, and `Math.*` may differ by 1 ulp across platforms, so Java
     determinism is guaranteed within one JVM build and platform only).
     Each language tests "same seed twice = identical results"; the golden
     file stores Python's 20k-path references *with standard errors* so any
     port with `M >= 2000` paths can verify
     `|stat - ref| <= 4 sqrt(se_ref^2 + se_own^2)`.
+16. **Market making with frictions: one loop, five draws, an exact ledger.**
+    The friction simulator (`API_SPEC.md` 9.4) draws all five random
+    numbers every step, in a fixed order, whether or not a friction uses
+    them, so switching a friction on changes the outcome only through the
+    friction and not through a shifted random stream: the same seed with and
+    without informed flow sees the same prices. Each path keeps the four
+    attribution sums as it goes and the identity
+    `pnl = spread + fees + inventory - liquidation` is asserted after every
+    simulation (relative `1e-9`; the largest residual is reported in the
+    result and is about `1e-11` in practice), which catches any accounting
+    slip in a port immediately. Tick rounding uses `floor(x/tick + 1e-9)`
+    and `ceil(x/tick - 1e-9)` so a quote already on the grid is not pushed a
+    tick out by representation error; the slack is pinned so every port
+    rounds the same way. The GLFT constants use `log1p(gamma/k)`. Python
+    vectorises across paths; native ports loop path by path, so a
+    20,000-path, 4,680-step run is about 0.6 billion path-steps there and
+    the demos use 5,000 paths in the native ports.
+17. **Queue fill probability by uniformisation, not partial fractions.** The
+    time to fill is a sum of exponentials with distinct rates, which has a
+    textbook closed form as a sum of partial fractions. For a deep queue
+    the terms alternate in sign and are many orders of magnitude larger
+    than the result, so double precision loses every digit (derived; this
+    is why the contract does not use it). The contract instead pins
+    uniformisation (`API_SPEC.md` 13.1): a discrete-time chain stepped at
+    the largest rate, weighted by Poisson probabilities computed outward
+    from the mode by ratios (no factorials, no underflow), over a window of
+    `10 sqrt(L) + 10` steps on each side, outside which the Poisson mass is
+    below `exp(-50)`. Every term is non-negative, so there is no
+    cancellation; the cost is O(window x queue length), bounded by
+    `MAX_UNIFORMISATION_STEPS` and `MAX_QUEUE_UNITS`. The liquidation policy
+    needs no solver: the optimal depth `max(0, 1/kappa - g)` is the exact
+    maximiser of `exp(-kappa delta)(delta + g)`, so backward induction is
+    O(N Q) arithmetic with the loop order pinned (`j` down, `q` up) so that
+    every port computes the same sums in the same order.
 
 ## 4. Error-handling strategy per language
 
@@ -635,11 +736,11 @@ exception is a port bug that the tests catch.
 
 ## 5. Testing strategy
 
-Five layers, replicated per language (Python 371 tests, C++ 127, Rust 151
-including 3 doc-tests, Java 120; 769 in total, counted on 2026-10-30 by
+Five layers, replicated per language (Python 487 tests, C++ 153, Rust 200
+including 4 doc-tests, Java 142; 982 in total, counted on 2026-10-30 by
 running each suite):
 
-1. **Golden values** (the six files of the inventory in Section 1, 70
+1. **Golden values** (the eight files of the inventory in Section 1, 95
    cases; every suite asserts each count exactly and that every case is
    handled).
    *Exact* cases (tol 1e-10..1e-12, relative for large magnitudes via
@@ -689,7 +790,11 @@ unchanged; `arrival_bps` reproduces the Section 3.1 trading component;
 `halving_ticks` returns the fitted `A` and `k`; the transient optimum
 reduces to TWAP when `a = 0`; internalising never increases cost on random
 order sets; re-planning saves exactly nothing without a signal or fill risk
-and more than 4 SE with one.
+and more than 4 SE with one. The Section 9 and 13 modules add the
+attribution identity on every simulated path, tick rounding that never
+moves a quote towards fair value, the GLFT skew sign, the Poisson-tail and
+incomplete-beta special cases of the queue model, crossing at zero spread,
+and optimal depth falling with inventory.
 
 ## 6. Performance notes
 
@@ -725,7 +830,7 @@ Two workflows run on every push to `main` and every pull request.
 | C++ sanitizers | Ubuntu, clang | Debug build with AddressSanitizer and UBSan (`-DETRADE_SANITIZE=ON`), `ctest`; UBSan halts on the first error |
 | Rust | Ubuntu, Windows, macOS, stable | `cargo fmt --check`, `cargo clippy --all-targets -D warnings`, `cargo test --release`, `cargo doc` with warnings as errors, the demo |
 | Rust MSRV | Ubuntu, Rust 1.78 | dependencies resolved to MSRV-compatible versions, `cargo test --release` |
-| Java | Ubuntu, Windows, macOS x JDK 17, 21 | `mvn -B verify` (compiles with `-Xlint:all -Werror`), the demo |
+| Java | Ubuntu, Windows, macOS x JDK 25 (Temurin) | `mvn -B verify` (compiles with `-Xlint:all -Werror`), the demo |
 
 That is 20 jobs; `fail-fast` is off, so one platform failing does not hide
 another. Running every suite on three operating systems is what catches

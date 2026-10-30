@@ -4,7 +4,11 @@ Prints: Almgren-Chriss optimal trajectories across risk aversions, the
 efficient frontier of execution, TWAP/POV/instantaneous baselines with an MC
 cross-check, an Avellaneda-Stoikov market-making simulation (A-S vs
 fixed-spread agent), and an implementation-shortfall decomposition with a
-market-impact regression.
+market-impact regression, presets in bps, a pre-trade report, post-trade
+TCA, calibration with the fitted ITCH presets, execution extensions
+(transient impact, adaptive vs static, internalisation), the market-making
+friction ledger and limit-order placement. Deterministic lines match the
+C++, Rust and Java demos; simulated lines are each language's own sample.
 
 Run:  cd python && PYTHONPATH=src python3 demo.py
 """
@@ -224,6 +228,225 @@ def pretrade_section() -> None:
     )
 
 
+def tca_section() -> None:
+    """Post-trade TCA (API_SPEC Section 10); deterministic."""
+    hdr("Post-trade TCA: benchmarks, markouts, participation, A/B test")
+    fill_bins = [0, 1, 1, 2]
+    fill_qtys = [20_000.0, 15_000.0, 10_000.0, 25_000.0]
+    fill_prices = [99.96, 99.91, 99.89, 99.84]
+    bin_volumes = [400_000.0, 300_000.0, 300_000.0, 500_000.0]
+    bin_vwaps = [99.95, 99.90, 99.85, 99.82]
+    r = et.tca.slippage(
+        "sell", 100.0, 99.80, fill_bins, fill_qtys, fill_prices, bin_volumes, bin_vwaps
+    )
+    print(
+        f"sell 70,000 at avg {r.avg_price:.4f}: arrival {r.arrival_bps:.4f} bps, "
+        f"full-day VWAP {r.vwap_bps:.4f} bps,"
+    )
+    print(
+        f"  interval VWAP {r.interval_vwap_bps:.4f} bps, close {r.close_bps:.4f} bps"
+        " (positive = cost)"
+    )
+    part = et.tca.participation(fill_bins, fill_qtys, bin_volumes)
+    mids = [100.00, 99.98, 99.95, 99.93, 99.90, 99.91, 99.88, 99.86, 99.85, 99.84]
+    mo = et.tca.markouts("sell", [0, 2, 4, 6], fill_qtys, mids, [1, 3])
+    print(
+        f"participation {100.0 * part.overall:.4f}%; markout per share after 1 step "
+        f"{mo.per_share[0]:.6f} $, after 3 steps {mo.per_share[1]:.6f} $"
+    )
+    w = et.tca.welch_ttest(
+        [1.2, 3.4, 2.2, 5.1, 0.7, 2.9, 4.0, 3.3], [0.4, 1.1, -0.2, 0.9, 1.6, 0.3]
+    )
+    print(
+        f"algo A vs B (8 vs 6 orders): diff {w.mean_diff:.4f} bps, t = {w.t_stat:.4f}, "
+        f"df = {w.df:.4f}, p = {w.p_value:.6f}"
+    )
+
+
+#: Fitted presets of API_SPEC 11.6 (data/presets.json).
+ITCH_PRESETS = ("itch_aapl_20191230", "itch_msft_20191230", "itch_qqq_20191230")
+
+
+def calibration_section() -> None:
+    """Calibration estimators and the fitted ITCH presets (API_SPEC Section 11)."""
+    hdr("Calibration: fill intensity from 100 market orders; fitted ITCH presets")
+    dist = [0.005] * 60 + [0.015] * 25 + [0.025] * 10 + [0.035] * 5
+    fi = et.calibration.fill_intensity(dist, tick=0.01, n_levels=4, days=1.0, sides=2.0)
+    print(
+        f"toy fit: A = {fi.a_rate:.4f}/day, k = {fi.k:.4f} per $, touch fills "
+        f"{fi.touch_fills_per_day:.4f}/day, halving {fi.halving_ticks:.4f} ticks"
+    )
+    presets = load("presets.json")
+    print("fitted to one NASDAQ ITCH day, 2019-12-30 (one venue; caveats in API_SPEC 11.6):")
+    print(
+        f"{'preset':>20} {'price':>7} {'spread':>8} {'vol':>7} {'A /day':>10} {'k /$':>8}"
+        f" {'A-S open':>9} {'E[IS] 5% ADV':>12}"
+    )
+    for name in ITCH_PRESETS:
+        ac, asm = presets[name]["ac"], presets[name]["as"]
+        p = et.market.ac_params_from_market(**ac)
+        a = et.market.as_params_from_market(**asm)
+        e = et.market.bps(et.expected_cost(p), ac["total_shares"] * ac["price"])
+        o = et.market.bps(et.optimal_spread(a, 0.0), a.s0)
+        sp = et.market.bps(ac["spread"], ac["price"])
+        print(
+            f"{name:>20} {ac['price']:7.2f} {sp:6.3f}bp {100.0 * ac['daily_vol']:6.3f}%"
+            f" {a.a_rate:10.1f} {a.k:8.3f} {o:7.4f}bp {e:10.4f}bp"
+        )
+
+
+def execution_ext_section() -> None:
+    """Transient impact, adaptive re-planning, internalisation (API_SPEC Section 12)."""
+    hdr("Execution extensions: transient impact, adaptive vs static, internalisation")
+    tp = et.execution.TransientParams(
+        total_shares=1e6, n_intervals=10, tau=0.1, kappa=1e-6, rho=5.0
+    )
+    x = et.execution.transient_optimal_schedule(tp)
+    e_opt = et.execution.transient_expected_cost(tp, x)
+    e_twap = et.execution.transient_expected_cost(tp, et.twap_holdings(1e6, 10))
+    print(
+        f"Obizhaeva-Wang, rho*tau = 0.5: first / middle / last trade "
+        f"{x[0] - x[1]:.2f} / {x[4] - x[5]:.2f} / {x[9] - x[10]:.2f} shares"
+    )
+    print(
+        f"  E[IS] optimal {e_opt:.2f} $ vs TWAP {e_twap:.2f} $ "
+        f"(saves {100.0 * (1.0 - e_opt / e_twap):.4f}%)"
+    )
+    p = et.ACParams(1_000_000.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6)
+    print("adaptive re-planning, liquid set, 20k paths (each language samples its own paths):")
+    print(f"{'case':>24} {'static E[IS]':>13} {'adaptive':>11} {'saving':>9} {'se':>6}")
+    for label, sig in (
+        ("no signal, full fills", et.execution.SignalParams()),
+        ("AR(1) signal 0.7, 0.5", et.execution.SignalParams(phi=0.7, signal_sd=0.5)),
+        ("fill risk 0.5", et.execution.SignalParams(fill_risk=0.5)),
+    ):
+        s = et.execution.simulate_adaptive(p, sig, n_paths=20_000, seed=1)
+        print(
+            f"{label:>24} {s.static_mean:13.0f} {s.adaptive_mean:11.0f} "
+            f"{s.saving_mean:9.0f} {s.saving_se:6.0f}"
+        )
+    r = et.execution.internalise(
+        [200_000.0, 50_000.0],
+        [150_000.0],
+        price=100.0,
+        spread=0.01,
+        adv=5e6,
+        daily_vol=0.015,
+        n_intervals=13,
+        tau=1.0 / 13.0,
+        weights=et.impact.US_EQUITY_VOLUME_CURVE_13,
+    )
+    print(
+        f"internalise buys 200k + 50k against a 150k sell: cross {r.crossed_shares:.0f}, "
+        f"send {r.residual_shares:.0f} ({r.residual_side})"
+    )
+    print(
+        f"  impact {r.baseline_cost:.2f} $ -> {r.internal_cost:.2f} $, "
+        f"saves {r.saved_bps:.4f} bps of gross notional"
+    )
+
+
+#: Friction ledger rows: label, MMConfig fields, seed. Seeds 101-106 are the
+#: mm_sim golden cases of API_SPEC 9.7; the fee row is extra.
+FRICTIONS = (
+    ("frictionless", {}, 101),
+    ("tick + 0.2c rebate", {"tick": 0.01, "maker_fee": 0.002}, 102),
+    ("tick + 0.2c fee", {"tick": 0.01, "maker_fee": -0.002}, 107),
+    ("+ 15% informed flow", {"tick": 0.01, "maker_fee": 0.002, "informed_prob": 0.15}, 103),
+    (
+        "+ 60% signal",
+        {"tick": 0.01, "maker_fee": 0.002, "informed_prob": 0.15, "signal_accuracy": 0.6},
+        104,
+    ),
+    ("quotes 5 s stale", {"tick": 0.01, "maker_fee": 0.002, "latency_steps": 1}, 105),
+    ("GLFT, tick + rebate", {"agent": "glft", "tick": 0.01, "maker_fee": 0.002}, 106),
+)
+
+
+def mm_frictions_section() -> None:
+    """Market making with frictions: the friction ledger (API_SPEC Section 9)."""
+    hdr("Market making with frictions: US large-cap A-S preset, one-share quotes")
+    a = et.market.as_params_from_market(**load("presets.json")["us_large_cap"]["as"])
+    print(
+        f"A = {a.a_rate:.4f}/day, k = {a.k:.4f} per $, gamma = {a.gamma:.6f}, "
+        f"{a.n_steps} steps of 5 s"
+    )
+    for q in (0.0, 3.0):
+        db, da = et.mm.glft_half_spreads(a, q)
+        print(f"GLFT half spreads at q = {q:+.0f}: bid {db:.8f} $, ask {da:.8f} $")
+    b, k = et.mm.round_to_tick(99.9934, 100.0066, 0.01)
+    wm = et.mm.weighted_mid(99.99, 100.01, 900.0, 100.0)
+    print(
+        f"tick rounding away from fair: 99.9934 / 100.0066 -> {b:.2f} / {k:.2f}; "
+        f"weighted mid {wm:.3f}"
+    )
+    print("friction ledger, $ per day, 20k paths (each language samples its own paths):")
+    print(
+        f"{'case':>20} {'PnL':>7} {'se':>5} | {'spread':>7} {'fees':>6} {'invent':>7}"
+        f" {'markout':>8} | {'fills':>6} {'informed':>8}"
+    )
+    for label, cfg, seed in FRICTIONS:
+        r = et.mm.simulate_mm(a, 20_000, seed, et.mm.MMConfig(**cfg))
+        print(
+            f"{label:>20} {r.mean('pnl'):7.2f} {r.se('pnl'):5.2f} | {r.mean('spread'):7.2f}"
+            f" {r.mean('fees'):6.2f} {r.mean('inventory'):7.2f} {r.mean('markout'):8.2f} |"
+            f" {r.mean('fills'):6.1f} {r.mean('informed_fills'):8.1f}"
+        )
+    print("PnL = spread + fees + inventory - liquidation on every path; the markout is part")
+    print("of inventory (negative = adverse selection).")
+
+
+def placement_section() -> None:
+    """Queue position, passive or aggressive, liquidation (API_SPEC Section 13)."""
+    hdr("Limit-order placement: queue fill probability, post or cross, liquidation")
+    print(f"{'q_ahead':>8} {'size':>5} {'mu':>6} {'theta':>6} {'horizon':>8} {'P(full fill)':>14}")
+    for qa, sz, mu, th, h in (
+        (0, 5, 10.0, 0.1, 0.5),
+        (30, 5, 10.0, 0.0, 2.0),
+        (50, 10, 20.0, 0.05, 3.0),
+        (400, 50, 100.0, 0.2, 4.0),
+    ):
+        pf = et.placement.queue_fill_probability(qa, sz, mu, th, h)
+        print(f"{qa:8d} {sz:5d} {mu:6.1f} {th:6.2f} {h:8.1f} {pf:14.10f}")
+    for label, qa, theta, horizon, adverse in (
+        ("near the front", 5, 0.1, 1.0, 0.01),
+        ("deep in queue", 60, 0.05, 3.0, 0.03),
+    ):
+        pf = et.placement.queue_fill_probability(qa, 2, 10.0, theta, horizon)
+        d = et.placement.place_or_cross(2000.0, 0.02, pf, adverse, 1e-4, 0.5, 1.0 / 13.0)
+        print(
+            f"sell 2,000 {label}: P(fill) {pf:.6f}, post {d.passive_cost:.6f} vs cross "
+            f"{d.aggressive_cost:.6f} $/sh, breakeven {d.breakeven_fill_prob:.4f}: "
+            f"{'post' if d.passive else 'cross'}"
+        )
+    print("liquidate 10 units over 50 periods (patient) or 20 with penalty phi = 0.05 (urgent):")
+    print(
+        f"{'case':>8} {'DP cost':>9} {'depth':>8} {'mkt':>4} {'all-mkt':>7} |"
+        f" {'optimal':>8} {'all-mkt':>8} {'touch':>8} {'saving vs all-mkt':>17}"
+    )
+    for label, lp, seed in (
+        ("patient", et.placement.LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005), 201),
+        (
+            "urgent",
+            et.placement.LiquidationParams(20, 50, 0.02, 0.5, 0.02, 50.0, 0.4, 0.005, 0.05),
+            202,
+        ),
+    ):
+        pol = et.placement.liquidation_policy(lp)
+        n_mkt = int(pol.market[:, 1:].sum())
+        s = et.placement.simulate_liquidation(lp, n_paths=20_000, seed=seed)
+        print(
+            f"{label:>8} {pol.expected_cost:9.5f} {pol.depth[0, lp.total_units]:8.5f}"
+            f" {n_mkt:4d} {et.placement.aggressive_cost(lp):7.3f} | {s.optimal_mean:8.4f}"
+            f" {s.aggressive_mean:8.4f} {s.passive_mean:8.4f}"
+            f" {s.saving_vs_aggressive_mean:9.4f} +- {s.saving_vs_aggressive_se:.4f}"
+        )
+    print("costs in $ per position against the starting mid (negative = sold above it); the")
+    print("DP cost adds the urgency penalty, so it exceeds the simulated shortfall when phi > 0;")
+    print("depth = first posting depth in $; mkt = states where the policy sends a market order;")
+    print("simulations 20k paths, each language samples its own paths.")
+
+
 def main() -> int:
     print("etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov market making")
     liq = load("params_liquid.json")
@@ -235,6 +458,11 @@ def main() -> int:
     analytics_section(order)
     market_section()
     pretrade_section()
+    tca_section()
+    calibration_section()
+    execution_ext_section()
+    mm_frictions_section()
+    placement_section()
     print("\ndone.")
     return 0
 

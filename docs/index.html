@@ -55,7 +55,7 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
   <h2>Measured, not claimed</h2>
   <p><a href="https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml"><img src="https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml/badge.svg" alt="CI status"></a> Every number below is re-checked by CI on Linux, Windows and macOS on every push.</p>
   <div class="numbers"><table>
-    <tr><td>Cross-language parity</td><td>python 371 · cpp 127 · rust 151 · java 120 tests, 769 in total; every suite loads the same 70 golden cases: 19 model, 15 market, 8 impact, 11 TCA, 9 calibration and 8 execution</td></tr>
+    <tr><td>Cross-language parity</td><td>python 487 · cpp 153 · rust 200 · java 142 tests, 982 in total; every suite loads the same 95 golden cases: 19 model, 15 market, 8 impact, 11 TCA, 9 calibration, 8 execution, 14 market-making and 11 placement</td></tr>
     <tr><td>Golden suite</td><td>exact cases (AC kappa / x_j / n_1 / E / Var on two parameter sets, TWAP/POV costs, A-S closed forms, both IS decompositions, the impact fit) at |actual − expected| ≤ tol·max(1, |expected|) with tol between 1e-10 and 1e-12</td></tr>
     <tr><td>Statistical cases</td><td>Python 20,000-path Monte Carlo references stored with their standard errors; each port runs M ≥ 2000 paths on its own RNG and must satisfy |stat − ref| ≤ 4·sqrt(se_ref² + se_own²)</td></tr>
     <tr><td>Literature check</td><td>the paper's hyperbolic closed forms for E[IS] and Var[IS] equal the discrete sums to 1e-12 in every suite (measured rel. diff 2e-16 on the liquid set)</td></tr>
@@ -88,6 +88,15 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
     <tr><td>Solver</td><td>pinned Newton method with a KKT certificate; at alpha = 1 it reproduces the Almgren-Chriss trajectory (holdings within 1e-10 of X, costs within 1e-12 relative); the Python suite cross-checks it against SciPy</td></tr>
   </table></div>
 
+  <h2>Market making with frictions</h2>
+  <div class="numbers"><table>
+    <tr><td>Setup</td><td>US large-cap A-S preset, one-share quotes, 5-second steps, one day; dollars per day, 20,000-path Python sample; PnL = spread + fees + inventory − liquidation on every path</td></tr>
+    <tr><td>Frictionless</td><td>PnL 7.41 (spread 7.44, 1,076 fills)</td></tr>
+    <tr><td>Tick and rebate / fee</td><td>1-cent tick with a 0.2-cent rebate: 7.33; with a 0.2-cent fee: 5.00</td></tr>
+    <tr><td>Informed flow</td><td>15% informed: PnL 4.01, spread capture up to 10.25, markout −8.06; with a 60%-accurate signal: 5.00</td></tr>
+    <tr><td>Latency and GLFT</td><td>quotes 5 s stale: −23.73 a day (picked off); GLFT quotes with tick and rebate: 11.00</td></tr>
+  </table></div>
+
   <h2>What's inside</h2>
   <div class="grid">
     <div class="card"><h3>Almgren-Chriss execution</h3>
@@ -104,8 +113,12 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
       <p>Volume curve, realised-volatility curve, spread statistics and a weighted fill-intensity fit on plain arrays; three presets and a volume curve fitted to the NASDAQ ITCH sample day 2019-12-30, with only aggregates committed.</p></div>
     <div class="card"><h3>Execution extensions</h3>
       <p>Transient impact with exponential resilience (Obizhaeva-Wang), its optimum from one tridiagonal solve; adaptive re-planning against the static schedule under a drift signal or partial fills; internalisation of opposite client orders.</p></div>
+    <div class="card"><h3>Market making with frictions</h3>
+      <p>The A-S quoting logic with a price grid, maker fees or rebates, stale quotes, informed traders and a fair-value signal, switched on one at a time; GLFT quotes beside A-S; every path's PnL split exactly into spread, fees, inventory and liquidation, with one-step markouts.</p></div>
+    <div class="card"><h3>Limit-order placement</h3>
+      <p>Fill probability of a resting order from its place in the queue; the choice between posting and crossing for a child order; liquidation with limit and market orders by backward induction, checked against all-market and post-then-sweep on shared paths.</p></div>
     <div class="card"><h3>Golden-value testing</h3>
-      <p>Six golden files with 70 cases (19 model, 15 market, 8 impact, 11 TCA, 9 calibration, 8 execution), loaded by all four suites: deterministic cases under a relative-or-absolute tolerance of 1e-9 to 1e-12, Monte Carlo cases as reference values plus standard errors. Sample values differ across languages by design; distributions must agree.</p></div>
+      <p>Eight golden files with 95 cases (19 model, 15 market, 8 impact, 11 TCA, 9 calibration, 8 execution, 14 market-making, 11 placement), loaded by all four suites: deterministic cases under a relative-or-absolute tolerance of 1e-9 to 1e-12, Monte Carlo cases as reference values plus standard errors. Sample values differ across languages by design; distributions must agree.</p></div>
     <div class="card"><h3>Property, numeric and validation tests</h3>
       <p>Per language: trajectory monotonicity, inventory cap respected at every step, frontier monotonicity, continuity across the TWAP branch, overflow safety at <code>kappa·T &gt; 2500</code>, <code>ac_kappa_small_tau</code> at millisecond tau, and every rule in API_SPEC §6 — NaN/inf, empty grids, non-liquidating schedules, participation above 1, sizes beyond the pinned bounds.</p></div>
     <div class="card"><h3>Error contract</h3>
@@ -113,7 +126,7 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
     <div class="card"><h3>Reference papers</h3>
       <p>Almgren &amp; Chriss (2000), <em>Journal of Risk</em>; Avellaneda &amp; Stoikov (2008), <em>Quantitative Finance</em>; Perold (1988) and Wagner &amp; Edwards (1993) for the shortfall decomposition and its naming; Guéant, Lehalle &amp; Fernandez-Tapia (2013) for the inventory-capped variant behind <code>q_max</code>; Obizhaeva &amp; Wang (2013) for transient impact; Almgren &amp; Lorenz (2007) for adaptive execution; Welch (1947) for the A/B test; MiFID II Art. 17/27, Reg NMS Rules 605/606 and SEC Rule 15c3-5 in the LEARN guide's regulatory section.</p></div>
     <div class="card"><h3>Units and what is out of scope</h3>
-      <p><code>tau</code>, <code>dt</code>, <code>T</code> in an abstract time unit (bundled sets use one trading day); <code>sigma</code> is arithmetic (currency per share per √time); prices may go negative; AC shares are fractional, A-S fills are one unit. Not covered yet: adverse selection in market making, limit-order placement, order types, venues, ticks, lots, latency, calendars, and any fit of the impact parameters <code>eta</code>, <code>alpha</code>, <code>gamma_p</code> and <code>Y</code> to real parent orders.</p></div>
+      <p><code>tau</code>, <code>dt</code>, <code>T</code> in an abstract time unit (bundled sets use one trading day); <code>sigma</code> is arithmetic (currency per share per √time); prices may go negative; AC shares are fractional, A-S fills are one unit. Ticks, fees, latency and informed flow are stylised switches in the market-making simulator, not a matching engine. Not covered yet: venues, lots, an order book, hedging and risk limits, calendars, and any fit of the impact parameters <code>eta</code>, <code>alpha</code>, <code>gamma_p</code> and <code>Y</code> to real parent orders.</p></div>
   </div>
 
   <h2>Part of a wider portfolio</h2>
@@ -142,18 +155,18 @@ cd electronic-trading
 # Python (3.11+)
 pip install -e "python[dev]"
 python python/demo.py
-pytest python                                   # 371 tests
+pytest python                                   # 487 tests
 
-# C++ (C++17, CMake &gt;= 3.20; GCC, Clang or MSVC)
+# C++ (C++26, CMake &gt;= 3.25; GCC 14+, recent Clang, MSVC /std:c++latest, LLVM Clang on macOS)
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release               # 127 tests
+ctest --test-dir build -C Release               # 153 tests
 
 # Rust (stable, MSRV 1.78)
-(cd rust &amp;&amp; cargo test --release &amp;&amp; cargo run --release --example demo)   # 151 tests
+(cd rust &amp;&amp; cargo test --release &amp;&amp; cargo run --release --example demo)   # 200 tests
 
-# Java (JDK 17+, Maven)
-(cd java &amp;&amp; mvn verify &amp;&amp; mvn -q exec:java)  # 120 tests</pre>
+# Java (JDK 25 LTS, Maven)
+(cd java &amp;&amp; mvn verify &amp;&amp; mvn -q exec:java)  # 142 tests</pre>
 
   <footer>electronic-trading is MIT-licensed and provided without warranty — a validated reference implementation of published models, not an order-management or risk system; see the <a href="https://github.com/AshJha0/electronic-trading#readme">README</a> and <a href="https://github.com/AshJha0/electronic-trading/blob/main/LICENSE">LICENSE</a> on GitHub.</footer>
 </div>

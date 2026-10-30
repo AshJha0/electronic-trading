@@ -8,20 +8,24 @@ quality, and the Avellaneda-Stoikov model of an inventory-averse market
 maker. It also covers stating parameters in market units (Section 3.8),
 the square-root law of impact with intraday volume and alpha-aware schedules
 (Section 3.9), calibration from recorded data (3.10), transient impact
-(3.11), adaptive re-planning (3.12), internalisation (3.13) and post-trade
-analysis: benchmarks, markouts and comparing algorithms (4.2-4.4). A
+(3.11), adaptive re-planning (3.12), internalisation (3.13), limit-order
+placement and liquidation with limit and market orders (3.14-3.16),
+post-trade analysis: benchmarks, markouts and comparing algorithms
+(4.2-4.4), and market making with frictions: adverse selection, ticks and
+fees, latency, fair-value signals and GLFT quotes (6.7-6.12). A
 glossary is at the end (Section 15). The closed-form numbers below are
 reproduced by the code and
 pinned in `data/golden/golden.json` (tolerance 1e-10..1e-12); the market-unit
 and power-law figures are pinned in `data/golden/market_golden.json` and
 `data/golden/impact_golden.json` and printed by every demo; the TCA,
-calibration and execution-extension figures come from the golden files of
-`API_SPEC.md` Sections 10-12 or from COOKBOOK recipes 15-22, run in all four
-languages. The simulation
+calibration, execution-extension, market-making and placement figures come
+from the golden files of `API_SPEC.md` Sections 9-13, from COOKBOOK recipes
+15-25, run in all four languages, or from the demos (simulated rows say
+so). The simulation
 numbers (Section 6.5–6.6) are 2,000-path samples from the Python demo that
 the C++/Rust/Java ports reproduce *statistically* (within the 4-SE bands of
-the golden file), not bit-for-bit; those of Section 3.12 are 20,000-path
-Python samples.
+the golden file), not bit-for-bit; those of Sections 3.12, 3.16 and
+6.7-6.12 are 20,000-path Python samples.
 
 ---
 
@@ -628,6 +632,176 @@ information if done carelessly, and a client who learns that the other side
 was a large seller may judge the "saving" differently. The numbers here
 are the impact arithmetic only.
 
+### 3.14 Queue position: how likely is a resting order to fill?
+
+**The plain idea.** Every schedule above treats a child order as executed
+at the moment the algorithm decides to trade. A child order that rests in
+the book instead joins a first-in, first-out queue at its price. It fills
+only after every unit ahead of it has either traded or been cancelled, and
+the market may move away first. The place in that queue is worth something,
+and the first thing to know is how likely the order is to fill within the
+time the trader is willing to wait.
+
+**The formal statement** (Cont, Stoikov and Talreja 2010, published; pinned
+in `API_SPEC.md` 13.1). `q_ahead` units sit ahead of an order of `size`
+units. Market orders arrive at rate `mu` and each takes one unit from the
+front; each unit ahead is cancelled independently at rate `theta`. The time
+to a complete fill is a sum of independent exponential stages,
+
+$$
+T = \sum_{k=1}^{q_\text{ahead}} \mathrm{Exp}(\mu + \theta k) + \sum_{i=1}^{\text{size}} \mathrm{Exp}(\mu),
+\qquad P(\text{fill by } t) = P(T \le t).
+$$
+
+The rate of each stage ahead of us includes the cancellations of the units
+still there, which is why a deep queue drains faster than its length alone
+suggests. The code evaluates `P(T <= t)` by uniformisation: a Poisson-weighted
+sum over a discrete-time chain, with the Poisson mass outside the window
+below `exp(-50)`. The textbook partial-fraction formula alternates in sign
+for deep queues and loses all its digits, so it is not used (derived, see
+`docs/ARCHITECTURE.md` Section 3, note 17). With `theta = 0` the answer is the Poisson
+tail `P(N(t) >= q_ahead + size)`; the Python suite checks that identity and
+the incomplete-beta formula for the queue ahead alone (asserted).
+
+**Worked example** (golden `fill_probability` cases, printed by every demo;
+COOKBOOK recipe 25):
+
+| units ahead | our size | `mu` | `theta` | horizon | P(complete fill) |
+|---|---|---|---|---|---|
+| 0 | 5 | 10 | 0.1 | 0.5 | 0.5595067149 |
+| 30 | 5 | 10 | 0 | 2 | 0.0014890339 |
+| 50 | 10 | 20 | 0.05 | 3 | 0.6683782872 |
+| 400 | 50 | 100 | 0.2 | 4 | 0.9994353758 |
+
+The second row is the Poisson tail: 35 units must trade when 20 are
+expected, and the probability is 0.15%. The third has 60 units to clear and
+60 market orders expected, yet fills with probability 0.67, because the 50
+units ahead also cancel, each at rate 0.05 (derived from the table).
+
+**What it leaves out.** Order sizes are one unit, arrivals are Poisson with
+constant rates, and the queue never grows behind us in a way that matters
+to us. Real queues refill, cancellation rates depend on the queue's
+imbalance, and a market order larger than the queue ahead fills us in one
+step. Treat the numbers as an ordering of choices, not as a forecast.
+
+### 3.15 Passive or aggressive for one child order
+
+**The plain idea.** A seller who crosses the spread pays half of it and is
+done. A seller who posts at the ask earns half the spread if the order
+fills, but if it does not fill the price has probably moved against them,
+and they then cross anyway at a worse price. Posting pays when the fill is
+likely and the adverse move on a miss is small.
+
+**The formal statement** (`API_SPEC.md` 13.2; costs per share against the
+current mid, `hs` the half spread, `P` the fill probability, `m` the
+expected adverse move when the order does not fill, `I` the Section 3.9
+impact of the child order):
+
+$$
+\text{aggressive} = hs + I, \qquad
+\text{passive} = P\,(I - hs) + (1 - P)\,(m + hs + I),
+$$
+
+$$
+\text{passive} - \text{aggressive} = (1 - P)\,m - P \cdot \text{spread},
+\qquad \text{post iff } P > \frac{m}{m + \text{spread}}.
+$$
+
+The impact `I` cancels from the comparison. That is a modelling choice, and
+it is stated because it matters: the square-root law describes the price
+pressure of a metaorder's volume and is found for limit and market orders
+alike (Toth et al. 2011, published), so posting saves the spread, not the
+impact. One consequence is asserted by every suite: with no spread, crossing
+is always at least as good. Moallemi and Yuan (2016, working paper) value a
+queue position on the same terms: the half spread earned against the delay
+and adverse selection that the resting order bears.
+
+**Worked example** (golden `placement_decision` cases, printed by every
+demo). Sell 2,000 shares with a 2-cent spread, Section 3.9 impact
+`eta = 1e-4` on one bin of the 13-bin curve (`I = 1.61` cents a share):
+
+- Five units ahead, two of ours, ten market orders per unit of time, one
+  unit to wait: `P = 0.882592`. A miss costs 1 cent of adverse move, so the
+  breakeven is `0.01 / (0.01 + 0.02) = 1/3`. Posting costs 0.9647 cents a
+  share against 2.6125 for crossing: 1.65 cents a share, \$32.96 on the
+  child order (derived).
+- Sixty units ahead and a 3-cent adverse move: `P = 0.000013`, far below the
+  breakeven of 0.6. Posting would cost 5.61 cents a share; cross.
+
+**What it leaves out.** One decision, not a sequence: a real algorithm
+re-prices a resting order as the queue drains or the price moves, and the
+fill probability and the adverse move are correlated (orders fill fastest
+when the price is about to go through them). Section 6.8 measures the same
+effect from the market maker's side.
+
+### 3.16 Liquidation with limit and market orders
+
+**The plain idea.** Combine the two choices over time. A trader must sell
+`Q` units within `N` periods. Each period they may post one unit some
+distance beyond the touch, which fills with a probability that falls with
+the distance, or send a market order that is certain but pays the half
+spread and walks the book. Early on, with plenty of time, posting deep is
+attractive; near the deadline, with inventory left, the trader posts closer
+or crosses. Whatever is left at the end is swept at a cost that grows with
+its size.
+
+**The formal statement** (a discrete version of Cartea and Jaimungal 2015,
+published; pinned in `API_SPEC.md` 13.3). With `C_j(q)` the expected cost
+to go from period `j` holding `q`, posting at depth `delta` fills with
+probability `p_touch exp(-kappa delta)` and earns `hs + delta`; a market
+order costs `hs + beta`. Backward induction from the sweep cost
+`C_N(q) = q (hs + beta q)`:
+
+$$
+g = hs + C_{j+1}(q) - C_{j+1}(q-1), \qquad
+\delta^{\star} = \max\!\big(0,\ 1/\kappa - g\big),
+$$
+
+$$
+C_j(q) = \phi q^2 \Delta t + \min\Big( C_{j+1}(q) - p_\text{touch}\, e^{-\kappa \delta^{\star}} (\delta^{\star} + g),\ \ hs + \beta + C_{j+1}(q-1) \Big).
+$$
+
+`g` is the marginal cost of still holding one more unit next period, so
+the optimal depth falls as that cost rises: more inventory or less time
+means posting closer (asserted). The running penalty `phi q^2 dt`
+expresses urgency; with `phi = 0` the policy minimises expected cost only.
+
+**Worked example** (golden `liquidation_policy` and `liquidation_sim`
+cases; the demo prints the same rows). Ten units over 50 periods, 2-cent
+spread, `kappa = 30` per dollar, `p_touch = 0.3`, `beta = 0.005`, no
+penalty:
+
+| strategy | expected cost (\$ per position) | 20,000-path mean (SE) | std |
+|---|---|---|---|
+| optimal policy (dynamic programme) | -0.2051 | -0.1874 (0.0217) | 3.07 |
+| all market orders, evenly spread | 0.1500 | 0.1656 (0.0213) | 3.01 |
+| post at the touch, sweep the rest | | -0.0696 (0.0172) | 2.43 |
+
+A negative cost means selling above the starting mid on average. The policy
+sells 2.05 cents a unit above the mid in expectation, and its simulated mean
+sits within one standard error of the dynamic programme. It saves 0.3531
+(SE 0.0048) against all-market and 0.1178 (SE 0.0087) against posting at
+the touch, paired on the same paths (demo sample, Python). The first
+posting depth with all ten units is 1.74 cents; with one unit left it would
+be 9.32 cents, and in the last period with one unit it is 0.83 cents,
+showing the depth falling with inventory and with time (derived from
+`liquidation_policy`).
+
+With twenty units and an urgency penalty `phi = 0.05` the policy sends a
+market order in 828 of the 1,000 (period, inventory) states. Its simulated
+mean cost, 0.156, is higher than posting at the touch and sweeping
+(-0.165), but its standard deviation is 3.58 against 5.83: it gives up
+expected cost for lower dispersion, which is what the penalty asks for. The
+dynamic-programme value, 3.093, includes the penalty and so is not a
+shortfall.
+
+**What it leaves out** (judgement). There is no adverse selection on
+fills, no permanent impact, one unit per period, and fill probabilities
+that do not depend on the queue. Section 3.15 and 6.8 show that adverse
+selection is often the largest of these omissions: a posted order that
+fills just before the price falls through it is not the free half spread
+this model credits.
+
 ---
 
 ## 4. Post-trade analysis: implementation shortfall, benchmarks, markouts
@@ -944,6 +1118,224 @@ ratio. Inventory skew costs almost nothing in expectation and buys an
 enormous variance reduction — the central practical lesson of the model.
 Golden case `as_fixed_comparison_liquid` pins both RMS inventories with SE
 bands.
+
+### 6.7 Market making with frictions: the friction ledger
+
+**The plain idea.** The simulator of Sections 6.1-6.6 is the paper's
+world. Fills do not depend on where the price goes next, quotes can sit at
+any real price, trading is free, and quotes are never stale. A real market
+maker has none of those luxuries. Section 9 of `API_SPEC.md` keeps the A-S
+quoting logic and adds the frictions one switch at a time, together with
+the accounting a desk uses to see where the money came from and where it
+went.
+
+**The formal statement** (`API_SPEC.md` 9.4-9.5). Each simulated day is
+split, path by path and exactly, into four parts:
+
+$$
+\text{PnL} = \underbrace{\sum_\text{fills} |\text{fill price} - \text{mid}|}_\text{spread}
+ + \underbrace{\text{maker fee} \times \text{fills}}_\text{fees}
+ + \underbrace{\sum_t q_t\, \Delta S_t}_\text{inventory}
+ - \underbrace{\eta_\text{liq} |q_T|}_\text{liquidation}.
+$$
+
+The spread term is what the quotes earned against the mid at the moment of
+each fill. The inventory term is what holding a position earned while the
+mid moved. The one-step **markout**, `sum (fills bought - fills sold) x next
+mid move`, is the part of the inventory term that comes from the step right
+after each fill; it is negative when fills tend to come just before the
+price moves against the new position. The identity is asserted on every
+path of every simulation in every language, to `1e-9` relative.
+
+**Worked example** (the demos' friction ledger; US large-cap A-S preset of
+Section 3.8, one-share quotes, 4,680 steps of 5 seconds, 20,000 paths,
+Python sample; the rows with seeds 101-106 are the `mm_sim` golden cases,
+the fee row is a demo sample; dollars per day):
+
+| case | PnL (SE) | spread | fees | inventory | markout | fills | informed fills |
+|---|---|---|---|---|---|---|---|
+| frictionless | 7.41 (0.01) | 7.44 | 0.00 | 0.01 | 0.01 | 1,075.6 | 0 |
+| 1-cent tick, 0.2-cent rebate | 7.33 (0.01) | 6.20 | 1.16 | -0.01 | 0.00 | 580.2 | 0 |
+| 1-cent tick, 0.2-cent fee | 5.00 (0.01) | 6.20 | -1.16 | -0.00 | -0.01 | 580.1 | 0 |
+| tick, rebate, 15% informed flow | 4.01 (0.01) | 10.25 | 1.86 | -8.07 | -8.06 | 931.2 | 288.9 |
+| as above, 60%-accurate signal | 5.00 (0.01) | 9.81 | 1.97 | -6.75 | -6.74 | 985.0 | 277.9 |
+| tick, rebate, quotes 5 s stale | -23.73 (0.02) | -28.33 | 4.65 | 0.00 | 0.00 | 2,327.0 | 0 |
+| GLFT quotes, tick, rebate | 11.00 (0.04) | 9.27 | 1.76 | -0.00 | -0.00 | 879.8 | 0 |
+
+The liquidation column, omitted here, is about three cents. The native
+ports print the same table from their own 5,000-path samples (COOKBOOK
+recipe 24) and agree
+within sampling error (Section 4 of `API_SPEC.md`). The sections below read
+the table row by row.
+
+**How to read an attribution** (judgement). Look at the spread and
+markout columns together. A strategy whose spread capture rises while its
+PnL falls, as in the informed-flow row, is being paid to take bad trades:
+the extra spread is the price of the information it is trading against.
+A markout near zero with a negative inventory term would point instead to
+directional drift in the position, which is a risk problem, not a quoting
+problem. Desks compute the same split per fill from real data with the
+Section 10 markouts (COOKBOOK recipe 15), usually at several horizons.
+
+### 6.8 Informed flow and adverse selection
+
+**The plain idea.** Some of the people who trade against a market maker
+know more about where the price is going. They buy at the ask just before
+the price rises and sell at the bid just before it falls. Each of those
+fills earns the spread and then loses more than the spread on the position.
+This is adverse selection, the reason quoted spreads exist even with free,
+instant trading (Glosten and Milgrom 1985, published).
+
+**The formal statement** (`API_SPEC.md` 9.4 step 5). With probability
+`informed_prob` per step an informed trader is present. They see the coming
+move `sigma sqrt(dt) z`; if the price is about to rise past our ask they
+lift it, and if it is about to fall below our bid they hit it. Informed
+fills are added to the uninformed ones, so the fill count rises.
+
+**Worked example** (the ledger). With 15% informed flow the agent gets 289
+informed fills a day. The markout is -8.06 dollars, or -2.79 cents per
+informed fill, more than one standard deviation of the one-step move (2.19
+cents), because an informed trader only acts when the move is large enough
+to go through the quote (derived from the table and `sigma sqrt(dt)`). The spread column
+rises from 6.20 to 10.25 because those trades fill at our quote, but PnL
+falls from 7.33 to 4.01. The roughly 642 uninformed fills still earn their
+spread; the informed ones take back more than they pay (derived).
+
+**Why inventory skew does not protect.** The A-S skew moves both quotes
+against the current position. It responds to what the agent holds, after
+the fills have happened, and not to the move that is about to happen. An
+informed buyer arriving when the agent is flat meets the same ask as an
+uninformed one. In the table the root-mean-square inventory barely changes
+(0.83 to 0.95 units, derived from the result's `rms_q`) and the inventory
+loss sits almost entirely in the one-step markout (-8.06 of -8.07). The
+skew controls inventory risk, and Section 6.6 shows it does that well;
+adverse selection is a different risk, and only information about the
+coming move, a wider spread, or fewer exposed quotes reduce it.
+
+### 6.9 Tick size, rebates and fees
+
+**The plain idea.** Prices move in ticks: one cent for US stocks priced at
+a dollar or more (Regulation NMS Rule 612, published). A model quote of
+99.9934 cannot be shown; it must go to 99.99 or 100.00. The simulator
+rounds away from fair value, so every quote is at least as wide as the
+model wanted. Exchanges then pay or charge per share filled: under the
+maker-taker model the resting side typically receives a rebate and the
+side that removes liquidity pays a fee, both capped by Rule 610(c) of
+Regulation NMS (published; the cap was \$0.003 a share from 2005 and the
+SEC lowered it in 2024). Some venues invert the model and charge the maker.
+
+**The formal statement** (`API_SPEC.md` 9.2 and 9.4).
+`bid -> floor(bid/tick + 1e-9) tick`, `ask -> ceil(ask/tick - 1e-9) tick`.
+The `1e-9` keeps a quote that is already on the grid from being pushed one
+tick out by rounding error. The fee term is `maker_fee` per fill, positive
+for a rebate received.
+
+**Worked example** (the ledger). The A-S half spread on this preset is
+0.67 cents at the close and 1.79 cents at the open (derived from
+`optimal_spread`). Rounding to a cent therefore pushes the quotes out to at
+least one cent from the mid. Fills fall from 1,076 to 580 a day, but each
+earns 1.07 cents instead of 0.69, so spread capture falls only from 7.44 to
+6.20. A 0.2-cent rebate on 580 fills adds 1.16 and nearly restores the
+frictionless PnL (7.33 against 7.41); the same 0.2 cents as a fee takes it
+to 5.00. On this preset the fee is worth nearly a fifth of the day's spread
+capture in either direction (1.16 against 6.20), a reminder that for a passive strategy in a
+liquid name the fee schedule is not a rounding error (derived).
+
+### 6.10 Latency and pick-offs
+
+**The plain idea.** A quote is computed from the price the market maker
+last saw. If the price has moved since, the quote may be on the wrong side
+of the current price, and anyone faster takes it. Budish, Cramton and Shim
+(2015, published) document this race in US equity and futures markets: the
+slow quote is "sniped" whenever public information moves the price before
+the quote can be updated.
+
+**The formal statement** (`API_SPEC.md` 9.4 step 2). With
+`latency_steps = L` the quotes are centred on the mid of `L` steps ago,
+while fills are decided against the current mid. One step is 5 seconds
+here.
+
+**Worked example** (the ledger). The typical 5-second move, 2.19 cents, is
+larger than the quoted half spread for most of the day. With quotes one
+step stale, a quote is left through the current mid whenever the last move
+exceeded its distance from the old mid, and there it fills almost surely.
+Fills rise to 2,327 a day, about one every two steps, and the spread term
+turns negative, -28.33: the average fill is 1.22 cents on the wrong side of
+the mid. The rebate on all those fills (4.65) does not come close to paying
+for it, and the day loses 23.73. Nothing about the quoting rule changed;
+only its timing did (derived from the table).
+
+The numbers are extreme because a 5-second delay is extreme for a
+professional market maker; real latencies are microseconds to
+milliseconds. The lesson that carries over (judgement): a quote's expected
+value depends on how far the price can move before the quote is updated,
+and if that distance is comparable to the half spread the strategy loses
+money however good its model is.
+
+### 6.11 The value of a fair-value signal
+
+**The plain idea.** If the market maker could forecast the next move, even
+a little, it could shift its quotes ahead of it: raise both quotes before
+an up-move so the informed buyer finds a higher ask. Signals of this kind
+come from the order book: the size imbalance at the touch (the
+size-weighted mid, a simple version of the microprice of Stoikov 2018,
+published) and order-flow imbalance (Cont, Kukanov and Stoikov 2014,
+published), both provided as helpers (`API_SPEC.md` 9.6).
+
+**The formal statement** (`API_SPEC.md` 9.4 step 2). The simulator does not
+build a book; it models a signal by its accuracy. With probability
+`signal_accuracy` the signal has the sign of the coming move, and the fair
+value is shifted by `(2 accuracy - 1) x sign x sigma sqrt(dt) sqrt(2/pi)`.
+That is the conditional expected move given the signal, so an accuracy of
+0.5 is no signal and 1 is perfect foresight of the direction (derived).
+
+**Worked example** (the ledger). A 60%-accurate signal, against the same
+15% informed flow, moves the fair value by 0.2 x 2.19 x 0.80 = 0.35 cents
+in the forecast direction. The markout improves from -8.06 to -6.74 and PnL
+from 4.01 to 5.00: the signal recovers about a quarter of what informed
+flow cost (derived). The weighted-mid helper on a 99.99 / 100.01 book with
+900 bid and 100 offered gives 100.008, a fair value pulled towards the
+offer that is about to be exhausted (`API_SPEC.md` golden `mm_weighted_mid`).
+
+**What it leaves out** (judgement). A real signal's accuracy is measured
+out of sample and decays as others find it; a 60% hit rate on 5-second
+moves would be a strong signal in a liquid stock. The ledger shows what
+such a signal is worth if you have it, not how to get it.
+
+### 6.12 GLFT and A-S
+
+**The plain idea.** Avellaneda and Stoikov solve a finite-horizon problem:
+the spread depends on time left, wide at the open and narrowing towards the
+close. Guéant, Lehalle and Fernandez-Tapia (2013, published) solve the
+version with an inventory limit and give an approximation, used here, whose
+quotes do not depend on time. For a market maker that runs all day, every
+day, the time-independent version is usually the more natural one.
+
+**The formal statement** (`API_SPEC.md` 9.3):
+
+$$
+c_1 = \frac{1}{\gamma}\ln\!\Big(1 + \frac{\gamma}{k}\Big), \quad
+c_2 = \sqrt{\frac{\sigma^2 \gamma}{2kA}\Big(1 + \frac{\gamma}{k}\Big)^{1 + k/\gamma}}, \quad
+\delta^\text{bid} = c_1 + \frac{2q + 1}{2} c_2, \quad
+\delta^\text{ask} = c_1 - \frac{2q - 1}{2} c_2 .
+$$
+
+**Worked example** (golden `mm_glft` cases, printed by every demo). On the
+US large-cap preset both half spreads are 0.6808 cents when flat. Long three
+units, the bid moves out to 0.7669 cents and the ask in to 0.5948: the skew
+is `c2` = 0.029 cents a unit, against 2.25 cents a unit for A-S at the
+open (`gamma sigma^2 T`, derived). In the ledger GLFT earns 11.00 a day against
+7.33 for A-S with the same tick and rebate. Its quotes are tighter than
+A-S's for most of the day, so it fills more (880 against 580). The price is
+inventory: its root-mean-square position is 3.3 units against 0.83 for A-S
+(derived from `rms_q`).
+
+**Which to use** (judgement). The comparison is not a ranking. A-S at this
+`gamma` spends most of its spread on inventory protection that this
+frictionless-price world barely needs; GLFT spends less and carries more.
+Under informed flow or latency both lose in the same way, because neither
+rule knows about the coming move. The useful habit is to run the ledger for
+any quoting rule before trusting its PnL.
 
 ---
 
@@ -1333,11 +1725,33 @@ law the total cost of an order grows like `Q^(3/2)`; avoiding two
   execution benchmark (Section 4.2).
 - L. R. Glosten, P. R. Milgrom (1985), "Bid, ask and transaction prices in
   a specialist market with heterogeneously informed traders", *Journal of
-  Financial Economics* 14(1), 71–100: adverse selection (Section 4.3).
+  Financial Economics* 14(1), 71–100: adverse selection (Sections 4.3 and
+  6.8).
 - B. L. Welch (1947), "The generalization of 'Student's' problem when
   several different population variances are involved", *Biometrika*
   34(1–2), 28–35; F. E. Satterthwaite (1946), *Biometrics Bulletin* 2(6),
   110–114: the test and degrees of freedom of Section 4.4.
+- E. Budish, P. Cramton, J. Shim (2015), "The high-frequency trading arms
+  race: frequent batch auctions as a market design response", *Quarterly
+  Journal of Economics* 130(4), 1547–1621: stale quotes picked off by faster
+  traders (Section 6.10).
+- S. Stoikov (2018), "The micro-price: a high-frequency estimator of future
+  prices", *Quantitative Finance* 18(12), 1959–1966; R. Cont, A. Kukanov,
+  S. Stoikov (2014), "The price impact of order book events", *Journal of
+  Financial Econometrics* 12(1), 47–88: the fair-value helpers of Section
+  6.11.
+- R. Cont, S. Stoikov, R. Talreja (2010), "A stochastic model for order book
+  dynamics", *Operations Research* 58(3), 549–563; R. Cont, A. de Larrard
+  (2013), "Price dynamics in a Markovian limit order market", *SIAM Journal
+  on Financial Mathematics* 4(1), 1–25: the queue model of Section 3.14.
+- C. C. Moallemi, K. Yuan (2016), "A model for queue position valuation in a
+  limit order book", working paper, Columbia Business School: the value of
+  a place in the queue (Section 3.15).
+- A. Cartea, S. Jaimungal (2015), "Optimal execution with limit and market
+  orders", *Quantitative Finance* 15(8), 1279–1291: the liquidation problem
+  of Section 3.16.
+- US Regulation NMS, 17 CFR 242.610 and 242.612: access-fee cap and minimum
+  pricing increment (Section 6.9).
 - W. H. Press, S. A. Teukolsky, W. T. Vetterling, B. P. Flannery,
   *Numerical Recipes*, 3rd ed., Sections 6.1 and 6.4: the incomplete beta
   function behind the pinned t CDF.
