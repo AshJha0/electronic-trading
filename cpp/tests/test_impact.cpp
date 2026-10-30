@@ -90,7 +90,7 @@ std::vector<std::pair<std::string, double>> actual_for(const Value& c) {
     }
     const etrade::ScheduleResult r = etrade::optimal_schedule(p);
     for (int j = 1; j < p.n_intervals(); ++j) {
-        char key[16];
+        char key[32];
         std::snprintf(key, sizeof key, "xfrac_%02d", j);
         out.emplace_back(key, r.holdings[j] / p.total_shares());
     }
