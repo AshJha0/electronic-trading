@@ -19,7 +19,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "ruff>=0.6", "mypy>=1.10"]
+dev = ["pytest>=7", "ruff>=0.6", "mypy>=1.10", "scipy>=1.10"]
 
 [project.urls]
 Homepage = "https://ashjha0.github.io/electronic-trading/"

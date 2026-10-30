@@ -14,13 +14,30 @@ Everything is implemented four times, in Python (the reference), C++, Rust
 and Java, from one pinned contract (`API_SPEC.md`), and held together by
 shared golden values checked in CI on Linux, Windows and macOS.
 
-**Where it stands.** The models are exact and cross-validated, and
-parameters can be stated in market units (price, tick, spread, daily
-volatility, ADV) with results reported in basis points. Execution costs still
-use the papers' linear impact, which under-prices small orders against the
-square-root law; market-making simulation does not yet include informed flow,
-fees or latency. Those are the next releases (see `CHANGELOG.md` and the
-roadmap below). Presets are illustrative, not fitted to data.
+**Where it stands.** The models are exact and cross-validated; parameters
+can be stated in market units (price, tick, spread, daily volatility, ADV)
+with results in basis points. Execution now has a power-law impact model
+(square-root by default) with intraday volume curves, alpha-aware schedules
+and a pre-trade cost report; at `alpha = 1` it reproduces Almgren-Chriss
+exactly. Market-making simulation does not yet include informed flow, fees or
+latency; that is the next release. Presets and the volume curve are
+illustrative, not fitted to data.
+
+### Pre-trade report
+
+Every demo prints this for a US large cap selling 5% of ADV in one day with
+square-root impact and a U-shaped volume curve (`API_SPEC.md` Section 8):
+
+| strategy | lambda | impact | sd | total (with half spread) |
+|---|---|---|---|---|
+| TWAP | 0 | 34.96 bps | 81.59 bps | 35.46 bps |
+| VWAP | 0 | 33.77 bps | 79.91 bps | 34.27 bps |
+| optimal | 1e-6 | 36.95 bps | 56.60 bps | 37.45 bps |
+| optimal | 1e-5 | 58.26 bps | 21.56 bps | 58.76 bps |
+
+The closed-form square-root-law estimate is 33.54 bps. With a 50 bps/day
+adverse drift behind the order, the drift-aware schedule costs 52.13 bps
+against 57.31 bps for VWAP, a saving of 5.18 bps.
 
 ### Market presets at a glance
 
@@ -37,10 +54,10 @@ A-S spread at the open and at the close of the session):
 
 ### Roadmap
 
-1. **Market units and realistic presets** (this release).
-2. **Execution a desk would recognise:** square-root and power-law impact,
-   alpha-aware (urgency) schedules, intraday volume curve, pre-trade cost
-   report.
+1. **Market units and realistic presets** (done).
+2. **Execution a desk would recognise** (this release): square-root and
+   power-law impact, alpha-aware (urgency) schedules, intraday volume curve,
+   pre-trade cost report.
 3. **Market making that can lose money:** informed flow, fees and rebates,
    tick grid, latency, PnL attribution, markouts, fair-value models.
 4. **Calibration on recorded order-book data** and post-trade TCA.
@@ -73,6 +90,8 @@ Not investment advice and not a trading system; see the usage notes below.
 | Literature check: paper closed forms = discrete sums (1e-12) | yes | yes | yes | yes |
 | Market units: AC from price/spread/ADV/vol, A-S from tick/touch rate/halving/skew | yes | yes | yes | yes |
 | Reporting in bps; half-spread cost; 5 presets; 9 market golden cases | yes | yes | yes | yes |
+| Power-law (square-root) impact, volume curve, drift-aware schedules; pinned Newton solver with KKT check | yes | yes | yes | yes |
+| Pre-trade report (TWAP, VWAP, optimal per lambda, square-root-law estimate); 8 impact golden cases | yes | yes | yes | yes |
 
 ## Directory layout
 
@@ -95,7 +114,9 @@ electronic-trading/
     generate_data.py       # regenerates data + golden values (seeded)
     generate_market.py     # regenerates presets.json + market golden cases
     golden/golden.json     # 19 cross-language golden cases
+    generate_impact.py     # regenerates the power-law impact golden cases
     golden/market_golden.json  # 9 market-unit golden cases
+    golden/impact_golden.json  # 8 power-law impact golden cases
   python/
     src/etrade/            # reference package (almgren_chriss, avellaneda_stoikov, analytics)
     tests/                 # pytest suites incl. golden-value tests
@@ -124,7 +145,7 @@ and pull request (`.github/workflows/ci.yml`).
 ```bash
 pip install -e "python[dev]"         # installs etrade + pytest, ruff, mypy
 python python/demo.py                # run the demo
-pytest python                        # run the tests (139 tests)
+pytest python                        # run the tests (174 tests)
 ruff check . && (cd python && mypy)  # lint and type-check
 ```
 
@@ -133,7 +154,7 @@ ruff check . && (cd python && mypy)  # lint and type-check
 ```bash
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release   # GoogleTest is fetched if not installed
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release --output-on-failure   # run the tests (83 tests)
+ctest --test-dir build -C Release --output-on-failure   # run the tests (91 tests)
 ```
 
 The demo is `build/etrade_demo` (`build/Release/etrade_demo.exe` with MSVC).
@@ -144,7 +165,7 @@ Options: `-DETRADE_BUILD_TESTS=OFF`, `-DETRADE_WERROR=ON`,
 
 ```bash
 cd rust
-cargo test --release                 # run the tests (62 tests)
+cargo test --release                 # run the tests (78 tests)
 cargo run --release --example demo   # run the demo
 ```
 
@@ -152,13 +173,13 @@ cargo run --release --example demo   # run the demo
 
 ```bash
 cd java
-mvn verify                           # compile with -Xlint:all -Werror and run the tests (77 tests)
+mvn verify                           # compile with -Xlint:all -Werror and run the tests (85 tests)
 mvn -q exec:java                     # run the demo
 ```
 
-Test counts above are the current suite sizes (Python 139, C++ 83, Rust 62,
-Java 77, 361 in total); every suite loads the same 19 model golden cases and
-the 9 market golden cases.
+Test counts above are the current suite sizes (Python 174, C++ 91, Rust 78,
+Java 85, 428 in total); every suite loads the same 19 model golden cases, the
+9 market golden cases and the 8 impact golden cases.
 
 ## Sample demo output (Python reference, truncated)
 
@@ -288,7 +309,7 @@ What a practitioner gets, and what is deliberately left out:
   and `Math.*` are not bit-specified); C++ is deterministic per standard
   library because `std::normal_distribution` is implementation-defined.
   Cross-language agreement is statistical (4-SE bands), never bitwise.
-- **What is verified.** 361 tests across the four suites: 19 shared golden
+- **What is verified.** 428 tests across the four suites: 19 shared golden
   cases at 1e-10..1e-12, the paper's closed forms against the discrete sums
   at 1e-12, Monte Carlo against closed forms at 4 SE, and every validation
   rule. What is *not* verified: calibration of `eta`, `gamma_p`, `A`, `k` to

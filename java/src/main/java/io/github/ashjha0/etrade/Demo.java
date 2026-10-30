@@ -189,6 +189,31 @@ public final class Demo {
         }
     }
 
+    /** Pre-trade report on the power-law model (API_SPEC Section 8). */
+    private static void pretradeSection() {
+        hdr("Pre-trade report: US large cap, sell 5% ADV in a day (sqrt impact, U-curve)");
+        Market.ImpactMarket m = Market.ImpactMarket.of(100.0, 0.01, 5e6, 0.015, 250_000.0, 13,
+                1.0 / 13.0).withWeights(Impact.usEquityVolumeCurve13());
+        Market.PretradeReport rep = Market.pretradeReport(m, new double[] {0.0, 1e-7, 1e-6, 1e-5});
+        System.out.printf(Locale.ROOT, "square-root-law estimate %.2f bps; half spread %.2f bps%n",
+                rep.sqrtLawBps(), rep.halfSpreadBps());
+        System.out.printf(Locale.ROOT, "%10s %9s %9s %9s %9s %8s%n", "strategy", "lambda",
+                "impact", "sd", "total", "horizon");
+        for (Market.PretradeRow r : rep.rows()) {
+            System.out.printf(Locale.ROOT, "%10s %9.1e %7.2fbp %7.2fbp %7.2fbp %8d%n", r.label(),
+                    r.lambdaRa(), r.impactBps(), r.sdBps(), r.totalBps(), r.horizon());
+        }
+        Impact.Params p = Market.impactParamsFromMarket(m.withDriftBpsPerDay(50.0));
+        double notional = m.totalShares() * m.price();
+        double[] vwap = Impact.vwapHoldings(m.totalShares(), m.weights());
+        Impact.ScheduleResult s = Impact.optimalSchedule(p);
+        double eV = Market.bps(Impact.expectedCost(p, vwap), notional);
+        double eO = Market.bps(Impact.expectedCost(p, s.holdings()), notional);
+        System.out.printf(Locale.ROOT, "alpha-aware: with 50 bps/day adverse drift, VWAP costs "
+                + "%.2f bps and the drift-aware schedule %.2f bps (saves %.2f bps)%n", eV, eO,
+                eV - eO);
+    }
+
     /**
      * Runs the demo.
      *
@@ -205,6 +230,7 @@ public final class Demo {
                 "FX-like: tight spread, high k", 7);
         analyticsSection();
         marketSection();
+        pretradeSection();
         System.out.println();
         System.out.println("done.");
     }

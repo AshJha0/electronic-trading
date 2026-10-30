@@ -11,6 +11,10 @@
 
 #include "etrade/almgren_chriss.hpp"
 #include "etrade/avellaneda_stoikov.hpp"
+#include "etrade/impact.hpp"
+
+#include <string>
+#include <vector>
 
 namespace etrade {
 
@@ -66,5 +70,48 @@ struct ASMarket {
 
 /// Cost of crossing half the quoted spread on every share: 0.5*spread*X.
 [[nodiscard]] double half_spread_cost(double spread, double total_shares);
+
+/// Power-law impact inputs in market units (API_SPEC 8.3).
+struct ImpactMarket {
+    double price = 0.0;            ///< Price, > 0.
+    double spread = 0.0;           ///< Full quoted spread, > 0.
+    double adv = 0.0;              ///< Average daily volume, > 0.
+    double daily_vol = 0.0;        ///< Daily volatility as a fraction, > 0.
+    double total_shares = 0.0;     ///< Shares to sell, >= 0.
+    int n_intervals = 1;           ///< Number of intervals.
+    double tau = 1.0;              ///< Interval length in trading days.
+    double lambda_ra = 0.0;        ///< Risk aversion, >= 0.
+    double alpha = 0.5;            ///< Impact exponent in (0, 1].
+    double y = 1.0;                ///< Square-root-law prefactor Y, > 0.
+    double perm_frac = kDefaultPermFrac;  ///< In (0, 1].
+    double drift_bps_per_day = 0.0;       ///< Expected adverse drift, >= 0.
+    std::vector<double> weights;   ///< Volume fractions per interval (empty = tau each).
+};
+
+/// eta = y*sigma/adv^alpha, gamma_p = spread/(perm_frac*adv),
+/// drift = price*drift_bps_per_day*1e-4 (API_SPEC 8.3).
+[[nodiscard]] ImpactParams impact_params_from_market(const ImpactMarket& m);
+
+/// One strategy in a pre-trade report (bps of X*price).
+struct PretradeRow {
+    std::string label;      ///< "twap", "vwap" or "optimal".
+    double lambda_ra = 0.0;
+    double impact_bps = 0.0;
+    double sd_bps = 0.0;
+    double total_bps = 0.0; ///< impact_bps + half_spread_bps.
+    int horizon = 0;
+};
+
+/// Pre-trade report (API_SPEC 8.4).
+struct PretradeReport {
+    double sqrt_law_bps = 0.0;
+    double half_spread_bps = 0.0;
+    std::vector<PretradeRow> rows;
+};
+
+/// TWAP, VWAP and the optimal schedule per lambda, costed on the power-law
+/// model; `m.lambda_ra` is ignored.
+[[nodiscard]] PretradeReport pretrade_report(const ImpactMarket& m,
+                                             const std::vector<double>& lambdas);
 
 }  // namespace etrade

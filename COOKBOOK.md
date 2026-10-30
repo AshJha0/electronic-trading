@@ -660,3 +660,69 @@ EUR/USD and the Almgren-Chriss paper example) use exactly these inputs; the
 paper preset reproduces `params_liquid.json`. They are illustrative, not
 fitted to data, and the linear impact under-prices small orders relative to
 the square-root law.
+
+---
+
+## 14. How do I get a pre-trade cost estimate with square-root impact?
+
+Build the order in market units, pick the impact exponent (`alpha = 0.5`
+is the square-root law, the default) and ask for the pre-trade report or an
+optimal schedule (API_SPEC Section 8). A volume curve makes VWAP and TWAP
+differ; a drift in bps per day makes the schedule account for the
+information behind the order.
+
+**Python**
+
+```python
+from etrade import impact as im, market as mk
+
+order = dict(price=100.0, spread=0.01, adv=5e6, daily_vol=0.015,
+             total_shares=250_000.0, n_intervals=13, tau=1/13,
+             weights=im.US_EQUITY_VOLUME_CURVE_13)
+rep = mk.pretrade_report(lambdas=[0.0, 1e-6], **order)
+print(rep.sqrt_law_bps)                   # 33.54
+print([(r.label, round(r.impact_bps, 2)) for r in rep.rows])
+# [('twap', 34.96), ('vwap', 33.77), ('optimal', 33.77), ('optimal', 36.95)]
+p = mk.impact_params_from_market(lambda_ra=0.0, drift_bps_per_day=50.0, **order)
+s = im.optimal_schedule(p)                # drift-aware schedule
+print(mk.bps(im.impact_expected_cost(p, s.holdings), 2.5e7))   # 52.13
+```
+
+**C++**
+
+```cpp
+#include <etrade/market.hpp>
+
+etrade::ImpactMarket m;
+m.price = 100.0; m.spread = 0.01; m.adv = 5e6; m.daily_vol = 0.015;
+m.total_shares = 250'000.0; m.n_intervals = 13; m.tau = 1.0 / 13.0;
+m.weights.assign(etrade::kUsEquityVolumeCurve13.begin(), etrade::kUsEquityVolumeCurve13.end());
+etrade::PretradeReport rep = etrade::pretrade_report(m, {0.0, 1e-6});
+double vwap_bps = rep.rows[1].impact_bps;                          // 33.77
+```
+
+**Rust**
+
+```rust
+use etrade::impact::US_EQUITY_VOLUME_CURVE_13;
+use etrade::market::{pretrade_report, ImpactMarket};
+
+let m = ImpactMarket { price: 100.0, spread: 0.01, adv: 5e6, daily_vol: 0.015,
+                       total_shares: 250_000.0, n_intervals: 13, tau: 1.0 / 13.0,
+                       weights: Some(US_EQUITY_VOLUME_CURVE_13.to_vec()),
+                       ..ImpactMarket::default() };
+let rep = pretrade_report(&m, &[0.0, 1e-6])?;
+let vwap_bps = rep.rows[1].impact_bps;                             // 33.77
+```
+
+**Java**
+
+```java
+Market.ImpactMarket m = Market.ImpactMarket.of(100.0, 0.01, 5e6, 0.015, 250_000.0, 13, 1.0 / 13.0)
+        .withWeights(Impact.usEquityVolumeCurve13());
+Market.PretradeReport rep = Market.pretradeReport(m, new double[] {0.0, 1e-6});
+double vwapBps = rep.rows().get(1).impactBps();                    // 33.77
+```
+
+`alpha = 1` with uniform weights reproduces the Almgren-Chriss trajectory of
+recipe 1 exactly. The volume curve is illustrative, not fitted to data.

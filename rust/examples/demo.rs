@@ -322,6 +322,72 @@ fn market_section() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Pre-trade report on the power-law model (API_SPEC Section 8).
+fn pretrade_section() -> Result<(), Box<dyn Error>> {
+    use etrade::impact::{
+        impact_expected_cost, optimal_schedule, vwap_holdings, US_EQUITY_VOLUME_CURVE_13,
+    };
+    use etrade::market::{bps, impact_params_from_market, pretrade_report, ImpactMarket};
+    hdr("Pre-trade report: US large cap, sell 5% ADV in a day (sqrt impact, U-curve)");
+    let m = ImpactMarket {
+        price: 100.0,
+        spread: 0.01,
+        adv: 5e6,
+        daily_vol: 0.015,
+        total_shares: 250_000.0,
+        n_intervals: 13,
+        tau: 1.0 / 13.0,
+        weights: Some(US_EQUITY_VOLUME_CURVE_13.to_vec()),
+        ..ImpactMarket::default()
+    };
+    let rep = pretrade_report(&m, &[0.0, 1e-7, 1e-6, 1e-5])?;
+    println!(
+        "square-root-law estimate {:.2} bps; half spread {:.2} bps",
+        rep.sqrt_law_bps, rep.half_spread_bps
+    );
+    println!(
+        "{:>10} {:>9} {:>9} {:>9} {:>9} {:>8}",
+        "strategy", "lambda", "impact", "sd", "total", "horizon"
+    );
+    for r in &rep.rows {
+        println!(
+            "{:>10} {:>9} {:7.2}bp {:7.2}bp {:7.2}bp {:8}",
+            r.label,
+            sci(r.lambda_ra),
+            r.impact_bps,
+            r.sd_bps,
+            r.total_bps,
+            r.horizon
+        );
+    }
+    let p = impact_params_from_market(&ImpactMarket {
+        drift_bps_per_day: 50.0,
+        ..m.clone()
+    })?;
+    let notional = m.total_shares * m.price;
+    let vwap = vwap_holdings(m.total_shares, &US_EQUITY_VOLUME_CURVE_13)?;
+    let s = optimal_schedule(&p)?;
+    let e_v = bps(impact_expected_cost(&p, &vwap)?, notional)?;
+    let e_o = bps(impact_expected_cost(&p, &s.holdings)?, notional)?;
+    println!(
+        "alpha-aware: with 50 bps/day adverse drift, VWAP costs {e_v:.2} bps and the \
+         drift-aware schedule {e_o:.2} bps (saves {:.2} bps)",
+        e_v - e_o
+    );
+    Ok(())
+}
+
+/// C-style `%.1e` formatting (Rust's `{:e}` omits the exponent sign and padding).
+fn sci(v: f64) -> String {
+    if v == 0.0 {
+        return "0.0e+00".to_string();
+    }
+    let exp = v.abs().log10().floor() as i32;
+    let mant = v / 10f64.powi(exp);
+    let sign = if exp < 0 { '-' } else { '+' };
+    format!("{mant:.1}e{sign}{:02}", exp.abs())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     println!("etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov market making (Rust)");
     let liq = load("params_liquid.json")?;
@@ -332,6 +398,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     as_section(&fx, "FX-like: tight spread, high k", 7)?;
     analytics_section(&order)?;
     market_section()?;
+    pretrade_section()?;
     println!("\ndone.");
     Ok(())
 }

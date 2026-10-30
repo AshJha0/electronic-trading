@@ -51,9 +51,21 @@ gamma = 0.01; the opening A-S spread is then about 3.6 bps, against roughly
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 
-from .almgren_chriss import ACParams
+from .almgren_chriss import ACParams, twap_holdings
 from .avellaneda_stoikov import ASParams
+from .impact import (
+    Holdings,
+    ImpactParams,
+    PretradeReport,
+    PretradeRow,
+    impact_expected_cost,
+    impact_variance_cost,
+    optimal_schedule,
+    sqrt_law_cost_bps,
+    vwap_holdings,
+)
 
 #: Default fraction of ADV per day whose trading costs one spread of temporary impact.
 DEFAULT_TEMP_FRAC: float = 0.01
@@ -168,3 +180,111 @@ def half_spread_cost(spread: float, total_shares: float) -> float:
         math.isfinite(total_shares) and total_shares >= 0.0, "total_shares must be finite and >= 0"
     )
     return 0.5 * spread * total_shares
+
+
+# ------------------------------------------------------------- power-law impact
+
+
+def impact_params_from_market(
+    *,
+    price: float,
+    spread: float,
+    adv: float,
+    daily_vol: float,
+    total_shares: float,
+    n_intervals: int,
+    tau: float,
+    lambda_ra: float,
+    alpha: float = 0.5,
+    y: float = 1.0,
+    perm_frac: float = DEFAULT_PERM_FRAC,
+    drift_bps_per_day: float = 0.0,
+    weights: Sequence[float] | None = None,
+) -> ImpactParams:
+    """Power-law impact parameters from market quantities (API_SPEC 8.3).
+
+    ``eta = y * sigma / adv**alpha`` so that trading at participation ``p``
+    costs ``y * sigma * p**alpha`` per share; ``gamma_p`` as in 7.1;
+    ``drift = price * drift_bps_per_day * 1e-4`` per share per day;
+    ``weights`` are fractions of daily volume per interval (default ``tau``).
+    """
+    _positive("price", price)
+    _positive("spread", spread)
+    _positive("adv", adv)
+    _positive("daily_vol", daily_vol)
+    _positive("y", y)
+    _require(math.isfinite(perm_frac) and 0.0 < perm_frac <= 1.0, "perm_frac must be in (0, 1]")
+    _require(
+        math.isfinite(drift_bps_per_day) and drift_bps_per_day >= 0.0,
+        "drift_bps_per_day must be finite and >= 0",
+    )
+    _require(math.isfinite(alpha) and 0.0 < alpha <= 1.0, "alpha must be in (0, 1]")
+    sigma = price * daily_vol
+    return ImpactParams(
+        total_shares=total_shares,
+        n_intervals=n_intervals,
+        tau=tau,
+        sigma=sigma,
+        eta=y * sigma / adv**alpha,
+        alpha=alpha,
+        gamma_p=spread / (perm_frac * adv),
+        lambda_ra=lambda_ra,
+        drift=price * drift_bps_per_day * 1e-4,
+        weights=None if weights is None else tuple(weights),
+    )
+
+
+def pretrade_report(
+    *,
+    price: float,
+    spread: float,
+    adv: float,
+    daily_vol: float,
+    total_shares: float,
+    n_intervals: int,
+    tau: float,
+    lambdas: Sequence[float],
+    alpha: float = 0.5,
+    y: float = 1.0,
+    perm_frac: float = DEFAULT_PERM_FRAC,
+    drift_bps_per_day: float = 0.0,
+    weights: Sequence[float] | None = None,
+) -> PretradeReport:
+    """Pre-trade cost report (API_SPEC 8.4): TWAP, VWAP and the optimal
+    schedule at each ``lambda_ra`` in ``lambdas``, all costed on the same
+    power-law model, plus the closed-form square-root-law estimate."""
+    _require(len(lambdas) > 0, "lambdas must be non-empty")
+    base = {
+        "price": price,
+        "spread": spread,
+        "adv": adv,
+        "daily_vol": daily_vol,
+        "total_shares": total_shares,
+        "n_intervals": n_intervals,
+        "tau": tau,
+        "alpha": alpha,
+        "y": y,
+        "perm_frac": perm_frac,
+        "drift_bps_per_day": drift_bps_per_day,
+        "weights": weights,
+    }
+    p0 = impact_params_from_market(lambda_ra=0.0, **base)  # type: ignore[arg-type]
+    notional = total_shares * price
+    _positive("total_shares * price", notional)
+    hs = bps(half_spread_cost(spread, total_shares), notional)
+
+    def row(label: str, lam: float, x: Holdings, horizon: int, p: ImpactParams) -> PretradeRow:
+        e = bps(impact_expected_cost(p, x), notional)
+        sd = bps(math.sqrt(impact_variance_cost(p, x)), notional)
+        return PretradeRow(label, lam, e, sd, e + hs, horizon)
+
+    rows = [
+        row("twap", 0.0, twap_holdings(total_shares, n_intervals), n_intervals, p0),
+        row("vwap", 0.0, vwap_holdings(total_shares, p0.weights or ()), n_intervals, p0),
+    ]
+    for lam in lambdas:
+        _require(math.isfinite(lam) and lam >= 0.0, "lambdas must be finite and >= 0")
+        p = impact_params_from_market(lambda_ra=float(lam), **base)  # type: ignore[arg-type]
+        s = optimal_schedule(p)
+        rows.append(row("optimal", float(lam), s.holdings, s.horizon, p))
+    return PretradeReport(sqrt_law_cost_bps(daily_vol, total_shares, adv, y), hs, tuple(rows))

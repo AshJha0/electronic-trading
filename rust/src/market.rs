@@ -20,7 +20,11 @@
 //! ```
 
 use crate::error::{require, EtradeError};
-use crate::{ACParams, ASParams};
+use crate::impact::{
+    impact_expected_cost, impact_variance_cost, optimal_schedule, sqrt_law_cost_bps, vwap_holdings,
+    ImpactParams,
+};
+use crate::{twap_holdings, ACParams, ASParams};
 
 /// Default fraction of ADV per day that costs one spread of temporary impact.
 pub const DEFAULT_TEMP_FRAC: f64 = 0.01;
@@ -198,4 +202,181 @@ pub fn half_spread_cost(spread: f64, total_shares: f64) -> Result<f64, EtradeErr
         "total_shares must be finite and >= 0",
     )?;
     Ok(0.5 * spread * total_shares)
+}
+
+/// Power-law impact inputs in market units (API_SPEC 8.3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImpactMarket {
+    /// Price, > 0.
+    pub price: f64,
+    /// Full quoted spread, > 0.
+    pub spread: f64,
+    /// Average daily volume, > 0.
+    pub adv: f64,
+    /// Daily volatility as a fraction, > 0.
+    pub daily_vol: f64,
+    /// Shares to sell, >= 0.
+    pub total_shares: f64,
+    /// Number of intervals.
+    pub n_intervals: usize,
+    /// Interval length in trading days.
+    pub tau: f64,
+    /// Risk aversion, >= 0.
+    pub lambda_ra: f64,
+    /// Impact exponent in (0, 1].
+    pub alpha: f64,
+    /// Square-root-law prefactor Y, > 0.
+    pub y: f64,
+    /// Fraction of ADV moving the price permanently by one spread, in (0, 1].
+    pub perm_frac: f64,
+    /// Expected adverse drift in bps per day, >= 0.
+    pub drift_bps_per_day: f64,
+    /// Volume fractions per interval (`None` = `tau` each).
+    pub weights: Option<Vec<f64>>,
+}
+
+impl Default for ImpactMarket {
+    fn default() -> Self {
+        Self {
+            price: 0.0,
+            spread: 0.0,
+            adv: 0.0,
+            daily_vol: 0.0,
+            total_shares: 0.0,
+            n_intervals: 1,
+            tau: 1.0,
+            lambda_ra: 0.0,
+            alpha: 0.5,
+            y: 1.0,
+            perm_frac: DEFAULT_PERM_FRAC,
+            drift_bps_per_day: 0.0,
+            weights: None,
+        }
+    }
+}
+
+/// `eta = y*sigma/adv^alpha`, `gamma_p = spread/(perm_frac*adv)`,
+/// `drift = price*drift_bps_per_day*1e-4` (API_SPEC 8.3).
+pub fn impact_params_from_market(m: &ImpactMarket) -> Result<ImpactParams, EtradeError> {
+    positive("price", m.price)?;
+    positive("spread", m.spread)?;
+    positive("adv", m.adv)?;
+    positive("daily_vol", m.daily_vol)?;
+    positive("y", m.y)?;
+    require(
+        m.perm_frac.is_finite() && m.perm_frac > 0.0 && m.perm_frac <= 1.0,
+        "perm_frac must be in (0, 1]",
+    )?;
+    require(
+        m.drift_bps_per_day.is_finite() && m.drift_bps_per_day >= 0.0,
+        "drift_bps_per_day must be finite and >= 0",
+    )?;
+    require(
+        m.alpha.is_finite() && m.alpha > 0.0 && m.alpha <= 1.0,
+        "alpha must be in (0, 1]",
+    )?;
+    let sigma = m.price * m.daily_vol;
+    ImpactParams::new(
+        m.total_shares,
+        m.n_intervals,
+        m.tau,
+        sigma,
+        m.y * sigma / m.adv.powf(m.alpha),
+        m.alpha,
+        m.spread / (m.perm_frac * m.adv),
+        m.lambda_ra,
+        m.price * m.drift_bps_per_day * 1e-4,
+        m.weights.clone(),
+    )
+}
+
+/// One strategy in a pre-trade report (bps of `X * price`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PretradeRow {
+    /// `"twap"`, `"vwap"` or `"optimal"`.
+    pub label: &'static str,
+    /// Risk aversion of the row (0 for TWAP and VWAP).
+    pub lambda_ra: f64,
+    /// `bps(E[IS])`.
+    pub impact_bps: f64,
+    /// `bps(sqrt(Var))`.
+    pub sd_bps: f64,
+    /// `impact_bps + half_spread_bps`.
+    pub total_bps: f64,
+    /// Horizon used.
+    pub horizon: usize,
+}
+
+/// Pre-trade report (API_SPEC 8.4).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PretradeReport {
+    /// Closed-form square-root-law estimate.
+    pub sqrt_law_bps: f64,
+    /// Half-spread cost in bps.
+    pub half_spread_bps: f64,
+    /// TWAP, VWAP, then optimal per lambda.
+    pub rows: Vec<PretradeRow>,
+}
+
+/// TWAP, VWAP and the optimal schedule per lambda, costed on the power-law
+/// model; `m.lambda_ra` is ignored (API_SPEC 8.4).
+pub fn pretrade_report(m: &ImpactMarket, lambdas: &[f64]) -> Result<PretradeReport, EtradeError> {
+    require(!lambdas.is_empty(), "lambdas must be non-empty")?;
+    let p0 = impact_params_from_market(&ImpactMarket {
+        lambda_ra: 0.0,
+        ..m.clone()
+    })?;
+    let notional = m.total_shares * m.price;
+    positive("total_shares * price", notional)?;
+    let hs = bps(half_spread_cost(m.spread, m.total_shares)?, notional)?;
+    let row = |label: &'static str,
+               lam: f64,
+               x: &[f64],
+               horizon: usize,
+               p: &ImpactParams|
+     -> Result<PretradeRow, EtradeError> {
+        let e = bps(impact_expected_cost(p, x)?, notional)?;
+        let sd = bps(impact_variance_cost(p, x)?.sqrt(), notional)?;
+        Ok(PretradeRow {
+            label,
+            lambda_ra: lam,
+            impact_bps: e,
+            sd_bps: sd,
+            total_bps: e + hs,
+            horizon,
+        })
+    };
+    let mut rows = vec![
+        row(
+            "twap",
+            0.0,
+            &twap_holdings(m.total_shares, m.n_intervals)?,
+            m.n_intervals,
+            &p0,
+        )?,
+        row(
+            "vwap",
+            0.0,
+            &vwap_holdings(m.total_shares, p0.weights())?,
+            m.n_intervals,
+            &p0,
+        )?,
+    ];
+    for &lam in lambdas {
+        require(
+            lam.is_finite() && lam >= 0.0,
+            "lambdas must be finite and >= 0",
+        )?;
+        let p = impact_params_from_market(&ImpactMarket {
+            lambda_ra: lam,
+            ..m.clone()
+        })?;
+        let s = optimal_schedule(&p)?;
+        rows.push(row("optimal", lam, &s.holdings, s.horizon, &p)?);
+    }
+    Ok(PretradeReport {
+        sqrt_law_bps: sqrt_law_cost_bps(m.daily_vol, m.total_shares, m.adv, m.y)?,
+        half_spread_bps: hs,
+        rows,
+    })
 }

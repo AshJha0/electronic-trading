@@ -188,6 +188,42 @@ def market_section() -> None:
     print("it under-prices small orders against the square-root law.")
 
 
+def pretrade_section() -> None:
+    """Pre-trade report on the power-law model (API_SPEC Section 8)."""
+    hdr("Pre-trade report: US large cap, sell 5% ADV in a day (sqrt impact, U-curve)")
+    kw = {
+        "price": 100.0,
+        "spread": 0.01,
+        "adv": 5e6,
+        "daily_vol": 0.015,
+        "total_shares": 250_000.0,
+        "n_intervals": 13,
+        "tau": 1.0 / 13.0,
+        "weights": et.impact.US_EQUITY_VOLUME_CURVE_13,
+    }
+    rep = et.market.pretrade_report(lambdas=[0.0, 1e-7, 1e-6, 1e-5], **kw)
+    print(
+        f"square-root-law estimate {rep.sqrt_law_bps:.2f} bps; half spread "
+        f"{rep.half_spread_bps:.2f} bps"
+    )
+    print(f"{'strategy':>10} {'lambda':>9} {'impact':>9} {'sd':>9} {'total':>9} {'horizon':>8}")
+    for r in rep.rows:
+        print(
+            f"{r.label:>10} {r.lambda_ra:9.1e} {r.impact_bps:7.2f}bp {r.sd_bps:7.2f}bp"
+            f" {r.total_bps:7.2f}bp {r.horizon:8d}"
+        )
+    p = et.market.impact_params_from_market(lambda_ra=0.0, drift_bps_per_day=50.0, **kw)
+    notional = kw["total_shares"] * kw["price"]
+    vwap = et.impact.vwap_holdings(kw["total_shares"], kw["weights"])
+    s = et.impact.optimal_schedule(p)
+    e_v = et.market.bps(et.impact.impact_expected_cost(p, vwap), notional)
+    e_o = et.market.bps(et.impact.impact_expected_cost(p, s.holdings), notional)
+    print(
+        f"alpha-aware: with 50 bps/day adverse drift, VWAP costs {e_v:.2f} bps and the "
+        f"drift-aware schedule {e_o:.2f} bps (saves {e_v - e_o:.2f} bps)"
+    )
+
+
 def main() -> int:
     print("etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov market making")
     liq = load("params_liquid.json")
@@ -198,6 +234,7 @@ def main() -> int:
     as_section(fx, "FX-like: tight spread, high k", seed=7)
     analytics_section(order)
     market_section()
+    pretrade_section()
     print("\ndone.")
     return 0
 

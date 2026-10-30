@@ -14,6 +14,7 @@ Three independent modules per language, mirrored one-to-one across ports:
 | `almgren_chriss` | `ACParams` validation (incl. size bounds), `kappa` (`log1p` form), `exp/expm1`-form sinh trajectory with exact TWAP branch, trade lists, exact discrete E/Var sums, TWAP/POV/instantaneous baselines, efficient frontier, Monte Carlo IS check | RNG (MC only) |
 | `avellaneda_stoikov` | `ASParams` validation, reservation price / optimal spread / quotes closed forms, intensity and fill probability, the pinned path simulation with inventory cap, stress vol and terminal liquidation, per-path and aggregate statistics | RNG (simulation only) |
 | `analytics` | Perold IS decomposition (buy/sell), participation rate, native closed-form OLS, pinned RNG-free synthetic impact fills | nothing stochastic |
+| `impact` | power-law temporary impact with per-interval liquidity weights, linear permanent impact and adverse drift; exact cost and variance of any sell schedule; pinned Newton solver (tridiagonal Hessian, Armijo line search, decrement stop) with horizon bisection and a KKT certificate; VWAP schedule; square-root-law estimate (API_SPEC Section 8) | nothing (its own parameter type) |
 | `market` | conversion from market units (price, spread, tick, ADV, daily vol, touch fill rate, halving distance, opening skew) to `ACParams`/`ASParams`; bps and half-spread reporting helpers (API_SPEC Section 7) | `almgren_chriss`, `avellaneda_stoikov` (parameter types only) |
 
 The three model modules do not import each other; `market` only builds their parameter objects. Parameter objects are immutable value
@@ -348,8 +349,8 @@ exception is a port bug that the tests catch.
 
 ## 5. Testing strategy
 
-Five layers, replicated per language (Python 139 tests, C++ 83, Rust 62,
-Java 77, 361 in total):
+Five layers, replicated per language (Python 174 tests, C++ 91, Rust 78,
+Java 85, 428 in total):
 
 1. **Golden values** (`data/golden/golden.json`, 19 cases; every suite
    asserts the count exactly and that every case is handled).

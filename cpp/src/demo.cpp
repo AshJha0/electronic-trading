@@ -210,6 +210,39 @@ void market_section() {
     }
 }
 
+/// Pre-trade report on the power-law model (API_SPEC Section 8).
+void pretrade_section() {
+    hdr("Pre-trade report: US large cap, sell 5% ADV in a day (sqrt impact, U-curve)");
+    etrade::ImpactMarket m;
+    m.price = 100.0;
+    m.spread = 0.01;
+    m.adv = 5e6;
+    m.daily_vol = 0.015;
+    m.total_shares = 250000.0;
+    m.n_intervals = 13;
+    m.tau = 1.0 / 13.0;
+    m.weights.assign(etrade::kUsEquityVolumeCurve13.begin(), etrade::kUsEquityVolumeCurve13.end());
+    const etrade::PretradeReport rep = etrade::pretrade_report(m, {0.0, 1e-7, 1e-6, 1e-5});
+    std::printf("square-root-law estimate %.2f bps; half spread %.2f bps\n", rep.sqrt_law_bps,
+                rep.half_spread_bps);
+    std::printf("%10s %9s %9s %9s %9s %8s\n", "strategy", "lambda", "impact", "sd", "total",
+                "horizon");
+    for (const auto& r : rep.rows) {
+        std::printf("%10s %9.1e %7.2fbp %7.2fbp %7.2fbp %8d\n", r.label.c_str(), r.lambda_ra,
+                    r.impact_bps, r.sd_bps, r.total_bps, r.horizon);
+    }
+    etrade::ImpactMarket md = m;
+    md.drift_bps_per_day = 50.0;
+    const etrade::ImpactParams p = etrade::impact_params_from_market(md);
+    const double notional = m.total_shares * m.price;
+    const auto vwap = etrade::vwap_holdings(m.total_shares, m.weights);
+    const auto s = etrade::optimal_schedule(p);
+    const double e_v = etrade::bps(etrade::impact_expected_cost(p, vwap), notional);
+    const double e_o = etrade::bps(etrade::impact_expected_cost(p, s.holdings), notional);
+    std::printf("alpha-aware: with 50 bps/day adverse drift, VWAP costs %.2f bps and the "
+                "drift-aware schedule %.2f bps (saves %.2f bps)\n", e_v, e_o, e_v - e_o);
+}
+
 }  // namespace
 
 int main() {
@@ -227,6 +260,7 @@ int main() {
                7);
     analytics_section();
     market_section();
+    pretrade_section();
     std::printf("\ndone.\n");
     return 0;
 }
