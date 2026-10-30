@@ -416,8 +416,8 @@ fn tca_section() -> Result<(), Box<dyn Error>> {
     println!(
         "participation {:.4}%; markout per share after 1 step {:.6} $, after 3 steps {:.6} $",
         100.0 * part.overall,
-        mo.per_share[0],
-        mo.per_share[1]
+        mo.per_share()[0],
+        mo.per_share()[1]
     );
     let w = welch_ttest(
         &[1.2, 3.4, 2.2, 5.1, 0.7, 2.9, 4.0, 3.3],
@@ -718,7 +718,7 @@ fn placement_section() -> Result<(), Box<dyn Error>> {
     ] {
         let pol = liquidation_policy(&lp);
         let n_mkt: usize = pol
-            .market
+            .market()
             .iter()
             .map(|row| row.iter().skip(1).filter(|&&m| m).count())
             .sum();
@@ -726,7 +726,7 @@ fn placement_section() -> Result<(), Box<dyn Error>> {
         println!(
             "{label:>8} {:9.5} {:8.5} {n_mkt:4} {:7.3} | {:8.4} {:8.4} {:8.4} {:9.4} +- {:.4}",
             pol.expected_cost(),
-            pol.depth[0][lp.total_units()],
+            pol.depth()[0][lp.total_units()],
             aggressive_cost(&lp),
             s.optimal_mean,
             s.aggressive_mean,

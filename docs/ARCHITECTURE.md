@@ -736,8 +736,8 @@ exception is a port bug that the tests catch.
 
 ## 5. Testing strategy
 
-Five layers, replicated per language (Python 487 tests, C++ 153, Rust 200
-including 4 doc-tests, Java 142; 982 in total, counted on 2026-10-30 by
+Five layers, replicated per language (Python 575 tests, C++ 191, Rust 290
+including 16 doc-tests, Java 333; 1,389 in total, counted on 2026-10-30 by
 running each suite):
 
 1. **Golden values** (the eight files of the inventory in Section 1, 95

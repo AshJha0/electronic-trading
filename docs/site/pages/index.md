@@ -32,7 +32,7 @@ push and pull request.
 
 | | |
 |---|---|
-| Cross-language parity | Python 487, C++ 153, Rust 200, Java 142 tests, 982 in total; every suite loads the same 95 golden cases: 19 model, 15 market, 8 impact, 11 TCA, 9 calibration, 8 execution, 14 market-making and 11 placement |
+| Cross-language parity | Python 575, C++ 191, Rust 290, Java 333 tests, 1,389 in total; every suite loads the same 120 golden cases: 19 model, 7 whole-trajectory, 15 market, 8 impact, 14 market-making, 11 TCA, 9 calibration, 8 execution, 11 placement and 18 hedging |
 | Golden suite | exact cases (AC `kappa` / `x_j` / `n_1` / E / Var on two parameter sets, TWAP/POV costs, A-S closed forms, both IS decompositions, the impact fit) at \|actual − expected\| ≤ tol·max(1, \|expected\|), tol between 1e-10 and 1e-12; market, TCA and calibration cases at 1e-12, power-law impact and execution cases at 1e-9 |
 | Statistical cases | Python 20,000-path Monte Carlo references stored with their standard errors; each port runs M ≥ 2000 paths on its own RNG and must satisfy \|stat − ref\| ≤ 4·sqrt(se_ref² + se_own²) |
 | Literature check | the paper's hyperbolic closed forms for E[IS] and Var[IS] equal the discrete sums to 1e-12 in every suite (measured rel. diff 2e-16 on the liquid set) |
@@ -319,18 +319,18 @@ cd electronic-trading
 # Python (3.11+)
 pip install -e "python[dev]"
 python python/demo.py
-pytest python                                   # 487 tests
+pytest python                                   # 575 tests
 
 # C++ (C++26, CMake >= 3.25; GCC 14+, recent Clang, MSVC /std:c++latest, LLVM Clang on macOS)
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release               # 153 tests
+ctest --test-dir build -C Release               # 191 tests
 
 # Rust (stable, MSRV 1.78)
-(cd rust && cargo test --release && cargo run --release --example demo)   # 200 tests
+(cd rust && cargo test --release && cargo run --release --example demo)   # 290 tests
 
 # Java (JDK 25 LTS, Maven)
-(cd java && mvn verify && mvn -q exec:java)     # 142 tests
+(cd java && mvn verify && mvn -q exec:java)     # 333 tests
 ```
 
 electronic-trading is MIT-licensed and provided without warranty: a

@@ -118,9 +118,10 @@ day. The C++, Rust and Java demos print the same table from their own
    (done; Sections 10 and 11): benchmark slippage, markouts, participation,
    Welch A/B comparison; volume, volatility, spread and fill-intensity
    estimators; three presets fitted to one NASDAQ ITCH day.
-5. **F5. Strategy extensions** (partly done; Sections 12 and 13): adaptive
-   scheduling, transient impact, internalisation and limit-order placement
-   are done; hedged market making and risk controls are in progress.
+5. **F5. Strategy extensions** (done; Sections 12, 13 and 14): adaptive
+   scheduling, transient impact, internalisation, limit-order placement,
+   hedged market making and risk controls (loss limit, position limit,
+   quote throttle, kill switch).
 
 Not investment advice and not a trading system; see the usage notes below.
 
@@ -228,7 +229,7 @@ and pull request (`.github/workflows/ci.yml`).
 ```bash
 pip install -e "python[dev]"         # installs etrade + pytest, ruff, mypy
 python python/demo.py                # run the demo
-pytest python                        # run the tests (487 tests; 6 benchmarks more with pytest-benchmark)
+pytest python                        # run the tests (575 tests; 6 benchmarks more with pytest-benchmark)
 ruff check . && (cd python && mypy)  # lint and type-check
 ```
 
@@ -237,7 +238,7 @@ ruff check . && (cd python && mypy)  # lint and type-check
 ```bash
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release   # GoogleTest is fetched if not installed
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release --output-on-failure   # run the tests (153 tests)
+ctest --test-dir build -C Release --output-on-failure   # run the tests (191 tests)
 ```
 
 The demo is `build/etrade_demo` (`build/Release/etrade_demo.exe` with MSVC).
@@ -248,7 +249,7 @@ Options: `-DETRADE_BUILD_TESTS=OFF`, `-DETRADE_WERROR=ON`,
 
 ```bash
 cd rust
-cargo test --release                 # run the tests (200 tests, 4 of them doc-tests)
+cargo test --release                 # run the tests (290 tests, 16 of them doc-tests)
 cargo run --release --example demo   # run the demo
 ```
 
@@ -256,7 +257,7 @@ cargo run --release --example demo   # run the demo
 
 ```bash
 cd java
-mvn verify                           # compile with -Xlint:all -Werror and run the tests (142 tests)
+mvn verify                           # compile with -Xlint:all -Werror and run the tests (333 tests)
 mvn -q exec:java                     # run the demo
 ```
 
@@ -269,7 +270,7 @@ mkdocs build --strict                # what the Docs workflow runs on every PR
 ```
 
 Test counts above are the suite sizes measured by running each suite on
-2026-10-30 (Python 487, C++ 153, Rust 200, Java 142; 982 in total; the six
+2026-10-30 (Python 575, C++ 191, Rust 290, Java 333; 1,389 in total; the six
 Python benchmarks run only when pytest-benchmark is installed); every
 suite loads the same eight golden files, 95 cases: 19 model, 15 market, 8
 impact, 11 TCA, 9 calibration, 8 execution, 14 market-making and 11
@@ -440,7 +441,7 @@ What a practitioner gets, and what is deliberately left out:
   and `Math.*` are not bit-specified); C++ is deterministic per standard
   library because `std::normal_distribution` is implementation-defined.
   Cross-language agreement is statistical (4-SE bands), never bitwise.
-- **What is verified.** 982 tests across the four suites: 95 shared golden
+- **What is verified.** 1,389 tests across the four suites: 120 shared golden
   cases (19 model at 1e-10..1e-12, 15 market-unit at 1e-12, 8 power-law
   impact at 1e-9, 11 TCA and 9 calibration at 1e-12, 8 execution at 1e-9 or
   4 SE, 14 market-making at 1e-12 or 4 SE, 11 placement at 1e-10 or 4 SE), the paper's closed forms against the discrete sums at 1e-12, Monte

@@ -55,7 +55,7 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
   <h2>Measured, not claimed</h2>
   <p><a href="https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml"><img src="https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml/badge.svg" alt="CI status"></a> Every number below is re-checked by CI on Linux, Windows and macOS on every push.</p>
   <div class="numbers"><table>
-    <tr><td>Cross-language parity</td><td>python 487 · cpp 153 · rust 200 · java 142 tests, 982 in total; every suite loads the same 95 golden cases: 19 model, 15 market, 8 impact, 11 TCA, 9 calibration, 8 execution, 14 market-making and 11 placement</td></tr>
+    <tr><td>Cross-language parity</td><td>python 575 · cpp 191 · rust 290 · java 333 tests, 1,389 in total; every suite loads the same 120 golden cases: 19 model, 7 whole-trajectory, 15 market, 8 impact, 14 market-making, 11 TCA, 9 calibration, 8 execution, 11 placement and 18 hedging</td></tr>
     <tr><td>Golden suite</td><td>exact cases (AC kappa / x_j / n_1 / E / Var on two parameter sets, TWAP/POV costs, A-S closed forms, both IS decompositions, the impact fit) at |actual − expected| ≤ tol·max(1, |expected|) with tol between 1e-10 and 1e-12</td></tr>
     <tr><td>Statistical cases</td><td>Python 20,000-path Monte Carlo references stored with their standard errors; each port runs M ≥ 2000 paths on its own RNG and must satisfy |stat − ref| ≤ 4·sqrt(se_ref² + se_own²)</td></tr>
     <tr><td>Literature check</td><td>the paper's hyperbolic closed forms for E[IS] and Var[IS] equal the discrete sums to 1e-12 in every suite (measured rel. diff 2e-16 on the liquid set)</td></tr>
@@ -155,18 +155,18 @@ cd electronic-trading
 # Python (3.11+)
 pip install -e "python[dev]"
 python python/demo.py
-pytest python                                   # 487 tests
+pytest python                                   # 575 tests
 
 # C++ (C++26, CMake &gt;= 3.25; GCC 14+, recent Clang, MSVC /std:c++latest, LLVM Clang on macOS)
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release               # 153 tests
+ctest --test-dir build -C Release               # 191 tests
 
 # Rust (stable, MSRV 1.78)
-(cd rust &amp;&amp; cargo test --release &amp;&amp; cargo run --release --example demo)   # 200 tests
+(cd rust &amp;&amp; cargo test --release &amp;&amp; cargo run --release --example demo)   # 290 tests
 
 # Java (JDK 25 LTS, Maven)
-(cd java &amp;&amp; mvn verify &amp;&amp; mvn -q exec:java)  # 142 tests</pre>
+(cd java &amp;&amp; mvn verify &amp;&amp; mvn -q exec:java)  # 333 tests</pre>
 
   <footer>electronic-trading is MIT-licensed and provided without warranty — a validated reference implementation of published models, not an order-management or risk system; see the <a href="https://github.com/AshJha0/electronic-trading#readme">README</a> and <a href="https://github.com/AshJha0/electronic-trading/blob/main/LICENSE">LICENSE</a> on GitHub.</footer>
 </div>
