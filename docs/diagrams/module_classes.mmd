@@ -134,6 +134,45 @@ classDiagram
         +PretradeRow[] rows
     }
 
+    class tca {
+        +slippage(side, arrival, close, fills, bins) SlippageReport
+        +markouts(side, steps, qtys, mids, horizons) MarkoutResult
+        +participation(bins, qtys, volumes) ParticipationResult
+        +welch_ttest(a, b) WelchResult
+        +student_t_cdf(t, df) float
+        +betainc_reg(a, b, x) float
+        +ln_gamma(x) float
+    }
+    class calibration {
+        +volume_curve(times, sizes, t0, t1, n_bins) float[]
+        +volatility_curve(times, mids, t0, t1, n_bins) VolatilityCurve
+        +spread_stats(spreads, mids, tick) SpreadStats
+        +fill_intensity(distances, tick, n_levels, days, sides) FillIntensity
+        +FITTED_VOLUME_CURVE_13
+    }
+    class TransientParams {
+        +float total_shares
+        +int n_intervals
+        +float tau
+        +float kappa
+        +float rho
+        +float gamma_p
+        +decay() float
+    }
+    class SignalParams {
+        +float phi
+        +float signal_sd
+        +float fill_risk
+    }
+    class execution {
+        +transient_expected_cost(p, holdings) float
+        +transient_optimal_schedule(p) array
+        +replan(p, sig, holding, signal, k) array
+        +replan_coefficients(p, sig) tuple
+        +simulate_adaptive(p, sig, n_paths, seed) AdaptiveSimResult
+        +internalise(buys, sells, market inputs) InternalisationResult
+    }
+
     almgren_chriss ..> ACParams : validates on construction
     almgren_chriss --> FrontierPoint
     almgren_chriss --> ISSimResult
@@ -147,3 +186,12 @@ classDiagram
     market --> ASParams
     market --> ImpactParams
     market --> PretradeReport
+    tca --> SlippageReport
+    tca --> WelchResult
+    calibration --> FillIntensity
+    execution ..> TransientParams : validates on construction
+    execution ..> SignalParams : validates on construction
+    execution --> AdaptiveSimResult
+    execution --> InternalisationResult
+    execution --> ACParams
+    execution --> market
