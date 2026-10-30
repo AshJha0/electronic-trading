@@ -1,0 +1,248 @@
+{
+  "cases": [
+    {
+      "name": "fill_front_of_queue",
+      "kind": "fill_probability",
+      "inputs": {
+        "q_ahead": 0.0,
+        "size": 5.0,
+        "mu": 10.0,
+        "theta": 0.1,
+        "horizon": 0.5
+      },
+      "expect": {
+        "fill_prob": 0.5595067149347878
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "fill_no_cancellations",
+      "kind": "fill_probability",
+      "inputs": {
+        "q_ahead": 30.0,
+        "size": 5.0,
+        "mu": 10.0,
+        "theta": 0.0,
+        "horizon": 2.0
+      },
+      "expect": {
+        "fill_prob": 0.0014890338613391604
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "fill_mid_queue_with_cancellations",
+      "kind": "fill_probability",
+      "inputs": {
+        "q_ahead": 50.0,
+        "size": 10.0,
+        "mu": 20.0,
+        "theta": 0.05,
+        "horizon": 3.0
+      },
+      "expect": {
+        "fill_prob": 0.668378287212814
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "fill_deep_queue_long_horizon",
+      "kind": "fill_probability",
+      "inputs": {
+        "q_ahead": 400.0,
+        "size": 50.0,
+        "mu": 100.0,
+        "theta": 0.2,
+        "horizon": 4.0
+      },
+      "expect": {
+        "fill_prob": 0.9994353757919052
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "decision_passive_near_front",
+      "kind": "placement_decision",
+      "inputs": {
+        "child_shares": 2000.0,
+        "spread": 0.02,
+        "eta": 0.0001,
+        "alpha": 0.5,
+        "weight": 0.07692307692307693,
+        "adverse_move": 0.01,
+        "q_ahead": 5.0,
+        "size": 2.0,
+        "mu": 10.0,
+        "theta": 0.1,
+        "horizon": 1.0
+      },
+      "expect": {
+        "fill_prob": 0.882592233494604,
+        "passive_cost": 0.009646748491758977,
+        "aggressive_cost": 0.026124515496597098,
+        "impact_cost": 0.0161245154965971,
+        "breakeven_fill_prob": 0.33333333333333337,
+        "passive": 1.0
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "decision_aggressive_deep_queue",
+      "kind": "placement_decision",
+      "inputs": {
+        "child_shares": 2000.0,
+        "spread": 0.02,
+        "eta": 0.0001,
+        "alpha": 0.5,
+        "weight": 0.07692307692307693,
+        "adverse_move": 0.03,
+        "q_ahead": 60.0,
+        "size": 2.0,
+        "mu": 10.0,
+        "theta": 0.05,
+        "horizon": 3.0
+      },
+      "expect": {
+        "fill_prob": 1.3010702291899821e-05,
+        "passive_cost": 0.05612386496148251,
+        "aggressive_cost": 0.026124515496597098,
+        "impact_cost": 0.0161245154965971,
+        "breakeven_fill_prob": 0.6,
+        "passive": 0.0
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "decision_aggressive_zero_spread",
+      "kind": "placement_decision",
+      "inputs": {
+        "child_shares": 2000.0,
+        "spread": 0.0,
+        "eta": 0.0001,
+        "alpha": 0.5,
+        "weight": 0.07692307692307693,
+        "adverse_move": 0.005,
+        "q_ahead": 5.0,
+        "size": 2.0,
+        "mu": 10.0,
+        "theta": 0.1,
+        "horizon": 1.0
+      },
+      "expect": {
+        "fill_prob": 0.882592233494604,
+        "passive_cost": 0.01671155432912408,
+        "aggressive_cost": 0.0161245154965971,
+        "impact_cost": 0.0161245154965971,
+        "breakeven_fill_prob": 1.0,
+        "passive": 0.0
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "liquidation_policy_patient",
+      "kind": "liquidation_policy",
+      "inputs": {
+        "total_units": 10.0,
+        "n_periods": 50.0,
+        "dt": 0.02,
+        "sigma": 0.5,
+        "spread": 0.02,
+        "kappa": 30.0,
+        "p_touch": 0.3,
+        "beta": 0.005,
+        "phi": 0.0
+      },
+      "expect": {
+        "dp_cost": -0.2050959931556364,
+        "depth_first": 0.017414588800182026,
+        "depth_last": 0.008333333333333331,
+        "n_market": 36.0,
+        "aggressive_cost": 0.15
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "liquidation_policy_urgent",
+      "kind": "liquidation_policy",
+      "inputs": {
+        "total_units": 20.0,
+        "n_periods": 50.0,
+        "dt": 0.02,
+        "sigma": 0.5,
+        "spread": 0.02,
+        "kappa": 50.0,
+        "p_touch": 0.4,
+        "beta": 0.005,
+        "phi": 0.05
+      },
+      "expect": {
+        "dp_cost": 3.093066466334604,
+        "depth_first": 0.0,
+        "depth_last": 0.0,
+        "n_market": 828.0,
+        "aggressive_cost": 0.3
+      },
+      "tol": 1e-10
+    },
+    {
+      "name": "liquidation_sim_patient",
+      "kind": "liquidation_sim",
+      "inputs": {
+        "total_units": 10.0,
+        "n_periods": 50.0,
+        "dt": 0.02,
+        "sigma": 0.5,
+        "spread": 0.02,
+        "kappa": 30.0,
+        "p_touch": 0.3,
+        "beta": 0.005,
+        "phi": 0.0,
+        "seed": 201.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "optimal_mean": -0.18742460512185438,
+        "optimal_mean_se": 0.021674791240118764,
+        "aggressive_mean": 0.1656404310407709,
+        "aggressive_mean_se": 0.02125760704808234,
+        "passive_mean": -0.0696121783868745,
+        "passive_mean_se": 0.01715638380579102,
+        "saving_vs_aggressive_mean": 0.35306503616262525,
+        "saving_vs_aggressive_mean_se": 0.0047732794821487845,
+        "saving_vs_passive_mean": 0.11781242673497991,
+        "saving_vs_passive_mean_se": 0.008705444659136434
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "liquidation_sim_urgent",
+      "kind": "liquidation_sim",
+      "inputs": {
+        "total_units": 20.0,
+        "n_periods": 50.0,
+        "dt": 0.02,
+        "sigma": 0.5,
+        "spread": 0.02,
+        "kappa": 50.0,
+        "p_touch": 0.4,
+        "beta": 0.005,
+        "phi": 0.05,
+        "seed": 202.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "optimal_mean": 0.15622906624020025,
+        "optimal_mean_se": 0.02534929912543763,
+        "aggressive_mean": 0.28503707278682977,
+        "aggressive_mean_se": 0.04167623932971393,
+        "passive_mean": -0.16478272661682236,
+        "passive_mean_se": 0.04122624897990144,
+        "saving_vs_aggressive_mean": 0.12880800654662952,
+        "saving_vs_aggressive_mean_se": 0.023302250547296018,
+        "saving_vs_passive_mean": -0.3210117928570226,
+        "saving_vs_passive_mean_se": 0.023263932197310006
+      },
+      "tol": 4.0
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+name: Bug report
+description: A wrong result, a crash, a disagreement between ports, or a build failure.
+labels: [bug]
+body:
+  - type: dropdown
+    id: port
+    attributes:
+      label: Port
+      multiple: true
+      options: [Python, C++, Rust, Java, Spec / goldens, Docs, CI]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "1.1.0 or a commit SHA"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The smallest input or command that shows the problem.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs observed
+      description: What the spec, a paper or another port gives, and what you got (with the numbers).
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: "OS, compiler / interpreter / JDK / rustc version"

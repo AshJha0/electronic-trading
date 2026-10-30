@@ -1,0 +1,34 @@
+# Optional local hooks: `pip install pre-commit && pre-commit install`.
+# CI does not run these; it runs the same linters directly (see ci.yml).
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^data/golden/
+      - id: end-of-file-fixer
+        exclude: ^data/golden/
+      - id: check-yaml
+        args: [--unsafe] # mkdocs.yml uses !!python tags
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: mixed-line-ending
+        args: [--fix=no]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.3
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --manifest-path rust/Cargo.toml --
+        language: system
+        types: [rust]
+        pass_filenames: false

@@ -1,0 +1,174 @@
+name: Coverage
+
+# Line coverage for all four ports. Reports are uploaded as workflow
+# artifacts and summarised in the job summary; nothing is sent to an
+# external service and no token is needed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  python:
+    name: Python (pytest-cov)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e "python[coverage]"
+      - name: pytest --cov
+        working-directory: python
+        run: >
+          pytest -q --cov=etrade --cov-report=term --cov-report=xml:coverage.xml
+          --cov-report=html:htmlcov
+      - name: Summary
+        working-directory: python
+        run: |
+          python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import xml.etree.ElementTree as ET
+          r = ET.parse("coverage.xml").getroot()
+          print("### Python coverage\n\n| module | lines |\n|---|---:|")
+          for c in r.iter("class"):
+              print(f"| {c.get('filename')} | {100 * float(c.get('line-rate')):.1f}% |")
+          print(f"| **total** | **{100 * float(r.get('line-rate')):.1f}%** |")
+          EOF
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-python
+          path: |
+            python/coverage.xml
+            python/htmlcov
+          retention-days: 14
+
+  rust:
+    name: Rust (cargo llvm-cov)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: rust
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
+        with:
+          tool: cargo-llvm-cov
+      - name: cargo llvm-cov
+        run: |
+          cargo llvm-cov --tests --lcov --output-path lcov.info
+          cargo llvm-cov report --summary-only | tee summary.txt
+          cargo llvm-cov report --html --output-dir html
+      - name: Summary
+        run: |
+          {
+            echo "### Rust coverage"
+            echo
+            echo '```'
+            cat summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-rust
+          path: |
+            rust/lcov.info
+            rust/html
+          retention-days: 14
+
+  cpp:
+    name: C++ (gcov/lcov)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install lcov
+        run: sudo apt-get update -q && sudo apt-get install -y -q lcov
+      - name: Coverage build
+        run: |
+          cmake -S cpp -B build-cov -DCMAKE_BUILD_TYPE=Debug -DETRADE_COVERAGE=ON
+          cmake --build build-cov --parallel
+          ctest --test-dir build-cov --output-on-failure
+      - name: lcov
+        run: |
+          lcov --capture --directory build-cov --output-file lcov.info \
+               --ignore-errors mismatch,inconsistent
+          lcov --extract lcov.info "$PWD/cpp/src/*" "$PWD/cpp/include/*" \
+               --output-file lcov.info --ignore-errors unused
+          lcov --list lcov.info | tee summary.txt
+          genhtml lcov.info --output-directory cpp-html --ignore-errors inconsistent
+      - name: Summary
+        run: |
+          {
+            echo "### C++ coverage"
+            echo
+            echo '```'
+            cat summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-cpp
+          path: |
+            lcov.info
+            cpp-html
+          retention-days: 14
+
+  java:
+    name: Java (JaCoCo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: java
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - run: mvn -B -Pcoverage verify
+      - name: Summary
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import csv
+          rows = list(csv.DictReader(open("target/site/jacoco/jacoco.csv")))
+          print("### Java coverage\n\n| class | lines | branches |\n|---|---:|---:|")
+          def pct(hit, miss):
+              t = hit + miss
+              return f"{100 * hit / t:.1f}%" if t else "n/a"
+          tl = tlm = tb = tbm = 0
+          for r in rows:
+              lc, lm = int(r["LINE_COVERED"]), int(r["LINE_MISSED"])
+              bc, bm = int(r["BRANCH_COVERED"]), int(r["BRANCH_MISSED"])
+              tl += lc; tlm += lm; tb += bc; tbm += bm
+              print(f"| {r['CLASS']} | {pct(lc, lm)} | {pct(bc, bm)} |")
+          print(f"| **total** | **{pct(tl, tlm)}** | **{pct(tb, tbm)}** |")
+          EOF
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-java
+          path: java/target/site/jacoco
+          retention-days: 14
