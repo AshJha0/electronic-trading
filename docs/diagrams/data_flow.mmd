@@ -2,11 +2,19 @@ flowchart TB
     subgraph DATA["data/ (shared, committed)"]
         PJ["params_liquid.json<br/>params_illiquid.json<br/>params_fx.json"]
         PO["parent_order.json<br/>(X, lambda grid, IS fills)"]
+        PR["presets.json<br/>(5 instruments in market units)"]
         GEN["generate_data.py<br/>(seeded, asserts AC closed forms vs MC)"]
+        GENM["generate_market.py"]
+        GENI["generate_impact.py"]
         GOLD["golden/golden.json<br/>19 cases: exact + statistical"]
+        GOLDM["golden/market_golden.json<br/>9 cases"]
+        GOLDI["golden/impact_golden.json<br/>8 cases"]
         GEN --> PJ
         GEN --> PO
         GEN --> GOLD
+        GENM --> PR
+        GENM --> GOLDM
+        GENI --> GOLDI
     end
 
     subgraph CORE["etrade core (identical in Python / C++ / Rust / Java)"]
@@ -15,24 +23,35 @@ flowchart TB
         ASP["ASParams<br/>validate: gamma > 0, T/dt integral,<br/>T/dt <= MAX_AS_STEPS, ..."]
         AS["avellaneda_stoikov<br/>reservation price, spread, quotes,<br/>intensity, fill prob,<br/>pinned simulation loop"]
         AN["analytics<br/>IS decomposition, participation,<br/>native OLS impact regression"]
+        IM["impact<br/>power-law cost, volume curve,<br/>VWAP, Newton solver + KKT"]
+        MK["market<br/>market units to parameters,<br/>bps helpers, pre-trade report"]
         ACP --> AC
         ASP --> AS
+        MK --> ACP
+        MK --> ASP
+        MK --> IM
     end
 
     PJ --> ACP
     PJ --> ASP
     PO --> AC
     PO --> AN
+    PR --> MK
 
     subgraph OUT["outputs"]
-        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit)"]
-        TESTS["4 language test suites<br/>exact cases: 1e-10..1e-12<br/>statistical cases: 4-SE band"]
+        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report)"]
+        TESTS["4 language test suites<br/>exact cases: 1e-9..1e-12<br/>statistical cases: 4-SE band"]
     end
 
     AC --> DEMO
     AS --> DEMO
     AN --> DEMO
+    MK --> DEMO
     AC --> TESTS
     AS --> TESTS
     AN --> TESTS
+    IM --> TESTS
+    MK --> TESTS
     GOLD --> TESTS
+    GOLDM --> TESTS
+    GOLDI --> TESTS

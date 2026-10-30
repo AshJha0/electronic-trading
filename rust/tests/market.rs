@@ -139,13 +139,19 @@ golden_case! {
     golden_as_etf => "market_as_us_etf",
     golden_ac_eurusd => "market_ac_eurusd",
     golden_as_eurusd => "market_as_eurusd",
+    golden_ac_itch_aapl => "market_ac_itch_aapl_20191230",
+    golden_as_itch_aapl => "market_as_itch_aapl_20191230",
+    golden_ac_itch_msft => "market_ac_itch_msft_20191230",
+    golden_as_itch_msft => "market_as_itch_msft_20191230",
+    golden_ac_itch_qqq => "market_ac_itch_qqq_20191230",
+    golden_as_itch_qqq => "market_as_itch_qqq_20191230",
 }
 
 #[test]
 fn golden_count_and_presets_covered() {
     let golden = load("golden/market_golden.json");
     let cases = golden["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 9);
+    assert_eq!(cases.len(), 15);
     let presets = load("presets.json");
     for (name, body) in presets.as_object().unwrap() {
         for side in ["ac", "as"] {

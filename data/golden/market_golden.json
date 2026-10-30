@@ -235,6 +235,165 @@
         "spread_close_bps": 0.5246088725843239
       },
       "tol": 1e-12
+    },
+    {
+      "name": "market_ac_itch_aapl_20191230",
+      "kind": "market_ac",
+      "inputs": {
+        "price": 289.72,
+        "spread": 0.026401,
+        "adv": 5678176.0,
+        "daily_vol": 0.01157,
+        "total_shares": 283900.0,
+        "n_intervals": 13.0,
+        "tau": 0.07692307692307693,
+        "lambda_ra": 4.66e-08
+      },
+      "expect": {
+        "sigma": 3.3520604000000005,
+        "eta": 4.649556477291299e-07,
+        "gamma_p": 4.649556477291299e-08,
+        "kappa": 1.0629549241130165,
+        "e_cost_bps": 4.870729358152021,
+        "sd_cost_bps": 58.198878708374,
+        "spread_cost_bps": 0.45562957338119553
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "market_as_itch_aapl_20191230",
+      "kind": "market_as",
+      "inputs": {
+        "price": 289.72,
+        "tick": 0.01,
+        "daily_vol": 0.01157,
+        "touch_fills_per_day": 22070.0,
+        "halving_ticks": 0.46,
+        "skew_ticks": 2.25,
+        "q_max": 50.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 5.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0
+      },
+      "expect": {
+        "sigma": 3.3520604000000005,
+        "k": 150.68416968694464,
+        "a_rate": 46882.29358671918,
+        "gamma": 0.002002436934556164,
+        "eta_liq": 0.01,
+        "dt": 0.00021367521367521368,
+        "n_steps": 4680.0,
+        "spread_open_bps": 1.2347337493475625,
+        "spread_close_bps": 0.4581218482016286
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "market_ac_itch_msft_20191230",
+      "kind": "market_ac",
+      "inputs": {
+        "price": 157.67,
+        "spread": 0.012285,
+        "adv": 3625411.0,
+        "daily_vol": 0.007432,
+        "total_shares": 181300.0,
+        "n_intervals": 13.0,
+        "tau": 0.07692307692307693,
+        "lambda_ra": 2.78e-07
+      },
+      "expect": {
+        "sigma": 1.17180344,
+        "eta": 3.388581322228018e-07,
+        "gamma_p": 3.388581322228018e-08,
+        "kappa": 1.0631241646053744,
+        "e_cost_bps": 4.165504036606966,
+        "sd_cost_bps": 37.383237945257065,
+        "spread_cost_bps": 0.3895795014904548
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "market_as_itch_msft_20191230",
+      "kind": "market_as",
+      "inputs": {
+        "price": 157.67,
+        "tick": 0.01,
+        "daily_vol": 0.007432,
+        "touch_fills_per_day": 10507.0,
+        "halving_ticks": 0.251,
+        "skew_ticks": 2.25,
+        "q_max": 50.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 5.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0
+      },
+      "expect": {
+        "sigma": 1.17180344,
+        "k": 276.15425520316546,
+        "a_rate": 41796.515621649414,
+        "gamma": 0.016386001145924967,
+        "eta_liq": 0.01,
+        "dt": 0.00021367521367521368,
+        "n_steps": 4680.0,
+        "spread_open_bps": 1.8863521435193702,
+        "spread_close_bps": 0.45932100252869323
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "market_ac_itch_qqq_20191230",
+      "kind": "market_ac",
+      "inputs": {
+        "price": 212.16,
+        "spread": 0.011602,
+        "adv": 3713405.0,
+        "daily_vol": 0.005745,
+        "total_shares": 185700.0,
+        "n_intervals": 13.0,
+        "tau": 0.07692307692307693,
+        "lambda_ra": 2.21e-07
+      },
+      "expect": {
+        "sigma": 1.2188592,
+        "eta": 3.1243562175415823e-07,
+        "gamma_p": 3.124356217541582e-08,
+        "kappa": 1.0268176099121726,
+        "e_cost_bps": 2.9161273235182827,
+        "sd_cost_bps": 29.039522196081148,
+        "spread_cost_bps": 0.2734257164404223
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "market_as_itch_qqq_20191230",
+      "kind": "market_as",
+      "inputs": {
+        "price": 212.16,
+        "tick": 0.01,
+        "daily_vol": 0.005745,
+        "touch_fills_per_day": 7532.0,
+        "halving_ticks": 0.214,
+        "skew_ticks": 1.0,
+        "q_max": 200.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 1.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0
+      },
+      "expect": {
+        "sigma": 1.2188592,
+        "k": 323.90055166352585,
+        "a_rate": 38040.956011813476,
+        "gamma": 0.006731206599997117,
+        "eta_liq": 0.01,
+        "dt": 4.2735042735042735e-05,
+        "n_steps": 23400.0,
+        "spread_open_bps": 0.7623807793706139,
+        "spread_close_bps": 0.2910383962635249
+      },
+      "tol": 1e-12
     }
   ]
 }

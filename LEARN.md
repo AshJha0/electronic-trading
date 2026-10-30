@@ -5,8 +5,12 @@ electronic markets work at the microstructure level, why executing a large
 order is a genuine optimization problem, the Almgren-Chriss solution to it,
 the Perold implementation-shortfall framework used to measure execution
 quality, and the Avellaneda-Stoikov model of an inventory-averse market
-maker. The closed-form numbers below are reproduced by the code and pinned
-in `data/golden/golden.json` (tolerance 1e-10..1e-12); the simulation
+maker. It also covers stating parameters in market units (Section 3.8) and
+the square-root law of impact with intraday volume and alpha-aware schedules
+(Section 3.9). The closed-form numbers below are reproduced by the code and
+pinned in `data/golden/golden.json` (tolerance 1e-10..1e-12); the market-unit
+and power-law figures are pinned in `data/golden/market_golden.json` and
+`data/golden/impact_golden.json` and printed by every demo; the simulation
 numbers (Section 6.5–6.6) are 2,000-path samples from the Python demo that
 the C++/Rust/Java ports reproduce *statistically* (within the 4-SE bands of
 the golden file), not bit-for-bit.
@@ -51,7 +55,7 @@ Empirically this movement has two components:
 Almgren-Chriss makes both linear: selling at rate `v` costs `h(v) = eta*v`
 per share temporarily and depresses the price permanently by `g(v)*tau =
 gamma_p * n` per interval. Linearity is a modelling choice, not an empirical
-fact (real-world impact is closer to square-root in size, Section 11), but it
+fact (real-world impact is closer to square-root in size, Section 3.9), but it
 is what makes the problem solvable in closed form.
 
 ### 1.3 Which price did you actually get?
@@ -262,13 +266,16 @@ Liquid set, `lambda_ra = 2e-6`:
 1. `eta_tilde = 2.5e-6 - 2.5e-7 * 1.0 / 2 = 2.375e-6` (valid: > 0).
 2. `kappa_tilde^2 = 2e-6 * 0.95^2 / 2.375e-6 = 0.76`.
 3. `kappa = arccosh(1 + 0.76 * 1 / 2) / 1 = arccosh(1.38)
-   = ln(1.38 + sqrt(1.38^2 - 1)) = 0.8462971345012561`;
-   half-life `1/kappa = 1.1816180856967273`.
-4. `x_2 = 1e6 * sinh(0.84630*3)/sinh(0.84630*5) = 182,932.81426176784`.
-5. `n_1 = X - x_1 = 571,401.1542529825` — more than half the order in the
-   first of five intervals: risk-averse schedules are front-loaded.
-6. Through the exact sums: `E[IS] = 1,078,215.167049785`,
-   `Var[IS] = 201,931,287,150.5245` (std = \$449,368).
+   = ln(1.38 + sqrt(1.38^2 - 1)) = 0.846297134501256`;
+   half-life `1/kappa = 1.18161808569673`.
+4. `x_2 = 1e6 * sinh(0.84630*3)/sinh(0.84630*5) = 182,932.814261768`.
+5. `n_1 = X - x_1 = 571,401.154252983`: more than half the order in the
+   first of five intervals, because risk-averse schedules are front-loaded.
+6. Through the exact sums: `E[IS] = 1,078,215.16704979`,
+   `Var[IS] = 201,931,287,150.524` (std = \$449,368).
+
+(Golden case values to 15 significant digits; the last one or two of the 17
+printed digits differ by an ulp between platforms.)
 
 TWAP on the same parameters: `n_j = 200,000` each, so
 `E = 0.5*2.5e-7*1e12 + 2.375e-6*5*200000^2 = 125,000 + 475,000 = 600,000`
@@ -285,7 +292,7 @@ expectation to cut the cost standard deviation by \$591k.
   volume curve — heavier at the open and close, following the U-shaped
   intraday volume profile. In the AC model with flat volume, VWAP and TWAP
   coincide; they separate once liquidity varies through the day, which the
-  power-law model of Section 3.8 supports (`vwap_holdings` plus a volume
+  power-law model of Section 3.9 supports (`vwap_holdings` plus a volume
   curve).
 - **POV** (percentage of volume): trade a fixed participation `p` of market
   volume `V` per unit time until done — clip `c = p*V*tau`, duration
@@ -302,7 +309,47 @@ and variance must land within 4 standard errors of the closed forms — golden
 case `ac_mc_liquid` stores the Python reference plus SEs so ports with
 different RNGs can verify distributional agreement.
 
-### 3.8 Beyond linear impact: the square-root law and alpha-aware schedules
+### 3.8 Parameters in market units
+
+**The plain idea.** Nobody on a desk knows their `eta` or `gamma_p`. They
+know the price, the quoted spread, the average daily volume (ADV) and the
+daily volatility. The market-unit layer turns those into model parameters
+with a stated rule, so that every result can be read in basis points of the
+order's notional.
+
+**The formal statement** (`API_SPEC.md` Section 7.1, which follows the
+calibration in Section 4 of Almgren and Chriss 2000): trading 1% of ADV per
+day costs one spread of temporary impact, and 10% of ADV moves the price
+permanently by one spread:
+
+```
+sigma   = price * daily_vol
+eta     = spread / (0.01 * ADV)
+gamma_p = spread / (0.10 * ADV)
+```
+
+With the paper's own inputs (price 50, spread 0.125, ADV 5M, daily vol 1.9%)
+this gives exactly the liquid parameter set used above (`eta = 2.5e-6`,
+`gamma_p = 2.5e-7`, `sigma = 0.95`). The A-S side (Section 7.2) is set from
+the tick: a touch fill rate, the distance in ticks over which the arrival
+rate halves (`k = ln 2 / (halving_ticks * tick)`) and the opening skew per
+unit of inventory.
+
+**Worked example** (preset `us_large_cap` in `data/presets.json`, golden
+cases in `market_golden.json`): \$100 stock, one-cent spread (1 bp), ADV 5M,
+daily vol 1.5%; sell 250,000 shares (5% of ADV) over one day in thirteen
+30-minute intervals at `lambda_ra = 1e-7`. Then `sigma = 1.5`,
+`eta = 2e-7`, `gamma_p = 2e-8`, and the optimal schedule costs
+`E[IS] = 5.35 bps` with a standard deviation of 75.5 bps; the half-spread
+adds 0.50 bps. The A-S block of the same preset quotes 3.58 bps wide at the
+open and 1.33 bps at the close.
+
+The five presets (US large cap, US small cap, US ETF, EUR/USD and the paper
+example) are illustrative, not fitted to data. Because the calibration is
+linear it under-prices small orders against the square-root law, which is
+the subject of the next section.
+
+### 3.9 Beyond linear impact: the square-root law and alpha-aware schedules
 
 **The plain idea.** Linear impact says that trading twice as fast costs
 twice as much per share. Measured trading costs do not behave like that: the
@@ -334,10 +381,10 @@ $$
 with `Y` of order one. There is no closed-form optimum any more, so the
 schedule is computed by a pinned Newton method (`API_SPEC.md` Section 8.2).
 
-**Worked example.** US large cap, $100, daily volatility 1.5%, ADV 5M, sell
-250,000 shares (5% of ADV) in one day: the square-root law gives
-`1.5% * sqrt(0.05) = 33.5 bps`. The linear calibration of `API_SPEC.md` Section 7.1 gives
-5.4 bps for the same order, more than six times less. On a U-shaped volume
+**Worked example.** US large cap, \$100, daily volatility 1.5%, ADV 5M,
+sell 250,000 shares (5% of ADV) in one day: the square-root law gives
+`1.5% * sqrt(0.05) = 33.5 bps`. The linear calibration of Section 3.8 gives
+5.35 bps for the same order, more than six times less. On a U-shaped volume
 curve, VWAP costs 33.8 bps and TWAP 35.0 bps: trading against the curve
 costs more, because it trades hardest when the market is thinnest.
 
@@ -570,8 +617,8 @@ bands.
 
 | Assumption | Reality |
 |---|---|
-| Linear impact `eta*v`, `gamma_p*n` (AC) | Empirical impact is concave — roughly square-root in participation ("square-root law"). Linear over-penalizes big clips, under-penalizes small ones. |
-| Impact parameters known and constant | `eta` must be estimated (Section 3.3 of the code does a toy version by OLS); it varies by name, time of day, and regime. |
+| Linear impact `eta*v`, `gamma_p*n` (AC) | Empirical impact is concave, roughly square-root in participation ("square-root law"). Linear over-penalizes big clips and under-penalizes small ones. Section 3.9 adds the power-law model; its impact is still instantaneous, with no decay kernel. |
+| Impact parameters known and constant | `eta` must be estimated (`estimate_impact` in `analytics` does a toy version by OLS, Section 10); it varies by name, time of day, and regime. The presets and the volume curve are illustrative, not fitted. |
 | Arithmetic random walk, no drift | Fine intraday; over days, drift and mean reversion matter. Negative prices possible (documented). No fat tails, no jumps — variance understates tail risk. |
 | Static AC trajectory | The 2000 solution is deterministic (pre-committed). With linear impact and no signals, the static path is also dynamically optimal — but real algos adapt to fills, news, and volume surprises. |
 | Poisson arrivals `A e^{-k delta}` (A-S) | No adverse selection: fills are independent of future price moves. Real fills are informative — makers add alpha signals and quote-fade protection. |
@@ -583,7 +630,9 @@ bands.
 
 ## 8. Practical market conventions: equity vs FX
 
-The three bundled parameter sets are calibrated caricatures:
+The three bundled parameter sets below are calibrated caricatures in model
+units; `data/presets.json` states five instruments in market units instead
+(Section 3.8):
 
 - **Liquid large-cap equity** (`params_liquid.json`): sigma = 0.95 \$/sqrt
   (interval) on a \$100 stock, eta = 2.5e-6 (selling 100k shares in one
@@ -605,8 +654,11 @@ The three bundled parameter sets are calibrated caricatures:
 Equity conventions worth knowing: order sizes in shares with round lots,
 prices on a tick grid (\$0.01), volume follows a U-shaped intraday curve
 (open/close auctions heaviest), short-sale rules constrain the sell side.
-None of these are modelled here — the models live in a friction-free
-mid-price world — which is exactly why they are teachable in closed form.
+Only the volume curve is modelled here (as liquidity weights in the
+power-law model of Section 3.9, with an illustrative pinned curve); lots,
+the tick grid and short-sale rules are not. The models live in a
+friction-free mid-price world, which is exactly why the core of them is
+teachable in closed form.
 
 ---
 
@@ -695,7 +747,13 @@ run them:
    with a vendor's number is a convention difference, not rounding.
    `participation_rate` (market volume *including* own fills, so never above
    1) labels the fills for the next calibration round.
-7. **Market-making side.** `quotes(params, s, q, t)` gives the reservation
+7. **Pre-trade, with concave impact.** `pretrade_report` in `market` costs
+   TWAP, VWAP and the optimal schedule per `lambda_ra` under square-root
+   impact and a volume curve, next to the closed-form square-root-law
+   estimate; `drift_bps_per_day` prices the information behind the order
+   (Section 3.9). Treat `Y` and the curve as assumptions until they are
+   fitted to your own fills.
+8. **Market-making side.** `quotes(params, s, q, t)` gives the reservation
    price and skewed bid/ask for the live state; `simulate` with the A-S and
    fixed agents on the same seed quantifies how much inventory variance the
    skew removes, and the `stress_factor` run shows what a volatility regime
@@ -861,7 +919,15 @@ ddof, and the cap's always-draw rule — not the RNG itself.
   inventory risk: a solution to the market making problem", *Mathematics
   and Financial Economics* 7(4), 477–507 — the A-S model solved with
   inventory limits (closed forms for the capped case).
-- J.-P. Bouchaud et al., *Trades, Quotes and Prices* — empirical impact,
-  the square-root law, order-book dynamics.
+- J.-P. Bouchaud, J. Bonart, J. Donier, M. Gould (2018), *Trades, Quotes and
+  Prices*, Cambridge University Press: empirical impact, the square-root law,
+  order-book dynamics.
+- R. Almgren, C. Thum, E. Hauptmann, H. Li (2005), "Direct estimation of
+  equity market impact", *Risk* 18(7), 58–62: impact exponents fitted to
+  institutional orders (the source of the square-root regularity cited in
+  Section 3.9).
+- B. Tóth, Y. Lempérière, C. Deremble, J. de Lataillade, J. Kockelkoren,
+  J.-P. Bouchaud (2011), "Anomalous price impact and the critical nature of
+  liquidity in financial markets", *Physical Review X* 1, 021006.
 - ESMA MiFID II best-execution guidance and SEC Rules 605/606 — the
   regulatory texts behind Section 12.

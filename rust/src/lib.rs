@@ -13,7 +13,9 @@
 //!   Poisson fills, seeded market-making simulation with inventory cap,
 //!   stress scenario and fixed-spread comparison agent;
 //! * [`analytics`] — implementation-shortfall decomposition, participation
-//!   rate, native OLS market-impact regression.
+//!   rate, native OLS market-impact regression;
+//! * [`execution`] — transient (Obizhaeva-Wang) impact, adaptive re-planning
+//!   and internalisation of opposite parent orders.
 //!
 //! All fallible operations return [`Result`]`<_, `[`EtradeError`]`>`; no
 //! function panics on bad input (every size — intervals, POV clips, steps,
@@ -25,7 +27,9 @@
 pub mod almgren_chriss;
 pub mod analytics;
 pub mod avellaneda_stoikov;
+pub mod calibration;
 mod error;
+pub mod execution;
 pub mod impact;
 pub mod market;
 pub mod tca;

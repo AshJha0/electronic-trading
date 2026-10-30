@@ -112,7 +112,7 @@ public final class MarketTest {
     @Test
     public void everyGoldenCaseEveryKey() {
         List<String> failures = new ArrayList<>();
-        assertEquals(9, cases().size());
+        assertEquals(15, cases().size());
         for (Map<String, Object> c : cases()) {
             String name = (String) c.get("name");
             Map<String, Object> expect = obj(c, "expect");
