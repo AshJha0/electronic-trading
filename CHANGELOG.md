@@ -10,6 +10,12 @@ All notable changes to this project. Dates are UTC.
 - Adaptive re-planning: the Almgren-Chriss problem re-solved every interval from realised holdings and an observable AR(1) drift signal, with random partial fills; a seeded Monte Carlo compares static and adaptive cost (paired). Without a signal or fill risk the two coincide path by path (Almgren-Chriss is time consistent); with either, re-planning saves cost.
 - Internalisation: opposite parent orders are crossed at the mid and only the residual is costed with the Section 8 model; per-order and total savings in bps. Crossing never increases total impact cost (asserted).
 - Eight golden cases in `data/golden/execution_golden.json` (`data/generate_execution.py`), three of them statistical.
+### Calibration from recorded ITCH data (F4b)
+
+- Calibration estimators in all four languages (API_SPEC Section 11): intraday volume curve, realised-variance volatility curve and daily volatility, quoted and effective spread statistics in ticks and bps, and the Avellaneda-Stoikov fill intensity `A exp(-k delta)`. The intensity is fitted by count-weighted least squares on the log rate at which market orders reach each distance, and reported in the Section 7.2 units (`touch_fills_per_day`, `halving_ticks`).
+- Fitted presets `itch_aapl_20191230`, `itch_msft_20191230`, `itch_qqq_20191230` in `data/presets.json`, from the NASDAQ TotalView-ITCH sample day 2019-12-30. Every preset now carries a `source` field. `FITTED_VOLUME_CURVE_13` is added next to the illustrative `US_EQUITY_VOLUME_CURVE_13`.
+- The ingestion tooling `data/calibration/fit_itch.py` (Python only) reads the sibling project's ingested books and writes only aggregates (`data/calibration/fitted_20191230.json`). Section 11.6 lists the caveats: one day, three names, one venue, a holiday week.
+- Nine calibration golden cases in `data/golden/calibration_golden.json`. `data/golden/market_golden.json` was regenerated with six cases for the fitted presets (15 in total; the nine existing cases are unchanged).
 
 ### Post-trade TCA (F4a)
 

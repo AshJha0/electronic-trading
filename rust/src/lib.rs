@@ -27,6 +27,7 @@
 pub mod almgren_chriss;
 pub mod analytics;
 pub mod avellaneda_stoikov;
+pub mod calibration;
 mod error;
 pub mod execution;
 pub mod impact;

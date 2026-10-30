@@ -1,6 +1,7 @@
 {
   "paper_almgren_chriss_2000": {
     "description": "Almgren and Chriss (2000) Section 4 example: price 50, spread 1/8, ADV 5M, 30% annual vol; reproduces params_liquid.json (AC) exactly.",
+    "source": "Almgren and Chriss (2000), Section 4",
     "ac": {
       "price": 50.0,
       "spread": 0.125,
@@ -14,6 +15,7 @@
   },
   "us_large_cap": {
     "description": "Liquid US large cap: $100, one-tick (1 bp) spread, 1.5% daily vol, ADV 5M; sell 5% of ADV over one day in 30-minute bins.",
+    "source": "illustrative, not fitted to data",
     "ac": {
       "price": 100.0,
       "spread": 0.01,
@@ -40,6 +42,7 @@
   },
   "us_small_cap": {
     "description": "US small cap: $20, five-tick (25 bp) spread, 3.5% daily vol, ADV 300k; sell 10% of ADV over one day.",
+    "source": "illustrative, not fitted to data",
     "ac": {
       "price": 20.0,
       "spread": 0.05,
@@ -66,6 +69,7 @@
   },
   "us_etf": {
     "description": "Very liquid US ETF: $500, one-tick (0.2 bp) spread, 1% daily vol, ADV 60M; sell 1% of ADV over one day.",
+    "source": "illustrative, not fitted to data",
     "ac": {
       "price": 500.0,
       "spread": 0.01,
@@ -92,6 +96,7 @@
   },
   "eurusd": {
     "description": "EUR/USD on an electronic venue: 1.10, 0.5 pip spread (about 0.45 bp), 0.5% daily vol, 2bn EUR daily venue volume, 24-hour session; sell 100M EUR (5% of volume) over one day in hourly bins.",
+    "source": "illustrative, not fitted to data",
     "ac": {
       "price": 1.1,
       "spread": 5e-05,
@@ -113,6 +118,87 @@
       "liq_ticks": 2.0,
       "dt_seconds": 5.0,
       "session_seconds": 86400.0,
+      "horizon_days": 1.0
+    }
+  },
+  "itch_aapl_20191230": {
+    "description": "AAPL fitted to one NASDAQ ITCH day (2019-12-30): volume-weighted mid 289.72, mean quoted spread 2.64 ticks, open-to-close realised vol 1.157%, NASDAQ continuous volume 5678176 shares as ADV; sell 5% of it over one day. Order size, lambda_ra, skew, q_max, liq_ticks and dt follow us_large_cap.",
+    "source": "NASDAQ TotalView-ITCH 5.0 sample day 2019-12-30 (12302019.NASDAQ_ITCH50)",
+    "ac": {
+      "price": 289.72,
+      "spread": 0.026401,
+      "adv": 5678176.0,
+      "daily_vol": 0.01157,
+      "total_shares": 283900.0,
+      "n_intervals": 13,
+      "tau": 0.07692307692307693,
+      "lambda_ra": 4.66e-08
+    },
+    "as": {
+      "price": 289.72,
+      "tick": 0.01,
+      "daily_vol": 0.01157,
+      "touch_fills_per_day": 22070.0,
+      "halving_ticks": 0.46,
+      "skew_ticks": 2.25,
+      "q_max": 50,
+      "liq_ticks": 1.0,
+      "dt_seconds": 5.0,
+      "session_seconds": 23400.0,
+      "horizon_days": 1.0
+    }
+  },
+  "itch_msft_20191230": {
+    "description": "MSFT fitted to one NASDAQ ITCH day (2019-12-30): volume-weighted mid 157.67, mean quoted spread 1.23 ticks, open-to-close realised vol 0.743%, NASDAQ continuous volume 3625411 shares as ADV; sell 5% of it over one day. Order size, lambda_ra, skew, q_max, liq_ticks and dt follow us_large_cap.",
+    "source": "NASDAQ TotalView-ITCH 5.0 sample day 2019-12-30 (12302019.NASDAQ_ITCH50)",
+    "ac": {
+      "price": 157.67,
+      "spread": 0.012285,
+      "adv": 3625411.0,
+      "daily_vol": 0.007432,
+      "total_shares": 181300.0,
+      "n_intervals": 13,
+      "tau": 0.07692307692307693,
+      "lambda_ra": 2.78e-07
+    },
+    "as": {
+      "price": 157.67,
+      "tick": 0.01,
+      "daily_vol": 0.007432,
+      "touch_fills_per_day": 10507.0,
+      "halving_ticks": 0.251,
+      "skew_ticks": 2.25,
+      "q_max": 50,
+      "liq_ticks": 1.0,
+      "dt_seconds": 5.0,
+      "session_seconds": 23400.0,
+      "horizon_days": 1.0
+    }
+  },
+  "itch_qqq_20191230": {
+    "description": "QQQ fitted to one NASDAQ ITCH day (2019-12-30): volume-weighted mid 212.16, mean quoted spread 1.16 ticks, open-to-close realised vol 0.575%, NASDAQ continuous volume 3713405 shares as ADV; sell 5% of it over one day. Order size, lambda_ra, skew, q_max, liq_ticks and dt follow us_etf.",
+    "source": "NASDAQ TotalView-ITCH 5.0 sample day 2019-12-30 (12302019.NASDAQ_ITCH50)",
+    "ac": {
+      "price": 212.16,
+      "spread": 0.011602,
+      "adv": 3713405.0,
+      "daily_vol": 0.005745,
+      "total_shares": 185700.0,
+      "n_intervals": 13,
+      "tau": 0.07692307692307693,
+      "lambda_ra": 2.21e-07
+    },
+    "as": {
+      "price": 212.16,
+      "tick": 0.01,
+      "daily_vol": 0.005745,
+      "touch_fills_per_day": 7532.0,
+      "halving_ticks": 0.214,
+      "skew_ticks": 1.0,
+      "q_max": 200,
+      "liq_ticks": 1.0,
+      "dt_seconds": 1.0,
+      "session_seconds": 23400.0,
       "horizon_days": 1.0
     }
   }

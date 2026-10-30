@@ -45,6 +45,7 @@ add_library(etrade
   src/market.cpp
   src/impact.cpp
   src/execution.cpp
+  src/calibration.cpp
   src/tca.cpp)
 add_library(etrade::etrade ALIAS etrade)
 target_include_directories(etrade PUBLIC
@@ -84,6 +85,7 @@ if(ETRADE_BUILD_TESTS)
     tests/test_market.cpp
     tests/test_impact.cpp
     tests/test_execution.cpp
+    tests/test_calibration.cpp
     tests/test_tca.cpp)
   target_include_directories(etrade_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   target_compile_definitions(etrade_tests PRIVATE
