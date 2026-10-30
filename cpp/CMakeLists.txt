@@ -42,7 +42,8 @@ add_library(etrade
   src/almgren_chriss.cpp
   src/avellaneda_stoikov.cpp
   src/analytics.cpp
-  src/market.cpp)
+  src/market.cpp
+  src/impact.cpp)
 add_library(etrade::etrade ALIAS etrade)
 target_include_directories(etrade PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -78,7 +79,8 @@ if(ETRADE_BUILD_TESTS)
     tests/test_almgren_chriss.cpp
     tests/test_avellaneda_stoikov.cpp
     tests/test_analytics.cpp
-    tests/test_market.cpp)
+    tests/test_market.cpp
+    tests/test_impact.cpp)
   target_include_directories(etrade_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   target_compile_definitions(etrade_tests PRIVATE
     ETRADE_GOLDEN_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../data/golden/golden.json"

@@ -4,6 +4,15 @@ All notable changes to this project. Dates are UTC.
 
 ## Unreleased
 
+### Execution a desk would recognise (F2)
+
+- Power-law impact execution in all four languages (API_SPEC Section 8): temporary cost `eta_j * n^(1+alpha)` with per-interval liquidity weights, linear permanent impact and an optional adverse drift. `alpha = 1/2` is the square-root law; `alpha = 1` reproduces Almgren-Chriss exactly (asserted).
+- Market calibration `eta = Y * sigma / ADV^alpha`: a one-day TWAP costs exactly the square-root-law figure.
+- Pinned optimal-schedule solver: Newton with a tridiagonal Hessian and Armijo line search; when drift makes it optimal to finish early, horizon bisection plus a KKT certificate. Cross-checked against SciPy in the Python suite.
+- Illustrative US-equity intraday volume curve, VWAP schedule and a pre-trade report (TWAP, VWAP, optimal per risk aversion, square-root-law estimate). Every demo prints it.
+- Eight impact golden cases in `data/golden/impact_golden.json`.
+- Test counts: Python 174, C++ 91, Rust 78, Java 85 (428 in total).
+
 ### Market units and repositioning (F1)
 
 - New market-unit layer in all four languages (API_SPEC Section 7): Almgren-Chriss parameters from price, quoted spread, ADV and daily volatility using the paper's own impact calibration; Avellaneda-Stoikov parameters from tick, touch fill rate, halving distance and opening skew; `bps` and `half_spread_cost` reporting helpers.

@@ -1,0 +1,244 @@
+{
+  "cases": [
+    {
+      "name": "impact_alpha1_paper",
+      "kind": "impact_schedule",
+      "inputs": {
+        "price": 50.0,
+        "spread": 0.125,
+        "adv": 5000000.0,
+        "daily_vol": 0.019,
+        "total_shares": 1000000.0,
+        "n_intervals": 5.0,
+        "tau": 1.0,
+        "alpha": 1.0,
+        "y": 13.157894736842108,
+        "perm_frac": 0.1,
+        "lambda_ra": 2e-06,
+        "volume_curve": 0.0
+      },
+      "expect": {
+        "xfrac_01": 0.4285988457470173,
+        "xfrac_02": 0.18293281426176772,
+        "xfrac_03": 0.07629572161546164,
+        "xfrac_04": 0.027643377396906376,
+        "e_cost": 1078215.1670497854,
+        "var_cost": 201931287150.52432,
+        "horizon": 5.0
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "impact_sqrt_large_cap",
+      "kind": "impact_schedule",
+      "inputs": {
+        "price": 100.0,
+        "spread": 0.01,
+        "adv": 5000000.0,
+        "daily_vol": 0.015,
+        "total_shares": 250000.0,
+        "n_intervals": 13.0,
+        "tau": 0.07692307692307693,
+        "lambda_ra": 1e-06,
+        "volume_curve": 0.0
+      },
+      "expect": {
+        "xfrac_01": 0.8332642613486517,
+        "xfrac_02": 0.6974748191042709,
+        "xfrac_03": 0.5851439167330398,
+        "xfrac_04": 0.49077586172626625,
+        "xfrac_05": 0.4102658554161615,
+        "xfrac_06": 0.34049525857633667,
+        "xfrac_07": 0.27905337430684274,
+        "xfrac_08": 0.22404221348689518,
+        "xfrac_09": 0.17393653631814948,
+        "xfrac_10": 0.1274811341851069,
+        "xfrac_11": 0.08361331896922393,
+        "xfrac_12": 0.041402360845157894,
+        "e_cost": 91772.90722676158,
+        "var_cost": 24139755600.034252,
+        "horizon": 13.0
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "impact_sqrt_large_cap_curve",
+      "kind": "impact_schedule",
+      "inputs": {
+        "price": 100.0,
+        "spread": 0.01,
+        "adv": 5000000.0,
+        "daily_vol": 0.015,
+        "total_shares": 250000.0,
+        "n_intervals": 13.0,
+        "tau": 0.07692307692307693,
+        "lambda_ra": 1e-06,
+        "volume_curve": 1.0
+      },
+      "expect": {
+        "xfrac_01": 0.759821131002588,
+        "xfrac_02": 0.6116424160523415,
+        "xfrac_03": 0.5076565555712368,
+        "xfrac_04": 0.4304438838343528,
+        "xfrac_05": 0.36854367667149557,
+        "xfrac_06": 0.3186759462889013,
+        "xfrac_07": 0.2784193743541836,
+        "xfrac_08": 0.23873834144756073,
+        "xfrac_09": 0.19953480165340987,
+        "xfrac_10": 0.16059453715385824,
+        "xfrac_11": 0.11881012578098081,
+        "xfrac_12": 0.07136954318987576,
+        "e_cost": 92379.93739967929,
+        "var_cost": 20024329932.103638,
+        "horizon": 13.0
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "impact_sqrt_drift_early_finish",
+      "kind": "impact_schedule",
+      "inputs": {
+        "price": 100.0,
+        "spread": 0.01,
+        "adv": 5000000.0,
+        "daily_vol": 0.015,
+        "total_shares": 250000.0,
+        "n_intervals": 13.0,
+        "tau": 0.07692307692307693,
+        "lambda_ra": 0.0,
+        "drift_bps_per_day": 200.0,
+        "volume_curve": 0.0
+      },
+      "expect": {
+        "xfrac_01": 0.6488112323886716,
+        "xfrac_02": 0.39121053936044997,
+        "xfrac_03": 0.2126909922935814,
+        "xfrac_04": 0.0987661001042764,
+        "xfrac_05": 0.034969761303982765,
+        "xfrac_06": 0.006856216213987304,
+        "xfrac_07": 0.0,
+        "xfrac_08": 0.0,
+        "xfrac_09": 0.0,
+        "xfrac_10": 0.0,
+        "xfrac_11": 0.0,
+        "xfrac_12": 0.0,
+        "e_cost": 197412.20609042628,
+        "var_cost": 6817757387.229818,
+        "horizon": 7.0
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "impact_alpha06_drift_curve",
+      "kind": "impact_schedule",
+      "inputs": {
+        "price": 100.0,
+        "spread": 0.01,
+        "adv": 5000000.0,
+        "daily_vol": 0.015,
+        "total_shares": 250000.0,
+        "n_intervals": 13.0,
+        "tau": 0.07692307692307693,
+        "lambda_ra": 1e-07,
+        "alpha": 0.6,
+        "y": 0.8,
+        "drift_bps_per_day": 50.0,
+        "volume_curve": 1.0
+      },
+      "expect": {
+        "xfrac_01": 0.7127566817637596,
+        "xfrac_02": 0.5266394830591546,
+        "xfrac_03": 0.39360757295401044,
+        "xfrac_04": 0.29574766525237756,
+        "xfrac_05": 0.2201217940948436,
+        "xfrac_06": 0.16310699467603937,
+        "xfrac_07": 0.12144893936599543,
+        "xfrac_08": 0.08571734421712432,
+        "xfrac_09": 0.05655170577107965,
+        "xfrac_10": 0.03426176421681437,
+        "xfrac_11": 0.0176850880937326,
+        "xfrac_12": 0.006718300979121621,
+        "e_cost": 92332.01008488055,
+        "var_cost": 12219766239.450924,
+        "horizon": 13.0
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "impact_vwap_curve",
+      "kind": "impact_vwap",
+      "inputs": {
+        "price": 100.0,
+        "spread": 0.01,
+        "adv": 5000000.0,
+        "daily_vol": 0.015,
+        "total_shares": 250000.0,
+        "n_intervals": 13.0,
+        "tau": 0.07692307692307693,
+        "lambda_ra": 0.0,
+        "volume_curve": 1.0
+      },
+      "expect": {
+        "e_cost": 84424.01790624212,
+        "var_cost": 39906129807.6923
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "pretrade_large_cap_curve",
+      "kind": "pretrade",
+      "inputs": {
+        "price": 100.0,
+        "spread": 0.01,
+        "adv": 5000000.0,
+        "daily_vol": 0.015,
+        "total_shares": 250000.0,
+        "n_intervals": 13.0,
+        "tau": 0.07692307692307693,
+        "volume_curve": 1.0,
+        "n_lambdas": 4.0,
+        "lambda_0": 0.0,
+        "lambda_1": 1e-07,
+        "lambda_2": 1e-06,
+        "lambda_3": 1e-05
+      },
+      "expect": {
+        "sqrt_law_bps": 33.54101966249684,
+        "half_spread_bps": 0.5,
+        "row0_impact_bps": 34.964387952818306,
+        "row0_sd_bps": 81.58924398306317,
+        "row0_horizon": 13.0,
+        "row1_impact_bps": 33.76960716249685,
+        "row1_sd_bps": 79.90607467039517,
+        "row1_horizon": 13.0,
+        "row2_impact_bps": 33.76960279592579,
+        "row2_sd_bps": 79.90564151179242,
+        "row2_horizon": 13.0,
+        "row3_impact_bps": 33.834461723353876,
+        "row3_sd_bps": 76.50732557402918,
+        "row3_horizon": 13.0,
+        "row4_impact_bps": 36.95197495987172,
+        "row4_sd_bps": 56.602939757017765,
+        "row4_horizon": 13.0,
+        "row5_impact_bps": 58.257986343492355,
+        "row5_sd_bps": 21.562664363030553,
+        "row5_horizon": 13.0
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "sqrt_law_small_cap",
+      "kind": "sqrt_law",
+      "inputs": {
+        "daily_vol": 0.035,
+        "order_shares": 30000.0,
+        "adv": 300000.0,
+        "y": 1.0
+      },
+      "expect": {
+        "bps": 110.6797181058933
+      },
+      "tol": 1e-09
+    }
+  ]
+}

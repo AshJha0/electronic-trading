@@ -284,8 +284,9 @@ expectation to cut the cost standard deviation by \$591k.
 - **VWAP** (volume-weighted): clips proportional to the (forecast) market
   volume curve — heavier at the open and close, following the U-shaped
   intraday volume profile. In the AC model with flat volume, VWAP and TWAP
-  coincide; the package therefore ships TWAP and POV, the two shapes that
-  differ in this framework.
+  coincide; they separate once liquidity varies through the day, which the
+  power-law model of Section 3.8 supports (`vwap_holdings` plus a volume
+  curve).
 - **POV** (percentage of volume): trade a fixed participation `p` of market
   volume `V` per unit time until done — clip `c = p*V*tau`, duration
   endogenous: `M = ceil(X/c)` intervals, last clip partial. Golden
@@ -300,6 +301,61 @@ path by path and re-measures IS. With 20,000 seeded paths the sample mean
 and variance must land within 4 standard errors of the closed forms — golden
 case `ac_mc_liquid` stores the Python reference plus SEs so ports with
 different RNGs can verify distributional agreement.
+
+### 3.8 Beyond linear impact: the square-root law and alpha-aware schedules
+
+**The plain idea.** Linear impact says that trading twice as fast costs
+twice as much per share. Measured trading costs do not behave like that: the
+cost per share of an order grows roughly with the *square root* of its size
+relative to daily volume. Doubling an order raises its cost per share by
+about 40%, not 100%. This is one of the most robust regularities in market
+microstructure (Almgren et al. 2005; Tóth et al. 2011; Bouchaud et al.
+2018). The practical consequence is that linear models under-price small
+orders, which are most orders, and over-price very large ones.
+
+**The formal statement.** The `impact` module replaces the temporary cost
+`(eta/tau) n^2` per interval with
+
+$$
+c_j(n) = \eta_j\, n^{1+\alpha} - \tfrac12 \gamma_p n^2,
+\qquad \eta_j = \eta\, w_j^{-\alpha},
+$$
+
+where `w_j` is the fraction of daily volume traded in interval `j`. With
+`alpha = 1` and uniform weights this is exactly Almgren-Chriss; with
+`alpha = 1/2` it is the square-root law. In market units
+`eta = Y * sigma / ADV^alpha`, so trading at participation `p` costs
+`Y * sigma * p^alpha` per share, and a one-day TWAP of `Q` shares costs
+
+$$
+\text{cost (fraction of price)} = Y \cdot \sigma_{\text{daily}} \sqrt{Q/\text{ADV}},
+$$
+
+with `Y` of order one. There is no closed-form optimum any more, so the
+schedule is computed by a pinned Newton method (`API_SPEC.md` Section 8.2).
+
+**Worked example.** US large cap, $100, daily volatility 1.5%, ADV 5M, sell
+250,000 shares (5% of ADV) in one day: the square-root law gives
+`1.5% * sqrt(0.05) = 33.5 bps`. The linear calibration of `API_SPEC.md` Section 7.1 gives
+5.4 bps for the same order, more than six times less. On a U-shaped volume
+curve, VWAP costs 33.8 bps and TWAP 35.0 bps: trading against the curve
+costs more, because it trades hardest when the market is thinnest.
+
+**Alpha-aware scheduling.** A client usually sells because they expect the
+price to fall. If the price is expected to drift against the order by `mu`
+per share per day, every share still held costs `mu * tau` per interval,
+which adds `mu * tau * sum x_k` to expected cost. The optimum then trades
+faster, and if the drift is strong enough it finishes before the horizon;
+the solver detects that and certifies the result with the KKT condition.
+In the worked example a 50 bps/day drift makes VWAP cost 57.3 bps while the
+drift-aware schedule costs 52.1 bps. The urgency of an order is a business
+decision about the information behind it; this is where the model lets a
+desk price that decision.
+
+**What it still leaves out.** Volatility is constant through the day (real
+intraday volatility is also U-shaped), impact is instantaneous rather than
+decaying over time, and the volume curve is illustrative. The later
+calibration release fits both curves to recorded data.
 
 ---
 

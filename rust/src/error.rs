@@ -14,6 +14,8 @@ pub enum EtradeError {
     /// The Almgren-Chriss model-validity condition failed:
     /// `gamma_p * tau >= 2 * eta` (`eta_tilde <= 0`, paper footnote).
     ModelInvalid(String),
+    /// A numerical solver failed to find a certified optimum (API_SPEC 8.2).
+    SolverFailed(String),
 }
 
 impl fmt::Display for EtradeError {
@@ -21,6 +23,7 @@ impl fmt::Display for EtradeError {
         match self {
             EtradeError::InvalidInput(msg) => write!(f, "invalid input: {msg}"),
             EtradeError::ModelInvalid(msg) => write!(f, "model invalid: {msg}"),
+            EtradeError::SolverFailed(msg) => write!(f, "solver failed: {msg}"),
         }
     }
 }
