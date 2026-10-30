@@ -1,6 +1,7 @@
 package io.github.ashjha0.etrade;
 
 import static io.github.ashjha0.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.requireNonNull;
 
 import java.util.Arrays;
 import java.util.List;
@@ -107,6 +108,7 @@ public final class Calibration {
      */
     public static double[] volumeCurve(double[] times, double[] sizes, double sessionStart,
                                        double sessionEnd, int nBins) {
+        requireNonNull(sizes, "sizes");
         session(sessionStart, sessionEnd, nBins);
         require(times.length == sizes.length, "times and sizes must have the same length");
         double[] vol = new double[nBins];
@@ -144,6 +146,7 @@ public final class Calibration {
     public static VolatilityCurve volatilityCurve(double[] times, double[] mids,
                                                   double sessionStart, double sessionEnd,
                                                   int nBins) {
+        requireNonNull(mids, "mids");
         session(sessionStart, sessionEnd, nBins);
         require(times.length == mids.length, "times and mids must have the same length");
         double[] rv = new double[nBins];
@@ -158,7 +161,7 @@ public final class Calibration {
             }
             require(t >= times[i - 1], "times must be non-decreasing");
             if (times[i - 1] >= sessionStart && t <= sessionEnd) {
-                double r = Math.log(m / mids[i - 1]);
+                double r = StrictMath.log(m / mids[i - 1]);
                 rv[bin(t, sessionStart, sessionEnd, nBins)] += r * r;
                 nReturns++;
             }
@@ -170,9 +173,9 @@ public final class Calibration {
         }
         double[] binVol = new double[nBins];
         for (int j = 0; j < nBins; j++) {
-            binVol[j] = Math.sqrt(rv[j]);
+            binVol[j] = StrictMath.sqrt(rv[j]);
         }
-        return new VolatilityCurve(Math.sqrt(total), binVol, nReturns);
+        return new VolatilityCurve(StrictMath.sqrt(total), binVol, nReturns);
     }
 
     private static double median(double[] values) {
@@ -194,6 +197,7 @@ public final class Calibration {
      * @return the statistics
      */
     public static SpreadStats spreadStats(double[] spreads, double[] mids, double tick) {
+        requireNonNull(mids, "mids");
         require(Double.isFinite(tick) && tick > 0.0, "tick must be finite and > 0");
         require(spreads.length == mids.length, "spreads and mids must have the same length");
         require(spreads.length > 0, "spreads must not be empty");
@@ -226,6 +230,7 @@ public final class Calibration {
      * @return the fit
      */
     public static FillIntensity fillIntensity(double[] distances, double tick, int nLevels) {
+        requireNonNull(distances, "distances");
         return fillIntensity(distances, tick, nLevels, 1.0, 2.0);
     }
 
@@ -241,6 +246,7 @@ public final class Calibration {
      */
     public static FillIntensity fillIntensity(double[] distances, double tick, int nLevels,
                                               double days, double sides) {
+        requireNonNull(distances, "distances");
         require(Double.isFinite(tick) && tick > 0.0, "tick must be finite and > 0");
         require(2 <= nLevels && nLevels <= MAX_FILL_LEVELS,
                 "n_levels must be an integer in [2, " + MAX_FILL_LEVELS + "]");
@@ -265,7 +271,7 @@ public final class Calibration {
         for (int b = 0; b < nLevels; b++) {
             if (counts[b] > 0) {
                 xs[n] = (b + 0.5) * tick;
-                ys[n] = Math.log(counts[b] / (sides * days));
+                ys[n] = StrictMath.log(counts[b] / (sides * days));
                 ws[n] = counts[b];
                 n++;
             }
@@ -289,8 +295,8 @@ public final class Calibration {
         }
         double k = -sxy / sxx;
         require(k > 0.0, "fitted fill intensity does not decay with distance");
-        double aRate = Math.exp(yBar + k * xBar);
-        return new FillIntensity(aRate, k, aRate * Math.exp(-k * tick / 2.0),
-                Math.log(2.0) / (k * tick), n);
+        double aRate = StrictMath.exp(yBar + k * xBar);
+        return new FillIntensity(aRate, k, aRate * StrictMath.exp(-k * tick / 2.0),
+                StrictMath.log(2.0) / (k * tick), n);
     }
 }

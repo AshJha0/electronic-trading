@@ -28,7 +28,7 @@ public record ACParams(double totalShares, int nIntervals, double tau, double si
         require(Double.isFinite(totalShares) && totalShares >= 0.0,
                 "totalShares must be finite and >= 0");
         require(nIntervals >= 1 && nIntervals <= AlmgrenChriss.MAX_AC_INTERVALS,
-                "nIntervals must be an integer in [1, 10000000]");
+                "nIntervals must be an integer in [1, " + AlmgrenChriss.MAX_AC_INTERVALS + "]");
         require(Double.isFinite(tau) && tau > 0.0, "tau must be > 0");
         require(Double.isFinite(sigma) && sigma >= 0.0, "sigma must be >= 0");
         require(Double.isFinite(eta) && eta > 0.0, "eta must be > 0");

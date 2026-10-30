@@ -1,6 +1,7 @@
 package io.github.ashjha0.etrade;
 
 import static io.github.ashjha0.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.requireNonNull;
 
 /**
  * Post-trade transaction-cost analysis (API_SPEC Section 10): benchmark slippage, markouts,
@@ -122,6 +123,9 @@ public final class Tca {
                                           int[] fillBins, double[] fillQtys,
                                           double[] fillPrices, double[] binVolumes,
                                           double[] binVwaps) {
+        requireNonNull(fillBins, "fillBins");
+        requireNonNull(fillQtys, "fillQtys");
+        requireNonNull(binVolumes, "binVolumes");
         double sign = sellSign(side);
         require(Double.isFinite(arrivalPrice) && arrivalPrice > 0.0,
                 "arrival_price must be finite and > 0");
@@ -185,6 +189,8 @@ public final class Tca {
      */
     public static MarkoutResult markouts(String side, int[] fillSteps, double[] fillQtys,
                                          double[] mids, int[] horizons) {
+        requireNonNull(fillSteps, "fillSteps");
+        requireNonNull(fillQtys, "fillQtys");
         double d = -sellSign(side);
         require(mids.length > 0, "mids must be non-empty");
         for (double m : mids) {
@@ -232,6 +238,9 @@ public final class Tca {
      */
     public static ParticipationResult participation(int[] fillBins, double[] fillQtys,
                                                     double[] binVolumes) {
+        requireNonNull(fillBins, "fillBins");
+        requireNonNull(fillQtys, "fillQtys");
+        requireNonNull(binVolumes, "binVolumes");
         double totalV = checkVolumes(binVolumes);
         checkFills(fillBins, fillQtys, binVolumes.length, "fill_bins");
         double[] qb = new double[binVolumes.length];
@@ -257,7 +266,7 @@ public final class Tca {
     public static double lnGamma(double x) {
         require(Double.isFinite(x) && x > 0.0, "x must be finite and > 0");
         if (x < 0.5) {
-            return Math.log(Math.PI / Math.abs(Math.sin(Math.PI * x))) - lnGamma(1.0 - x);
+            return StrictMath.log(Math.PI / Math.abs(StrictMath.sin(Math.PI * x))) - lnGamma(1.0 - x);
         }
         double z = x - 1.0;
         double s = LANCZOS[0];
@@ -265,7 +274,7 @@ public final class Tca {
             s += LANCZOS[i] / (z + i);
         }
         double t = z + 7.5;
-        return 0.5 * Math.log(2.0 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(s);
+        return 0.5 * StrictMath.log(2.0 * Math.PI) + (z + 0.5) * StrictMath.log(t) - t + StrictMath.log(s);
     }
 
     private static double fix(double v) {
@@ -316,9 +325,9 @@ public final class Tca {
         if (x == 1.0) {
             return 1.0;
         }
-        double lnBt = lnGamma(a + b) - lnGamma(a) - lnGamma(b) + a * Math.log(x)
-                + b * Math.log1p(-x);
-        double bt = Math.exp(lnBt);
+        double lnBt = lnGamma(a + b) - lnGamma(a) - lnGamma(b) + a * StrictMath.log(x)
+                + b * StrictMath.log1p(-x);
+        double bt = StrictMath.exp(lnBt);
         if (x < (a + 1.0) / (a + b + 2.0)) {
             return bt * betacf(a, b, x) / a;
         }
@@ -362,6 +371,8 @@ public final class Tca {
      * @return difference of means, t statistic, degrees of freedom and two-sided p-value
      */
     public static WelchResult welchTTest(double[] a, double[] b) {
+        requireNonNull(a, "a");
+        requireNonNull(b, "b");
         double[] sa = meanVar(a, "a");
         double[] sb = meanVar(b, "b");
         double na = a.length;
@@ -371,7 +382,7 @@ public final class Tca {
         double se2 = ea + eb;
         require(se2 > 0.0, "samples have zero variance");
         double diff = sa[0] - sb[0];
-        double t = diff / Math.sqrt(se2);
+        double t = diff / StrictMath.sqrt(se2);
         double df = se2 * se2 / (ea * ea / (na - 1.0) + eb * eb / (nb - 1.0));
         return new WelchResult(diff, t, df, betaincReg(0.5 * df, 0.5, df / (df + t * t)));
     }

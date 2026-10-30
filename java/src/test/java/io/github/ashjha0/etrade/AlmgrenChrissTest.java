@@ -1,19 +1,27 @@
 package io.github.ashjha0.etrade;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static io.github.ashjha0.etrade.Rejects.assertRejects;
+import static io.github.ashjha0.etrade.Rejects.bad;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.junit.Test;
+import java.util.ArrayList;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /** Unit tests for the Almgren-Chriss module (properties, edge cases, errors). */
-public final class AlmgrenChrissTest {
+final class AlmgrenChrissTest {
 
     private static final ACParams LIQUID =
             new ACParams(1_000_000.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6);
 
     @Test
-    public void trajectoryMonotoneDecreasingAndSumsToX() {
+    void trajectoryMonotoneDecreasingAndSumsToX() {
         // property-style: whole risk-aversion grid
         for (double lam : new double[] {0.0, 1e-8, 5e-7, 2e-6, 1e-5, 1e-3}) {
             ACParams p = LIQUID.withLambda(lam);
@@ -23,8 +31,7 @@ public final class AlmgrenChrissTest {
             assertEquals(p.totalShares(), x[0], 0.0);
             assertEquals(0.0, x[x.length - 1], 0.0);
             for (int j = 1; j < x.length; j++) {
-                assertTrue("holdings must decrease (sell program), lambda=" + lam,
-                        x[j] <= x[j - 1] + 1e-12);
+                assertTrue(x[j] <= x[j - 1] + 1e-12, "holdings must decrease (sell program), lambda=" + lam);
             }
             double[] n = AlmgrenChriss.tradeList(p);
             double sum = 0.0;
@@ -36,7 +43,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void higherRiskAversionFrontLoadsLowersVarRaisesE() {
+    void higherRiskAversionFrontLoadsLowersVarRaisesE() {
         ACParams lo = LIQUID.withLambda(5e-7);
         ACParams hi = LIQUID.withLambda(5e-6);
         assertTrue(AlmgrenChriss.tradeList(hi)[0] > AlmgrenChriss.tradeList(lo)[0]);
@@ -45,7 +52,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void tradeListSatisfiesCoshIdentity() {
+    void tradeListSatisfiesCoshIdentity() {
         double[] n = AlmgrenChriss.tradeList(LIQUID);
         double kappa = AlmgrenChriss.kappa(LIQUID);
         double bigT = LIQUID.horizon();
@@ -54,13 +61,13 @@ public final class AlmgrenChrissTest {
                 / Math.sinh(kappa * bigT);
         for (int j = 1; j <= n.length; j++) {
             double expected = pre * Math.cosh(kappa * (bigT - (j - 0.5) * tau));
-            assertEquals("n_" + j, expected, n[j - 1],
-                    1e-10 * Math.max(1.0, Math.abs(expected)));
+            assertEquals(expected, n[j - 1],
+                    1e-10 * Math.max(1.0, Math.abs(expected)), "n_" + j);
         }
     }
 
     @Test
-    public void kappaLimitContinuityNearThreshold() {
+    void kappaLimitContinuityNearThreshold() {
         // lambda tiny enough that kappa*T straddles KAPPA_T_LIMIT: both branches
         // must agree with TWAP to well below golden tolerance.
         double[] twap = AlmgrenChriss.twapHoldings(LIQUID.totalShares(),
@@ -78,7 +85,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void lambdaZeroGivesTwapAndInfiniteHalfLife() {
+    void lambdaZeroGivesTwapAndInfiniteHalfLife() {
         ACParams p = LIQUID.withLambda(0.0);
         assertEquals(0.0, AlmgrenChriss.kappa(p), 0.0);
         assertTrue(Double.isInfinite(AlmgrenChriss.halfLife(p)));
@@ -90,7 +97,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void zeroSharesAndSingleClipEdgeCases() {
+    void zeroSharesAndSingleClipEdgeCases() {
         ACParams empty = new ACParams(0.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6);
         double[] x = AlmgrenChriss.trajectory(empty);
         for (double v : x) {
@@ -107,7 +114,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void instantaneousCostMatchesFormulaAndVarZero() {
+    void instantaneousCostMatchesFormulaAndVarZero() {
         AlmgrenChriss.CostMoments cm = AlmgrenChriss.instantaneousCost(LIQUID);
         double x0 = LIQUID.totalShares();
         double expected = 0.5 * LIQUID.gammaP() * x0 * x0
@@ -119,7 +126,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void povScheduleShape() {
+    void povScheduleShape() {
         double[] pov = AlmgrenChriss.povHoldings(1_000_000.0, 1.0, 2_500_000.0, 0.15);
         assertEquals(4, pov.length);            // 3 intervals used
         assertEquals(1_000_000.0, pov[0], 0.0);
@@ -129,7 +136,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void closedFormsMatchMonteCarloWithinBand() {
+    void closedFormsMatchMonteCarloWithinBand() {
         // 3-4 SE band on both the optimal and the TWAP schedule
         AlmgrenChriss.ISSimResult mc = AlmgrenChriss.simulateIS(LIQUID, 4000, 7);
         double e = AlmgrenChriss.expectedCost(LIQUID);
@@ -147,7 +154,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void simulationIsDeterministicPerSeed() {
+    void simulationIsDeterministicPerSeed() {
         AlmgrenChriss.ISSimResult a = AlmgrenChriss.simulateIS(LIQUID, 500, 99);
         AlmgrenChriss.ISSimResult b = AlmgrenChriss.simulateIS(LIQUID, 500, 99);
         assertEquals(a.mean(), b.mean(), 0.0);
@@ -155,7 +162,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void frontierIsMonotoneInLambda() {
+    void frontierIsMonotoneInLambda() {
         AlmgrenChriss.FrontierPoint[] fps = AlmgrenChriss.efficientFrontier(LIQUID,
                 new double[] {1e-8, 1e-7, 1e-6, 1e-5});
         for (int i = 1; i < fps.length; i++) {
@@ -165,39 +172,46 @@ public final class AlmgrenChrissTest {
         }
     }
 
-    @Test
-    public void invalidInputsThrow() {
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("invalidInputsThrowCases")
+    void invalidInputsThrow(String fragment, Executable call) {
+        assertRejects(fragment, call);
+    }
+
+    static List<Arguments> invalidInputsThrowCases() {
+        List<Arguments> c = new ArrayList<>();
         // model validity: gamma_p*tau >= 2*eta
-        assertThrows(IllegalArgumentException.class,
-                () -> new ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 5.0e-6, 2e-6));
-        assertThrows(IllegalArgumentException.class,
-                () -> new ACParams(-1.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6));
-        assertThrows(IllegalArgumentException.class,
-                () -> new ACParams(1e6, 0, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6));
-        assertThrows(IllegalArgumentException.class,
-                () -> new ACParams(1e6, 5, 0.0, 0.95, 2.5e-6, 2.5e-7, 2e-6));
-        assertThrows(IllegalArgumentException.class,
-                () -> new ACParams(1e6, 5, 1.0, -0.1, 2.5e-6, 2.5e-7, 2e-6));
-        assertThrows(IllegalArgumentException.class,
-                () -> new ACParams(1e6, 5, 1.0, 0.95, 0.0, 2.5e-7, 2e-6));
-        assertThrows(IllegalArgumentException.class,
-                () -> new ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, -1e-6));
+        c.add(bad("gammaP*tau",
+                () -> new ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 5.0e-6, 2e-6)));
+        c.add(bad("totalShares",
+                () -> new ACParams(-1.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6)));
+        c.add(bad("nIntervals",
+                () -> new ACParams(1e6, 0, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6)));
+        c.add(bad("tau",
+                () -> new ACParams(1e6, 5, 0.0, 0.95, 2.5e-6, 2.5e-7, 2e-6)));
+        c.add(bad("sigma",
+                () -> new ACParams(1e6, 5, 1.0, -0.1, 2.5e-6, 2.5e-7, 2e-6)));
+        c.add(bad("eta",
+                () -> new ACParams(1e6, 5, 1.0, 0.95, 0.0, 2.5e-7, 2e-6)));
+        c.add(bad("lambdaRa",
+                () -> new ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, -1e-6)));
         // frontier grid must be non-empty
-        assertThrows(IllegalArgumentException.class,
-                () -> AlmgrenChriss.efficientFrontier(LIQUID, new double[0]));
+        c.add(bad("lambdas",
+                () -> AlmgrenChriss.efficientFrontier(LIQUID, new double[0])));
         // POV participation open interval, positive volume
-        assertThrows(IllegalArgumentException.class,
-                () -> AlmgrenChriss.povHoldings(1e6, 1.0, 2.5e6, 0.0));
-        assertThrows(IllegalArgumentException.class,
-                () -> AlmgrenChriss.povHoldings(1e6, 1.0, 2.5e6, 1.0));
-        assertThrows(IllegalArgumentException.class,
-                () -> AlmgrenChriss.povHoldings(1e6, 1.0, 0.0, 0.15));
+        c.add(bad("participation",
+                () -> AlmgrenChriss.povHoldings(1e6, 1.0, 2.5e6, 0.0)));
+        c.add(bad("participation",
+                () -> AlmgrenChriss.povHoldings(1e6, 1.0, 2.5e6, 1.0)));
+        c.add(bad("marketVolumeRate",
+                () -> AlmgrenChriss.povHoldings(1e6, 1.0, 0.0, 0.15)));
         // schedules must liquidate
-        assertThrows(IllegalArgumentException.class,
-                () -> AlmgrenChriss.expectedCost(LIQUID, new double[] {1e6, 5e5, 1e3}));
+        c.add(bad("holdings",
+                () -> AlmgrenChriss.expectedCost(LIQUID, new double[] {1e6, 5e5, 1e3})));
         // nPaths >= 2
-        assertThrows(IllegalArgumentException.class,
-                () -> AlmgrenChriss.simulateIS(LIQUID, 1, 0));
+        c.add(bad("nPaths",
+                () -> AlmgrenChriss.simulateIS(LIQUID, 1, 0)));
+        return c;
     }
 
     // -----------------------------------------------------------------------
@@ -210,7 +224,7 @@ public final class AlmgrenChrissTest {
 
     private static void expectFiniteLargeKappaT(ACParams p, int nInt) {
         double kappa = AlmgrenChriss.kappa(p);
-        assertTrue("sinh would overflow here", kappa * p.horizon() > 710.0);
+        assertTrue(kappa * p.horizon() > 710.0, "sinh would overflow here");
         double[] x = AlmgrenChriss.trajectory(p);
         assertEquals(nInt + 1, x.length);
         assertEquals(p.totalShares(), x[0], 0.0);
@@ -218,12 +232,12 @@ public final class AlmgrenChrissTest {
         double sumN = 0.0;
         int normal = 0;
         for (int j = 0; j < x.length; j++) {
-            assertTrue("x_" + j + " must be finite", Double.isFinite(x[j]));
+            assertTrue(Double.isFinite(x[j]), "x_" + j + " must be finite");
             if (j > 0) {
                 assertTrue(x[j] <= x[j - 1]);
                 sumN += x[j - 1] - x[j];
                 if (x[j] > Double.MIN_NORMAL * x[0]) {
-                    assertTrue("strictly decreasing while normal, j=" + j, x[j] < x[j - 1]);
+                    assertTrue(x[j] < x[j - 1], "strictly decreasing while normal, j=" + j);
                     normal++;
                 }
             }
@@ -242,14 +256,14 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void trajectoryFiniteForLargeKappaT() {
+    void trajectoryFiniteForLargeKappaT() {
         // kappa*T ~ 846 and ~2683: NaN with the textbook sinh ratio.
         expectFiniteLargeKappaT(new ACParams(1e6, 1000, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6), 1000);
         expectFiniteLargeKappaT(fxSet(20000), 20000);
     }
 
     @Test
-    public void paperClosedFormsMatchDiscreteSums() {
+    void paperClosedFormsMatchDiscreteSums() {
         // Almgren-Chriss (2000): closed-form E and V of the optimal strategy
         // (with the discrete kappa) equal the exact sums to 1e-12.
         ACParams illiquid = new ACParams(5e5, 10, 0.5, 1.5, 1e-5, 5e-7, 5e-6);
@@ -272,7 +286,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void kappaSmallTauAccuracy() {
+    void kappaSmallTauAccuracy() {
         // kappa = kappa_tilde*(1 - kappa_tilde^2 tau^2/24 + O(tau^4)).
         for (double lam : new double[] {1e-6, 1e-12}) {
             ACParams p = new ACParams(1e6, 5000, 1e-3, 0.95, 2.5e-6, 2.5e-7, lam);
@@ -285,7 +299,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void povClipTooSmallIsInputError() {
+    void povClipTooSmallIsInputError() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> AlmgrenChriss.povHoldings(1e6, 1.0, 1.0, 1e-9));
         assertTrue(e.getMessage().contains("POV clip too small"));
@@ -295,7 +309,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void povBoundaryIntervalCounts() {
+    void povBoundaryIntervalCounts() {
         double clip = 0.15 * 2.5e6;   // 375,000
         double[] x2 = AlmgrenChriss.povHoldings(750_000.0, 1.0, 2.5e6, 0.15);
         assertEquals(3, x2.length);    // X/clip = 2 exactly -> 2 intervals
@@ -311,7 +325,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void simulateIsRejectsNonLiquidatingSchedule() {
+    void simulateIsRejectsNonLiquidatingSchedule() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> AlmgrenChriss.simulateIS(LIQUID, new double[] {1e6, 5e5, 1e3}, 10, 0L));
         assertTrue(e.getMessage().contains("liquidate"));
@@ -327,7 +341,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void frontierRejectsNonFiniteLambdaAndKeepsOrder() {
+    void frontierRejectsNonFiniteLambdaAndKeepsOrder() {
         assertThrows(IllegalArgumentException.class,
                 () -> AlmgrenChriss.efficientFrontier(LIQUID, new double[] {1e-7, Double.NaN}));
         assertThrows(IllegalArgumentException.class,
@@ -345,7 +359,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void twapAndPovRejectNonFinite() {
+    void twapAndPovRejectNonFinite() {
         double nan = Double.NaN;
         double inf = Double.POSITIVE_INFINITY;
         assertThrows(IllegalArgumentException.class, () -> AlmgrenChriss.twapHoldings(inf, 5));
@@ -363,7 +377,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void sizeBoundsAreInputErrors() {
+    void sizeBoundsAreInputErrors() {
         assertThrows(IllegalArgumentException.class,
                 () -> new ACParams(1e6, AlmgrenChriss.MAX_AC_INTERVALS + 1, 1.0, 0.95,
                         2.5e-6, 2.5e-7, 2e-6));
@@ -378,7 +392,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void costFunctionsValidateHoldings() {
+    void costFunctionsValidateHoldings() {
         assertThrows(IllegalArgumentException.class,
                 () -> AlmgrenChriss.varianceCost(LIQUID, new double[] {1e6}));
         assertThrows(IllegalArgumentException.class,
@@ -395,7 +409,7 @@ public final class AlmgrenChrissTest {
     }
 
     @Test
-    public void trajectoryX0ExactAndSinhIdentityModerate() {
+    void trajectoryX0ExactAndSinhIdentityModerate() {
         for (double lam : new double[] {1e-8, 5e-7, 2e-6, 1e-4}) {
             ACParams p = LIQUID.withLambda(lam);
             double k = AlmgrenChriss.kappa(p);
@@ -405,7 +419,7 @@ public final class AlmgrenChrissTest {
             for (int j = 1; j < p.nIntervals(); j++) {
                 double ref = p.totalShares() * Math.sinh(k * (bigT - j * p.tau()))
                         / Math.sinh(k * bigT);
-                assertEquals("j=" + j, ref, x[j], 1e-14 * ref);
+                assertEquals(ref, x[j], 1e-14 * ref, "j=" + j);
             }
         }
     }

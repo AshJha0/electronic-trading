@@ -1,28 +1,36 @@
 package io.github.ashjha0.etrade;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static io.github.ashjha0.etrade.Rejects.assertRejects;
+import static io.github.ashjha0.etrade.Rejects.bad;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.junit.Test;
+import java.util.ArrayList;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /** Unit tests for the Avellaneda-Stoikov module (properties, edge cases, errors). */
-public final class AvellanedaStoikovTest {
+final class AvellanedaStoikovTest {
 
     private static final ASParams LIQUID =
             new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 20, 0.5);
 
     @Test
-    public void spreadPositiveAndDecreasingToTerminalFloor() {
+    void spreadPositiveAndDecreasingToTerminalFloor() {
         double floor = 2.0 / LIQUID.gamma() * Math.log1p(LIQUID.gamma() / LIQUID.k());
         double prev = Double.POSITIVE_INFINITY;
         // property-style: time grid down to the terminal time
         for (double t = 0.0; t <= 1.0 + 1e-12; t += 0.1) {
             double sp = AvellanedaStoikov.optimalSpread(LIQUID, Math.min(t, 1.0));
-            assertTrue("spread must be > 0", sp > 0.0);
-            assertTrue("spread must decrease in t", sp <= prev + 1e-12);
-            assertTrue("spread must stay above the terminal floor", sp >= floor - 1e-12);
+            assertTrue(sp > 0.0, "spread must be > 0");
+            assertTrue(sp <= prev + 1e-12, "spread must decrease in t");
+            assertTrue(sp >= floor - 1e-12, "spread must stay above the terminal floor");
             prev = sp;
         }
         assertEquals(floor, AvellanedaStoikov.optimalSpread(LIQUID, LIQUID.horizon()),
@@ -30,7 +38,7 @@ public final class AvellanedaStoikovTest {
     }
 
     @Test
-    public void reservationPriceSignConventions() {
+    void reservationPriceSignConventions() {
         double s = 100.0;
         // long maker (q > 0) shades down: selling pressure
         assertTrue(AvellanedaStoikov.reservationPrice(LIQUID, s, 3.0, 0.3) < s);
@@ -44,7 +52,7 @@ public final class AvellanedaStoikovTest {
     }
 
     @Test
-    public void quotesAreSymmetricAroundReservation() {
+    void quotesAreSymmetricAroundReservation() {
         AvellanedaStoikov.Quotes q = AvellanedaStoikov.quotes(LIQUID, 100.0, 3.0, 0.3);
         double r = AvellanedaStoikov.reservationPrice(LIQUID, 100.0, 3.0, 0.3);
         double sp = AvellanedaStoikov.optimalSpread(LIQUID, 0.3);
@@ -53,12 +61,12 @@ public final class AvellanedaStoikovTest {
     }
 
     @Test
-    public void fillProbabilityRangeAndMonotonicity() {
+    void fillProbabilityRangeAndMonotonicity() {
         double prev = 1.0;
         for (double delta = -0.5; delta <= 2.0; delta += 0.25) {
             double p = AvellanedaStoikov.fillProbability(LIQUID, delta);
-            assertTrue("P(fill) in [0,1)", p >= 0.0 && p < 1.0);
-            assertTrue("P(fill) decreasing in delta", p <= prev + 1e-15);
+            assertTrue(p >= 0.0 && p < 1.0, "P(fill) in [0,1)");
+            assertTrue(p <= prev + 1e-15, "P(fill) decreasing in delta");
             prev = p;
         }
         // consistency with the intensity closed form
@@ -70,7 +78,7 @@ public final class AvellanedaStoikovTest {
     }
 
     @Test
-    public void averageSpreadFormula() {
+    void averageSpreadFormula() {
         double expected = 0.5 * LIQUID.gamma() * LIQUID.sigma() * LIQUID.sigma()
                 * LIQUID.horizon()
                 + 2.0 / LIQUID.gamma() * Math.log1p(LIQUID.gamma() / LIQUID.k());
@@ -82,7 +90,7 @@ public final class AvellanedaStoikovTest {
     }
 
     @Test
-    public void inventoryCapRespectedOnEveryStep() {
+    void inventoryCapRespectedOnEveryStep() {
         ASParams tight = new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 3, 0.5);
         ASSimResult res = AvellanedaStoikov.simulate(tight, 200, 1);
         assertFalse(res.capViolated());
@@ -90,7 +98,7 @@ public final class AvellanedaStoikovTest {
     }
 
     @Test
-    public void qMaxZeroQuotesNothing() {
+    void qMaxZeroQuotesNothing() {
         ASParams noQuote = new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 0, 0.5);
         ASSimResult res = AvellanedaStoikov.simulate(noQuote, 50, 3);
         assertEquals(0.0, res.meanFills(), 0.0);
@@ -100,18 +108,17 @@ public final class AvellanedaStoikovTest {
     }
 
     @Test
-    public void asInventoryTighterThanFixedSpread() {
+    void asInventoryTighterThanFixedSpread() {
         // statistical boolean with margin: A-S skew controls inventory
         ASSimResult resAs = AvellanedaStoikov.simulate(LIQUID, 800, 5,
                 AvellanedaStoikov.Agent.AS);
         ASSimResult resFx = AvellanedaStoikov.simulate(LIQUID, 800, 5,
                 AvellanedaStoikov.Agent.FIXED);
-        assertTrue("A-S rms q should be well below fixed-spread rms q",
-                resAs.rmsQ() < 0.75 * resFx.rmsQ());
+        assertTrue(resAs.rmsQ() < 0.75 * resFx.rmsQ(), "A-S rms q should be well below fixed-spread rms q");
     }
 
     @Test
-    public void stressRaisesPnlVolatility() {
+    void stressRaisesPnlVolatility() {
         ASSimResult base = AvellanedaStoikov.simulate(LIQUID, 800, 17);
         ASSimResult stress = AvellanedaStoikov.simulate(LIQUID, 800, 17,
                 AvellanedaStoikov.Agent.AS, AvellanedaStoikov.averageAsSpread(LIQUID),
@@ -120,7 +127,7 @@ public final class AvellanedaStoikovTest {
     }
 
     @Test
-    public void simulationDeterministicPerSeed() {
+    void simulationDeterministicPerSeed() {
         ASSimResult a = AvellanedaStoikov.simulate(LIQUID, 100, 42);
         ASSimResult b = AvellanedaStoikov.simulate(LIQUID, 100, 42);
         assertEquals(a.meanPnl(), b.meanPnl(), 0.0);
@@ -132,41 +139,49 @@ public final class AvellanedaStoikovTest {
         assertTrue(a.meanPnl() != c.meanPnl());
     }
 
-    @Test
-    public void invalidInputsThrow() {
-        assertThrows(IllegalArgumentException.class,       // gamma = 0 outside model
-                () -> new ASParams(100.0, 2.0, 1.0, 0.005, 0.0, 1.5, 140.0, 20, 0.5));
-        assertThrows(IllegalArgumentException.class,       // k <= 0
-                () -> new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 0.0, 140.0, 20, 0.5));
-        assertThrows(IllegalArgumentException.class,       // A <= 0
-                () -> new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 0.0, 20, 0.5));
-        assertThrows(IllegalArgumentException.class,       // sigma < 0
-                () -> new ASParams(100.0, -1.0, 1.0, 0.005, 0.1, 1.5, 140.0, 20, 0.5));
-        assertThrows(IllegalArgumentException.class,       // dt > T
-                () -> new ASParams(100.0, 2.0, 1.0, 2.0, 0.1, 1.5, 140.0, 20, 0.5));
-        assertThrows(IllegalArgumentException.class,       // T/dt not integral
-                () -> new ASParams(100.0, 2.0, 1.0, 0.003, 0.1, 1.5, 140.0, 20, 0.5));
-        assertThrows(IllegalArgumentException.class,       // q_max < 0
-                () -> new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, -1, 0.5));
-        assertThrows(IllegalArgumentException.class,       // eta_liq < 0
-                () -> new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 20, -0.5));
-        assertThrows(IllegalArgumentException.class,       // t outside [0, T]
-                () -> AvellanedaStoikov.reservationPrice(LIQUID, 100.0, 0.0, 1.5));
-        assertThrows(IllegalArgumentException.class,
-                () -> AvellanedaStoikov.optimalSpread(LIQUID, -0.1));
-        assertThrows(IllegalArgumentException.class,       // nPaths < 2
-                () -> AvellanedaStoikov.simulate(LIQUID, 1, 0));
-        assertThrows(IllegalArgumentException.class,       // fixedSpread <= 0
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("invalidInputsThrowCases")
+    void invalidInputsThrow(String fragment, Executable call) {
+        assertRejects(fragment, call);
+    }
+
+    @SuppressWarnings("deprecation")   // also checks the deprecated String overload
+    static List<Arguments> invalidInputsThrowCases() {
+        List<Arguments> c = new ArrayList<>();
+        c.add(bad("gamma",       // gamma = 0 outside model
+                () -> new ASParams(100.0, 2.0, 1.0, 0.005, 0.0, 1.5, 140.0, 20, 0.5)));
+        c.add(bad("k must",       // k <= 0
+                () -> new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 0.0, 140.0, 20, 0.5)));
+        c.add(bad("aRate",       // A <= 0
+                () -> new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 0.0, 20, 0.5)));
+        c.add(bad("sigma",       // sigma < 0
+                () -> new ASParams(100.0, -1.0, 1.0, 0.005, 0.1, 1.5, 140.0, 20, 0.5)));
+        c.add(bad("dt must",       // dt > T
+                () -> new ASParams(100.0, 2.0, 1.0, 2.0, 0.1, 1.5, 140.0, 20, 0.5)));
+        c.add(bad("horizon",       // T/dt not integral
+                () -> new ASParams(100.0, 2.0, 1.0, 0.003, 0.1, 1.5, 140.0, 20, 0.5)));
+        c.add(bad("qMax",       // q_max < 0
+                () -> new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, -1, 0.5)));
+        c.add(bad("etaLiq",       // eta_liq < 0
+                () -> new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 20, -0.5)));
+        c.add(bad("t must",       // t outside [0, T]
+                () -> AvellanedaStoikov.reservationPrice(LIQUID, 100.0, 0.0, 1.5)));
+        c.add(bad("t must",
+                () -> AvellanedaStoikov.optimalSpread(LIQUID, -0.1)));
+        c.add(bad("nPaths",       // nPaths < 2
+                () -> AvellanedaStoikov.simulate(LIQUID, 1, 0)));
+        c.add(bad("fixedSpread",       // fixedSpread <= 0
                 () -> AvellanedaStoikov.simulate(LIQUID, 10, 0,
-                        AvellanedaStoikov.Agent.FIXED, 0.0, 1.0, 0.5));
-        assertThrows(IllegalArgumentException.class,       // stressFactor <= 0
+                        AvellanedaStoikov.Agent.FIXED, 0.0, 1.0, 0.5)));
+        c.add(bad("stressFactor",       // stressFactor <= 0
                 () -> AvellanedaStoikov.simulate(LIQUID, 10, 0,
-                        AvellanedaStoikov.Agent.AS, 1.0, 0.0, 0.5));
-        assertThrows(IllegalArgumentException.class,       // stressTimeFrac outside [0,1]
+                        AvellanedaStoikov.Agent.AS, 1.0, 0.0, 0.5)));
+        c.add(bad("stressTimeFrac",       // stressTimeFrac outside [0,1]
                 () -> AvellanedaStoikov.simulate(LIQUID, 10, 0,
-                        AvellanedaStoikov.Agent.AS, 1.0, 1.0, 1.5));
-        assertThrows(IllegalArgumentException.class,       // unknown statistic name
-                () -> AvellanedaStoikov.simulate(LIQUID, 10, 0).se("nope"));
+                        AvellanedaStoikov.Agent.AS, 1.0, 1.0, 1.5)));
+        c.add(bad("statistic",       // unknown statistic name
+                () -> AvellanedaStoikov.simulate(LIQUID, 10, 0).se("nope")));
+        return c;
     }
 
     // -----------------------------------------------------------------------
@@ -174,7 +189,7 @@ public final class AvellanedaStoikovTest {
     // -----------------------------------------------------------------------
 
     @Test
-    public void meanFillsCountsBothSides() {
+    void meanFillsCountsBothSides() {
         // Saturated book: P(fill) rounds to 1 on both sides every step, so the
         // fill count is exactly 2*nSteps (400), not the step count (200).
         ASParams sat = new ASParams(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 1e6, 10_000, 0.0);
@@ -184,11 +199,11 @@ public final class AvellanedaStoikovTest {
         ASSimResult l = AvellanedaStoikov.simulate(LIQUID, 400, 8);
         assertTrue(l.meanFills() <= 2.0 * LIQUID.nSteps());
         assertTrue(l.meanFills() >= l.meanMaxAbsQ());
-        assertTrue(l.se("mean_fills") > 0.0);
+        assertTrue(l.se(ASSimResult.Stat.MEAN_FILLS) > 0.0);
     }
 
     @Test
-    public void fixedSpreadMustBeFiniteAndPositive() {
+    void fixedSpreadMustBeFiniteAndPositive() {
         for (double bad : new double[] {Double.POSITIVE_INFINITY, Double.NaN, 0.0, -1.0}) {
             assertThrows(IllegalArgumentException.class,
                     () -> AvellanedaStoikov.simulate(LIQUID, 10, 0,
@@ -206,7 +221,7 @@ public final class AvellanedaStoikovTest {
     }
 
     @Test
-    public void stressEdgeFractions() {
+    void stressEdgeFractions() {
         double avg = AvellanedaStoikov.averageAsSpread(LIQUID);
         ASSimResult base = AvellanedaStoikov.simulate(LIQUID, 300, 9);
         // frac = 1.0: no step has t >= T, so bitwise identical to unstressed.
@@ -229,7 +244,7 @@ public final class AvellanedaStoikovTest {
     }
 
     @Test
-    public void quotesRejectNonFiniteState() {
+    void quotesRejectNonFiniteState() {
         double nan = Double.NaN;
         double inf = Double.POSITIVE_INFINITY;
         assertThrows(IllegalArgumentException.class,
@@ -247,7 +262,7 @@ public final class AvellanedaStoikovTest {
     }
 
     @Test
-    public void nStepsIntegralityFloat() {
+    void nStepsIntegralityFloat() {
         ASParams p3 = new ASParams(100.0, 2.0, 1.0, 1.0 / 3.0, 0.1, 1.5, 140.0, 20, 0.5);
         assertEquals(3, p3.nSteps());
         assertThrows(IllegalArgumentException.class,

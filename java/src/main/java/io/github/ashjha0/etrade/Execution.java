@@ -1,8 +1,8 @@
 package io.github.ashjha0.etrade;
 
 import static io.github.ashjha0.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.requireNonNull;
 
-import java.util.SplittableRandom;
 
 /**
  * Execution extensions: transient impact, adaptive re-planning and internalisation
@@ -98,7 +98,7 @@ public final class Execution {
             require(Double.isFinite(kappa) && kappa > 0.0, "kappa must be > 0");
             require(Double.isFinite(rho) && rho > 0.0, "rho must be finite and > 0");
             require(Double.isFinite(gammaP) && gammaP >= 0.0, "gamma_p must be >= 0");
-            double a = Math.exp(-rho * tau);
+            double a = StrictMath.exp(-rho * tau);
             require(gammaP < kappa * (1.0 - a) / (1.0 + a),
                     "model invalid: gamma_p >= kappa*(1-a)/(1+a) (cost not convex in the trades)");
         }
@@ -119,7 +119,7 @@ public final class Execution {
 
         /** @return per-interval displacement decay {@code a = exp(-rho*tau)} */
         public double decay() {
-            return Math.exp(-rho * tau);
+            return StrictMath.exp(-rho * tau);
         }
     }
 
@@ -144,6 +144,8 @@ public final class Execution {
      * @throws IllegalArgumentException on an invalid path
      */
     public static double transientExpectedCost(TransientParams p, double[] holdings) {
+        requireNonNull(p, "p");
+        requireNonNull(holdings, "holdings");
         checkPath(p, holdings);
         double a = p.decay();
         double half = 0.5 * (p.kappa() - p.gammaP());
@@ -166,6 +168,7 @@ public final class Execution {
      * @return holdings, length N + 1, with {@code x_0 = X} and {@code x_N = 0} exactly
      */
     public static double[] transientOptimalSchedule(TransientParams p) {
+        requireNonNull(p, "p");
         int nInt = p.nIntervals();
         double bigX = p.totalShares();
         double[] x = new double[nInt + 1];
@@ -174,7 +177,7 @@ public final class Execution {
             return x;
         }
         double a = p.decay();
-        double b = -Math.expm1(-p.rho() * p.tau());    // 1 - a without cancellation
+        double b = -StrictMath.expm1(-p.rho() * p.tau());    // 1 - a without cancellation
         double ka = b * (1.0 + a) * p.kappa();          // (1 - a^2) * kappa
         double g = p.gammaP();
         double[] diag = new double[nInt];
@@ -254,6 +257,8 @@ public final class Execution {
      */
     public static double[] replan(ACParams p, SignalParams sig, double holding, double signal,
                                   int k) {
+        requireNonNull(p, "p");
+        requireNonNull(sig, "sig");
         checkAc(p);
         require(k >= 0 && k < p.nIntervals(), "k must be an integer in [0, n_intervals)");
         require(Double.isFinite(holding), "holding must be finite");
@@ -266,7 +271,7 @@ public final class Execution {
         double e = p.etaTilde() / p.tau();
         double[] rhs = new double[m - 1];
         for (int i = 0; i < m - 1; i++) {
-            rhs[i] = 0.5 * p.tau() * Math.pow(sig.phi(), i) * signal;
+            rhs[i] = 0.5 * p.tau() * StrictMath.pow(sig.phi(), i) * signal;
         }
         rhs[0] += e * holding;
         double[] y = thomas(sys[0], sys[1], rhs);
@@ -288,6 +293,8 @@ public final class Execution {
      * @return {@code {c, d}}, each of length N + 1
      */
     public static double[][] replanCoefficients(ACParams p, SignalParams sig) {
+        requireNonNull(p, "p");
+        requireNonNull(sig, "sig");
         checkAc(p);
         int nInt = p.nIntervals();
         double[] c = new double[nInt + 1];
@@ -302,7 +309,7 @@ public final class Execution {
             rHold[0] = e;
             double[] rSig = new double[m - 1];
             for (int i = 0; i < m - 1; i++) {
-                rSig[i] = 0.5 * p.tau() * Math.pow(sig.phi(), i);
+                rSig[i] = 0.5 * p.tau() * StrictMath.pow(sig.phi(), i);
             }
             c[m] = 1.0 - thomas(sys[0], sys[1], rHold)[0];
             d[m] = thomas(sys[0], sys[1], rSig)[0];
@@ -343,7 +350,7 @@ public final class Execution {
         for (double x : v) {
             s += (x - mu) * (x - mu);
         }
-        return Math.sqrt(s / (v.length - 1));
+        return StrictMath.sqrt(s / (v.length - 1));
     }
 
     /**
@@ -356,7 +363,7 @@ public final class Execution {
      * {@code S += s tau + sigma sqrt(tau) xi - gammaP e},
      * {@code s = phi s + sqrt(1 - phi^2) signalSd eps}. {@code IS = -proceeds}.
      * Paths are the outer loop and intervals the inner loop; draws come from
-     * {@link SplittableRandom} (statistically, not bitwise, equal to the reference).
+     * {@code SplittableRandom} uniforms with Marsaglia polar normals (statistically, not bitwise, equal to the reference).
      *
      * @param p Almgren-Chriss parameters, N &le; MAX_EXEC_INTERVALS
      * @param sig signal parameters
@@ -367,6 +374,8 @@ public final class Execution {
      */
     public static AdaptiveSimResult simulateAdaptive(ACParams p, SignalParams sig, int nPaths,
                                                      long seed) {
+        requireNonNull(p, "p");
+        requireNonNull(sig, "sig");
         checkAc(p);
         require(nPaths >= 2 && nPaths <= AlmgrenChriss.MAX_PATHS,
                 "n_paths must be an integer in [2, " + AlmgrenChriss.MAX_PATHS + "]");
@@ -375,9 +384,9 @@ public final class Execution {
         double[][] cd = replanCoefficients(p, sig);
         double[] c = cd[0];
         double[] d = cd[1];
-        SplittableRandom rng = new SplittableRandom(seed);
-        double srt = p.sigma() * Math.sqrt(p.tau());
-        double innov = Math.sqrt(1.0 - sig.phi() * sig.phi()) * sig.signalSd();
+        NormalRng rng = new NormalRng(seed);
+        double srt = p.sigma() * StrictMath.sqrt(p.tau());
+        double innov = StrictMath.sqrt(1.0 - sig.phi() * sig.phi()) * sig.signalSd();
         double[] isSt = new double[nPaths];
         double[] isAd = new double[nPaths];
         double[] sav = new double[nPaths];
@@ -401,8 +410,8 @@ public final class Execution {
                     qAd = c[m] * xAd - d[m] * sgn;
                 }
                 double u = rng.nextDouble();
-                double xi = rng.nextGaussian();
-                double eps = rng.nextGaussian();
+                double xi = rng.nextNormal();
+                double eps = rng.nextNormal();
                 double f = j == nInt ? 1.0 : 1.0 - sig.fillRisk() * u;
                 double eSt = f * qSt;
                 double eAd = f * qAd;
@@ -425,7 +434,7 @@ public final class Execution {
         double sdSt = sampleStd(isSt, mSt);
         double sdAd = sampleStd(isAd, mAd);
         double sdSav = sampleStd(sav, mSav);
-        double root = Math.sqrt(nPaths);
+        double root = StrictMath.sqrt(nPaths);
         return new AdaptiveSimResult(mSt, sdSt / root, sdSt, mAd, sdAd / root, sdAd,
                 mSav, sdSav / root, nPaths);
     }
@@ -498,6 +507,8 @@ public final class Execution {
     public static InternalisationResult internalise(double[] buys, double[] sells, double price,
                                                     double spread, double adv, double dailyVol,
                                                     int nIntervals, double tau) {
+        requireNonNull(buys, "buys");
+        requireNonNull(sells, "sells");
         return internalise(buys, sells, price, spread, adv, dailyVol, nIntervals, tau, 0.5, 1.0,
                 Market.DEFAULT_PERM_FRAC, null);
     }
@@ -525,6 +536,8 @@ public final class Execution {
                                                     double spread, double adv, double dailyVol,
                                                     int nIntervals, double tau, double alpha,
                                                     double y, double permFrac, double[] weights) {
+        requireNonNull(buys, "buys");
+        requireNonNull(sells, "sells");
         double[] bQ = orders("buys", buys);
         double[] sQ = orders("sells", sells);
         require(bQ.length + sQ.length >= 1, "at least one order is required");

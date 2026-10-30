@@ -1,37 +1,40 @@
 package io.github.ashjha0.etrade;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static io.github.ashjha0.etrade.Rejects.assertRejects;
+import static io.github.ashjha0.etrade.Rejects.bad;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ashjha0.etrade.Execution.AdaptiveSimResult;
 import io.github.ashjha0.etrade.Execution.InternalisationResult;
 import io.github.ashjha0.etrade.Execution.SignalParams;
 import io.github.ashjha0.etrade.Execution.TransientParams;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.SplittableRandom;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Execution extensions (API_SPEC Section 12): every case of {@code execution_golden.json},
  * transient impact and its reduction to the linear case, the Obizhaeva-Wang shape, adaptive
  * re-planning, internalisation and validation.
  */
-public final class ExecutionTest {
+final class ExecutionTest {
 
     private static final Map<String, Object> GOLDEN = load();
 
     @SuppressWarnings("unchecked")
     private static Map<String, Object> load() {
         try {
-            return (Map<String, Object>) Json.parse(
-                    Files.readString(Path.of("../data/golden/execution_golden.json")));
+            return (Map<String, Object>) TestData.load("golden/execution_golden.json");
         } catch (IOException e) {
             throw new IllegalStateException("cannot load execution_golden.json", e);
         }
@@ -127,7 +130,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void everyGoldenCaseEveryKey() {
+    void everyGoldenCaseEveryKey() {
         assertEquals(8, cases().size());
         List<String> failures = new ArrayList<>();
         for (Map<String, Object> c : cases()) {
@@ -143,7 +146,7 @@ public final class ExecutionTest {
                         continue;
                     }
                     checked++;
-                    assertTrue(name + "." + key + " computed", got.containsKey(key));
+                    assertTrue(got.containsKey(key), name + "." + key + " computed");
                     double ref = num(expect, key);
                     double seRef = num(expect, key + "_se");
                     double band = tol * Math.sqrt(seRef * seRef + se.get(key) * se.get(key));
@@ -153,10 +156,10 @@ public final class ExecutionTest {
                                 + " err " + err + " > band " + band);
                     }
                 }
-                assertTrue(name + ": no statistical keys", checked > 0);
+                assertTrue(checked > 0, name + ": no statistical keys");
                 continue;
             }
-            assertEquals(name + ": every expect key asserted", expect.keySet(), got.keySet());
+            assertEquals(expect.keySet(), got.keySet(), name + ": every expect key asserted");
             for (Map.Entry<String, Double> e : got.entrySet()) {
                 double want = num(expect, e.getKey());
                 if (Math.abs(e.getValue() - want) > tol * Math.max(1.0, Math.abs(want))) {
@@ -165,7 +168,7 @@ public final class ExecutionTest {
                 }
             }
         }
-        assertTrue(String.join("\n", failures), failures.isEmpty());
+        assertTrue(failures.isEmpty(), String.join("\n", failures));
     }
 
     // ------------------------------------------------------------ transient impact
@@ -230,7 +233,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void costRecursionEqualsQuadraticForm() {
+    void costRecursionEqualsQuadraticForm() {
         TransientParams p = new TransientParams(1e6, 8, 0.25, 3e-6, 1.5, 4e-7);
         SplittableRandom rng = new SplittableRandom(1);
         double[] n = new double[8];
@@ -258,7 +261,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void optimumSolvesTheDenseSystem() {
+    void optimumSolvesTheDenseSystem() {
         for (double g : new double[] {0.0, 4e-7}) {
             TransientParams p = new TransientParams(1e6, 12, 0.25, 3e-6, 1.5, g);
             double[] ones = new double[12];
@@ -276,7 +279,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void obizhaevaWangShape() {
+    void obizhaevaWangShape() {
         TransientParams p = new TransientParams(1e6, 10, 0.1, 2e-6, 5.0, 0.0);
         double[] n = trades(Execution.transientOptimalSchedule(p));
         assertEquals(1.0, n[9] / n[0], 1e-12);
@@ -290,7 +293,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void optimumBeatsTwapAndPerturbations() {
+    void optimumBeatsTwapAndPerturbations() {
         TransientParams p = new TransientParams(2.5e5, 26, 1.0 / 26, 4e-6, 2.0, 1e-8);
         double[] x = Execution.transientOptimalSchedule(p);
         double eOpt = Execution.transientExpectedCost(p, x);
@@ -307,7 +310,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void fastResilienceReducesToAlmgrenChriss() {
+    void fastResilienceReducesToAlmgrenChriss() {
         ACParams ac = new ACParams(1e6, 10, 0.5, 0.95, 2.5e-6, 2.5e-7, 0.0);
         double kappa = 2.0 * ac.eta() / ac.tau();
         TransientParams fast = new TransientParams(ac.totalShares(), ac.nIntervals(), ac.tau(),
@@ -343,7 +346,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void singleIntervalAndZeroShares() {
+    void singleIntervalAndZeroShares() {
         TransientParams p = new TransientParams(5.0, 1, 1.0, 1.0, 1.0);
         double[] x = Execution.transientOptimalSchedule(p);
         assertEquals(5.0, x[0], 0.0);
@@ -362,7 +365,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void staticPlanIsTheAlmgrenChrissTrajectory() {
+    void staticPlanIsTheAlmgrenChrissTrajectory() {
         ACParams ac = ac10();
         double[] plan = Execution.replan(ac, new SignalParams(), ac.totalShares(), 0.0, 0);
         double[] x = AlmgrenChriss.trajectory(ac);
@@ -373,7 +376,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void replanIsTimeConsistentWithoutSignal() {
+    void replanIsTimeConsistentWithoutSignal() {
         ACParams ac = ac10();
         SignalParams sig = new SignalParams();
         double[] plan = Execution.replan(ac, sig, ac.totalShares(), 0.0, 0);
@@ -386,7 +389,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void feedbackCoefficientsMatchReplan() {
+    void feedbackCoefficientsMatchReplan() {
         ACParams ac = ac10();
         SignalParams sig = new SignalParams(0.6, 0.4, 0.0);
         double[][] cd = Execution.replanCoefficients(ac, sig);
@@ -399,7 +402,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void signalMakesTheTraderHoldWhenPriceIsExpectedToRise() {
+    void signalMakesTheTraderHoldWhenPriceIsExpectedToRise() {
         ACParams ac = ac10();
         SignalParams sig = new SignalParams(0.7, 0.5, 0.0);
         assertTrue(Execution.replan(ac, sig, 5e5, 1.0, 3)[1]
@@ -407,7 +410,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void adaptiveEqualsStaticWithoutSignalOrFillRisk() {
+    void adaptiveEqualsStaticWithoutSignalOrFillRisk() {
         AdaptiveSimResult r = Execution.simulateAdaptive(ac10(), new SignalParams(), 4000, 7);
         assertTrue(Math.abs(r.savingMean()) <= 1e-9 * r.staticMean());
         assertEquals(1.0, r.adaptiveStd() / r.staticStd(), 1e-9);
@@ -416,16 +419,16 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void adaptiveHelpsWithSignalOrFillRisk() {
+    void adaptiveHelpsWithSignalOrFillRisk() {
         for (SignalParams sig : new SignalParams[] {new SignalParams(0.7, 0.5, 0.0),
             new SignalParams(0.0, 0.0, 0.5)}) {
             AdaptiveSimResult r = Execution.simulateAdaptive(ac10(), sig, 4000, 8);
-            assertTrue(sig + ": " + r, r.savingMean() > 4.0 * r.savingSe());
+            assertTrue(r.savingMean() > 4.0 * r.savingSe(), sig + ": " + r);
         }
     }
 
     @Test
-    public void adaptiveIsDeterministic() {
+    void adaptiveIsDeterministic() {
         SignalParams sig = new SignalParams(0.5, 0.3, 0.2);
         assertEquals(Execution.simulateAdaptive(ac10(), sig, 100, 5),
                 Execution.simulateAdaptive(ac10(), sig, 100, 5));
@@ -438,7 +441,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void crossingNeverIncreasesTotalCost() {
+    void crossingNeverIncreasesTotalCost() {
         SplittableRandom rng = new SplittableRandom(11);
         for (int t = 0; t < 200; t++) {
             double[] buys = new double[rng.nextInt(0, 4)];
@@ -462,7 +465,7 @@ public final class ExecutionTest {
     }
 
     @Test
-    public void internalisationAccounting() {
+    void internalisationAccounting() {
         InternalisationResult r = market(new double[] {3e5, 1e5}, new double[] {2.5e5});
         assertEquals(2.5e5, r.crossedShares(), 0.0);
         assertEquals(1.5e5, r.residualShares(), 0.0);
@@ -485,73 +488,102 @@ public final class ExecutionTest {
 
     // ------------------------------------------------------------ validation
 
-    private static void expectThrow(String fragment, Runnable r) {
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, r::run);
-        assertTrue(e.getMessage() + " should mention " + fragment,
-                e.getMessage().contains(fragment));
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("transientParamsValidationCases")
+    void transientParamsValidation(String fragment, Executable call) {
+        assertRejects(fragment, call);
     }
 
-    @Test
-    public void transientParamsValidation() {
-        expectThrow("total_shares", () -> new TransientParams(-1.0, 10, 0.1, 2e-6, 5.0, 0.0));
-        expectThrow("n_intervals", () -> new TransientParams(1e6, 0, 0.1, 2e-6, 5.0, 0.0));
-        expectThrow("n_intervals", () -> new TransientParams(1e6,
-                Execution.MAX_EXEC_INTERVALS + 1, 0.1, 2e-6, 5.0, 0.0));
-        expectThrow("tau", () -> new TransientParams(1e6, 10, 0.0, 2e-6, 5.0, 0.0));
-        expectThrow("kappa", () -> new TransientParams(1e6, 10, 0.1, 0.0, 5.0, 0.0));
-        expectThrow("rho", () -> new TransientParams(1e6, 10, 0.1, 2e-6, 0.0, 0.0));
-        expectThrow("rho", () -> new TransientParams(1e6, 10, 0.1, 2e-6,
-                Double.POSITIVE_INFINITY, 0.0));
-        expectThrow("gamma_p", () -> new TransientParams(1e6, 10, 0.1, 2e-6, 5.0, -1.0));
-        expectThrow("gamma_p", () -> new TransientParams(1e6, 10, 0.1, 2e-6, 5.0, 1e-6));
+    static List<Arguments> transientParamsValidationCases() {
+        List<Arguments> c = new ArrayList<>();
+        c.add(bad("total_shares", () -> new TransientParams(-1.0, 10, 0.1, 2e-6, 5.0, 0.0)));
+        c.add(bad("n_intervals", () -> new TransientParams(1e6, 0, 0.1, 2e-6, 5.0, 0.0)));
+        c.add(bad("n_intervals", () -> new TransientParams(1e6,
+                Execution.MAX_EXEC_INTERVALS + 1, 0.1, 2e-6, 5.0, 0.0)));
+        c.add(bad("tau", () -> new TransientParams(1e6, 10, 0.0, 2e-6, 5.0, 0.0)));
+        c.add(bad("kappa", () -> new TransientParams(1e6, 10, 0.1, 0.0, 5.0, 0.0)));
+        c.add(bad("rho", () -> new TransientParams(1e6, 10, 0.1, 2e-6, 0.0, 0.0)));
+        c.add(bad("rho", () -> new TransientParams(1e6, 10, 0.1, 2e-6,
+                Double.POSITIVE_INFINITY, 0.0)));
+        c.add(bad("gamma_p", () -> new TransientParams(1e6, 10, 0.1, 2e-6, 5.0, -1.0)));
+        c.add(bad("gamma_p", () -> new TransientParams(1e6, 10, 0.1, 2e-6, 5.0, 1e-6)));
+        return c;
     }
 
-    @Test
-    public void transientCostValidatesHoldings() {
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("transientCostValidatesHoldingsCases")
+    void transientCostValidatesHoldings(String fragment, Executable call) {
+        assertRejects(fragment, call);
+    }
+
+    static List<Arguments> transientCostValidatesHoldingsCases() {
+        List<Arguments> c = new ArrayList<>();
         TransientParams p = new TransientParams(1e6, 4, 0.25, 2e-6, 5.0);
-        expectThrow("length", () -> Execution.transientExpectedCost(p, new double[] {1.0, 0.0}));
-        expectThrow("length", () -> Execution.transientExpectedCost(p, null));
-        expectThrow("liquidate", () -> Execution.transientExpectedCost(p,
-                new double[] {1.0, 0.8, 0.6, 0.4, 0.2}));
-        expectThrow("finite", () -> Execution.transientExpectedCost(p,
-                new double[] {1.0, Double.NaN, 0.6, 0.4, 0.0}));
+        c.add(bad("length", () -> Execution.transientExpectedCost(p, new double[] {1.0, 0.0})));
+        c.add(bad("holdings", () -> Execution.transientExpectedCost(p, null)));
+        c.add(bad("liquidate", () -> Execution.transientExpectedCost(p,
+                new double[] {1.0, 0.8, 0.6, 0.4, 0.2})));
+        c.add(bad("finite", () -> Execution.transientExpectedCost(p,
+                new double[] {1.0, Double.NaN, 0.6, 0.4, 0.0})));
+        return c;
     }
 
-    @Test
-    public void signalParamsValidation() {
-        expectThrow("phi", () -> new SignalParams(1.0, 0.0, 0.0));
-        expectThrow("phi", () -> new SignalParams(-0.1, 0.0, 0.0));
-        expectThrow("signal_sd", () -> new SignalParams(0.0, -1.0, 0.0));
-        expectThrow("fill_risk", () -> new SignalParams(0.0, 0.0, 1.0));
-        expectThrow("fill_risk", () -> new SignalParams(0.0, 0.0, Double.NaN));
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("signalParamsValidationCases")
+    void signalParamsValidation(String fragment, Executable call) {
+        assertRejects(fragment, call);
     }
 
-    @Test
-    public void adaptiveValidation() {
+    static List<Arguments> signalParamsValidationCases() {
+        List<Arguments> c = new ArrayList<>();
+        c.add(bad("phi", () -> new SignalParams(1.0, 0.0, 0.0)));
+        c.add(bad("phi", () -> new SignalParams(-0.1, 0.0, 0.0)));
+        c.add(bad("signal_sd", () -> new SignalParams(0.0, -1.0, 0.0)));
+        c.add(bad("fill_risk", () -> new SignalParams(0.0, 0.0, 1.0)));
+        c.add(bad("fill_risk", () -> new SignalParams(0.0, 0.0, Double.NaN)));
+        return c;
+    }
+
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("adaptiveValidationCases")
+    void adaptiveValidation(String fragment, Executable call) {
+        assertRejects(fragment, call);
+    }
+
+    static List<Arguments> adaptiveValidationCases() {
+        List<Arguments> c = new ArrayList<>();
         ACParams ac = ac10();
         SignalParams sig = new SignalParams();
-        expectThrow("n_paths", () -> Execution.simulateAdaptive(ac, sig, 1, 0));
-        expectThrow("k must", () -> Execution.replan(ac, sig, 1.0, 0.0, 10));
-        expectThrow("k must", () -> Execution.replan(ac, sig, 1.0, 0.0, -1));
-        expectThrow("holding", () -> Execution.replan(ac, sig, Double.POSITIVE_INFINITY, 0.0,
-                0));
-        expectThrow("signal", () -> Execution.replan(ac, sig, 1.0, Double.NaN, 0));
+        c.add(bad("n_paths", () -> Execution.simulateAdaptive(ac, sig, 1, 0)));
+        c.add(bad("k must", () -> Execution.replan(ac, sig, 1.0, 0.0, 10)));
+        c.add(bad("k must", () -> Execution.replan(ac, sig, 1.0, 0.0, -1)));
+        c.add(bad("holding", () -> Execution.replan(ac, sig, Double.POSITIVE_INFINITY, 0.0,
+                0)));
+        c.add(bad("signal", () -> Execution.replan(ac, sig, 1.0, Double.NaN, 0)));
         ACParams big = new ACParams(1.0, 1001, 1.0, 1.0, 1.0, 0.0, 0.0);
-        expectThrow("n_intervals", () -> Execution.simulateAdaptive(big, sig, 100, 0));
-        expectThrow("n_intervals", () -> Execution.replanCoefficients(big, sig));
+        c.add(bad("n_intervals", () -> Execution.simulateAdaptive(big, sig, 100, 0)));
+        c.add(bad("n_intervals", () -> Execution.replanCoefficients(big, sig)));
+        return c;
     }
 
-    @Test
-    public void internaliseValidation() {
-        expectThrow("buys", () -> market(new double[] {0.0}, new double[] {1.0}));
-        expectThrow("sells", () -> market(new double[] {1.0}, new double[] {Double.NaN}));
-        expectThrow("buys", () -> market(null, new double[] {1.0}));
-        expectThrow("buys", () -> market(new double[Execution.MAX_ORDERS + 1],
-                new double[] {1.0}));
-        expectThrow("at least one", () -> market(new double[0], new double[0]));
-        expectThrow("n_intervals", () -> Execution.internalise(new double[] {1.0},
-                new double[] {2.0}, 100.0, 0.01, 5e6, 0.015, 0, 1.0));
-        expectThrow("spread", () -> Execution.internalise(new double[] {1.0},
-                new double[] {2.0}, 100.0, 0.0, 5e6, 0.015, 13, 1.0 / 13.0));
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("internaliseValidationCases")
+    void internaliseValidation(String fragment, Executable call) {
+        assertRejects(fragment, call);
+    }
+
+    static List<Arguments> internaliseValidationCases() {
+        List<Arguments> c = new ArrayList<>();
+        c.add(bad("buys", () -> market(new double[] {0.0}, new double[] {1.0})));
+        c.add(bad("sells", () -> market(new double[] {1.0}, new double[] {Double.NaN})));
+        c.add(bad("buys", () -> market(null, new double[] {1.0})));
+        c.add(bad("buys", () -> market(new double[Execution.MAX_ORDERS + 1],
+                new double[] {1.0})));
+        c.add(bad("at least one", () -> market(new double[0], new double[0])));
+        c.add(bad("n_intervals", () -> Execution.internalise(new double[] {1.0},
+                new double[] {2.0}, 100.0, 0.01, 5e6, 0.015, 0, 1.0)));
+        c.add(bad("spread", () -> Execution.internalise(new double[] {1.0},
+                new double[] {2.0}, 100.0, 0.0, 5e6, 0.015, 13, 1.0 / 13.0)));
+        return c;
     }
 }

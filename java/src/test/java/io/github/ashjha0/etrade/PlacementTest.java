@@ -1,38 +1,41 @@
 package io.github.ashjha0.etrade;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static io.github.ashjha0.etrade.Rejects.assertRejects;
+import static io.github.ashjha0.etrade.Rejects.bad;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ashjha0.etrade.Placement.LiquidationParams;
 import io.github.ashjha0.etrade.Placement.LiquidationPolicy;
 import io.github.ashjha0.etrade.Placement.LiquidationSimResult;
 import io.github.ashjha0.etrade.Placement.PlacementDecision;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Limit-order placement (API_SPEC Section 13): every case of {@code placement_golden.json},
  * the queue fill probability against the Poisson tail and its monotonicity, the
  * passive-or-aggressive rule, the liquidation policy against its Monte Carlo, validation.
  */
-public final class PlacementTest {
+final class PlacementTest {
 
     private static final Map<String, Object> GOLDEN = load();
 
     @SuppressWarnings("unchecked")
     private static Map<String, Object> load() {
         try {
-            return (Map<String, Object>) Json.parse(
-                    Files.readString(Path.of("../data/golden/placement_golden.json")));
+            return (Map<String, Object>) TestData.load("golden/placement_golden.json");
         } catch (IOException e) {
             throw new IllegalStateException("cannot load placement_golden.json", e);
         }
@@ -119,7 +122,7 @@ public final class PlacementTest {
     }
 
     @Test
-    public void everyGoldenCaseEveryKey() {
+    void everyGoldenCaseEveryKey() {
         assertEquals(11, cases().size());
         List<String> failures = new ArrayList<>();
         for (Map<String, Object> c : cases()) {
@@ -135,7 +138,7 @@ public final class PlacementTest {
                         continue;
                     }
                     checked++;
-                    assertTrue(name + "." + key + " computed", got.containsKey(key));
+                    assertTrue(got.containsKey(key), name + "." + key + " computed");
                     double ref = num(expect, key);
                     double seRef = num(expect, key + "_se");
                     double band = tol * Math.sqrt(seRef * seRef + se.get(key) * se.get(key));
@@ -145,10 +148,10 @@ public final class PlacementTest {
                                 + " err " + err + " > band " + band);
                     }
                 }
-                assertEquals(name + ": every statistical key", got.size(), checked);
+                assertEquals(got.size(), checked, name + ": every statistical key");
                 continue;
             }
-            assertEquals(name + ": every expect key asserted", expect.keySet(), got.keySet());
+            assertEquals(expect.keySet(), got.keySet(), name + ": every expect key asserted");
             for (Map.Entry<String, Double> e : got.entrySet()) {
                 double want = num(expect, e.getKey());
                 if (Math.abs(e.getValue() - want) > tol * Math.max(1.0, Math.abs(want))) {
@@ -157,7 +160,7 @@ public final class PlacementTest {
                 }
             }
         }
-        assertTrue(String.join("\n", failures), failures.isEmpty());
+        assertTrue(failures.isEmpty(), String.join("\n", failures));
     }
 
     // ------------------------------------------------------------ fill probability
@@ -174,7 +177,7 @@ public final class PlacementTest {
     }
 
     @Test
-    public void noCancellationsIsThePoissonTail() {
+    void noCancellationsIsThePoissonTail() {
         double v = Placement.queueFillProbability(30, 5, 10.0, 0.0, 2.0);
         assertEquals(1.0, v / poissonSf(35, 20.0), 1e-10);
         assertEquals(1.0 - Math.exp(-1.2), Placement.queueFillProbability(0, 1, 3.0, 0.0, 0.4),
@@ -182,40 +185,40 @@ public final class PlacementTest {
     }
 
     @Test
-    public void fillProbabilityDecreasesWithQueuePositionAndSize() {
+    void fillProbabilityDecreasesWithQueuePositionAndSize() {
         double prev = 2.0;
         for (int q = 0; q < 120; q += 5) {
             double v = Placement.queueFillProbability(q, 10, 20.0, 0.05, 3.0);
-            assertTrue("q=" + q, v < prev);
+            assertTrue(v < prev, "q=" + q);
             prev = v;
         }
         prev = 2.0;
         for (int n = 1; n < 40; n += 3) {
             double v = Placement.queueFillProbability(20, n, 20.0, 0.05, 3.0);
-            assertTrue("n=" + n, v < prev);
+            assertTrue(v < prev, "n=" + n);
             prev = v;
         }
     }
 
     @Test
-    public void fillProbabilityIncreasesWithHorizonAndCancellations() {
+    void fillProbabilityIncreasesWithHorizonAndCancellations() {
         double prev = -1.0;
         for (int i = 0; i < 30; i++) {
             double h = 1.0 + 3.0 * i / 29.0;
             double v = Placement.queueFillProbability(50, 10, 20.0, 0.05, h);
-            assertTrue("h=" + h, v > prev);
+            assertTrue(v > prev, "h=" + h);
             prev = v;
         }
         prev = -1.0;
         for (double t : new double[] {0.0, 0.05, 0.2, 1.0}) {
             double v = Placement.queueFillProbability(50, 10, 20.0, t, 2.0);
-            assertTrue("theta=" + t, v > prev);
+            assertTrue(v > prev, "theta=" + t);
             prev = v;
         }
     }
 
     @Test
-    public void fillProbabilityEdges() {
+    void fillProbabilityEdges() {
         assertEquals(0.0, Placement.queueFillProbability(10, 3, 5.0, 0.2, 0.0), 0.0);
         assertEquals(1.0, Placement.queueFillProbability(0, 1, 1e3, 0.0, 100.0), 0.0);
         assertTrue(Placement.queueFillProbability(4999, 1, 1.0, 0.0, 1.0) <= 1e-300);
@@ -224,7 +227,7 @@ public final class PlacementTest {
     // ------------------------------------------------------------ passive or aggressive
 
     @Test
-    public void decisionMatchesSection8AndClosedFormDifference() {
+    void decisionMatchesSection8AndClosedFormDifference() {
         PlacementDecision d = Placement.placeOrCross(2000.0, 0.02, 0.7, 0.01, 1e-4, 0.5,
                 1.0 / 13.0);
         Impact.Params ip = new Impact.Params(2000.0, 1, 1.0 / 13.0, 0.0, 1e-4, 0.5, 0.0, 0.0,
@@ -236,17 +239,16 @@ public final class PlacementTest {
     }
 
     @Test
-    public void aggressiveChosenWhenSpreadIsNegligible() {
+    void aggressiveChosenWhenSpreadIsNegligible() {
         for (double fp : new double[] {0.0, 0.2, 0.5, 0.9, 1.0}) {
             for (double adv : new double[] {0.0, 0.004, 0.05}) {
-                assertFalse(fp + " " + adv,
-                        Placement.placeOrCross(500.0, 0.0, fp, adv, 1e-4, 0.5, 0.1).passive());
+                assertFalse(Placement.placeOrCross(500.0, 0.0, fp, adv, 1e-4, 0.5, 0.1).passive(), fp + " " + adv);
             }
         }
     }
 
     @Test
-    public void breakevenFillProbabilitySeparatesTheChoices() {
+    void breakevenFillProbabilitySeparatesTheChoices() {
         double adv = 0.015;
         double spread = 0.01;
         for (int i = 0; i <= 40; i++) {
@@ -254,7 +256,7 @@ public final class PlacementTest {
             PlacementDecision d = Placement.placeOrCross(100.0, spread, fp, adv, 1e-4, 0.6, 0.2);
             assertEquals(adv / (adv + spread), d.breakevenFillProb(), 1e-15);
             if (Math.abs(fp - d.breakevenFillProb()) > 1e-9) {
-                assertEquals("fp=" + fp, fp > d.breakevenFillProb(), d.passive());
+                assertEquals(fp > d.breakevenFillProb(), d.passive(), "fp=" + fp);
             }
         }
         assertEquals(1.0,
@@ -265,7 +267,7 @@ public final class PlacementTest {
     // ------------------------------------------------------------ liquidation
 
     @Test
-    public void policyClosedFormOnePeriod() {
+    void policyClosedFormOnePeriod() {
         LiquidationPolicy pol = Placement.liquidationPolicy(patient(0.5, 1, 1));
         double g = 0.01 + 0.015;
         double d = 1.0 / 30.0 - g;
@@ -275,7 +277,7 @@ public final class PlacementTest {
     }
 
     @Test
-    public void depthFallsWithInventory() {
+    void depthFallsWithInventory() {
         LiquidationPolicy pol = Placement.liquidationPolicy(patient(0.5, 10, 50));
         for (int j = 0; j < pol.depth().length; j++) {
             double prev = Double.MAX_VALUE;
@@ -283,14 +285,14 @@ public final class PlacementTest {
                 if (pol.market()[j][q]) {
                     continue;
                 }
-                assertTrue(j + " " + q, pol.depth()[j][q] <= prev + 1e-15);
+                assertTrue(pol.depth()[j][q] <= prev + 1e-15, j + " " + q);
                 prev = pol.depth()[j][q];
             }
         }
     }
 
     @Test
-    public void monteCarloMatchesDpAndBeatsBaselinesWithoutPenalty() {
+    void monteCarloMatchesDpAndBeatsBaselinesWithoutPenalty() {
         LiquidationParams p = patient(0.5, 10, 50);
         LiquidationSimResult r = Placement.simulateLiquidation(p, 20_000, 5);
         assertTrue(Math.abs(r.optimalMean() - Placement.liquidationPolicy(p).expectedCost())
@@ -302,7 +304,7 @@ public final class PlacementTest {
     }
 
     @Test
-    public void deterministicWithoutVolatility() {
+    void deterministicWithoutVolatility() {
         LiquidationParams p = patient(0.0, 4, 4);
         LiquidationSimResult r = Placement.simulateLiquidation(p, 50, 1);
         assertTrue(r.aggressiveStd() <= 1e-15);
@@ -310,13 +312,13 @@ public final class PlacementTest {
     }
 
     @Test
-    public void simulationIsDeterministic() {
+    void simulationIsDeterministic() {
         assertEquals(Placement.simulateLiquidation(patient(0.5, 10, 50), 200, 9),
                 Placement.simulateLiquidation(patient(0.5, 10, 50), 200, 9));
     }
 
     @Test
-    public void aggressiveScheduleSplitsEvenly() {
+    void aggressiveScheduleSplitsEvenly() {
         assertArrayEquals(new int[] {2, 3, 2, 3}, Placement.aggressiveSchedule(10, 4));
         assertArrayEquals(new int[] {0, 1, 0, 1, 1}, Placement.aggressiveSchedule(3, 5));
         int total = 0;
@@ -330,31 +332,37 @@ public final class PlacementTest {
 
     private static void expectThrow(String fragment, Runnable r) {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, r::run);
-        assertTrue(e.getMessage() + " should mention " + fragment,
-                e.getMessage().contains(fragment));
+        assertTrue(e.getMessage().contains(fragment), e.getMessage() + " should mention " + fragment);
     }
 
-    @Test
-    public void fillProbabilityValidation() {
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("fillProbabilityValidationCases")
+    void fillProbabilityValidation(String fragment, Executable call) {
+        assertRejects(fragment, call);
+    }
+
+    static List<Arguments> fillProbabilityValidationCases() {
+        List<Arguments> c = new ArrayList<>();
         double inf = Double.POSITIVE_INFINITY;
-        expectThrow("q_ahead", () -> Placement.queueFillProbability(-1, 1, 1.0, 0.0, 1.0));
-        expectThrow("size", () -> Placement.queueFillProbability(0, 0, 1.0, 0.0, 1.0));
-        expectThrow("q_ahead + size",
-                () -> Placement.queueFillProbability(4999, 2, 1.0, 0.0, 1.0));
-        expectThrow("mu", () -> Placement.queueFillProbability(0, 1, 0.0, 0.0, 1.0));
-        expectThrow("mu", () -> Placement.queueFillProbability(0, 1, inf, 0.0, 1.0));
-        expectThrow("theta", () -> Placement.queueFillProbability(0, 1, 1.0, -0.1, 1.0));
-        expectThrow("theta", () -> Placement.queueFillProbability(0, 1, 1.0, Double.NaN, 1.0));
-        expectThrow("horizon", () -> Placement.queueFillProbability(0, 1, 1.0, 0.0, -1.0));
-        expectThrow("horizon", () -> Placement.queueFillProbability(0, 1, 1.0, 0.0, inf));
-        expectThrow("horizon too long",
-                () -> Placement.queueFillProbability(0, 1, 1e6, 0.0, 1.0));
-        expectThrow("horizon too long",
-                () -> Placement.queueFillProbability(0, 1, 1e300, 0.0, 1e300));
+        c.add(bad("q_ahead", () -> Placement.queueFillProbability(-1, 1, 1.0, 0.0, 1.0)));
+        c.add(bad("size", () -> Placement.queueFillProbability(0, 0, 1.0, 0.0, 1.0)));
+        c.add(bad("q_ahead + size",
+                () -> Placement.queueFillProbability(4999, 2, 1.0, 0.0, 1.0)));
+        c.add(bad("mu", () -> Placement.queueFillProbability(0, 1, 0.0, 0.0, 1.0)));
+        c.add(bad("mu", () -> Placement.queueFillProbability(0, 1, inf, 0.0, 1.0)));
+        c.add(bad("theta", () -> Placement.queueFillProbability(0, 1, 1.0, -0.1, 1.0)));
+        c.add(bad("theta", () -> Placement.queueFillProbability(0, 1, 1.0, Double.NaN, 1.0)));
+        c.add(bad("horizon", () -> Placement.queueFillProbability(0, 1, 1.0, 0.0, -1.0)));
+        c.add(bad("horizon", () -> Placement.queueFillProbability(0, 1, 1.0, 0.0, inf)));
+        c.add(bad("horizon too long",
+                () -> Placement.queueFillProbability(0, 1, 1e6, 0.0, 1.0)));
+        c.add(bad("horizon too long",
+                () -> Placement.queueFillProbability(0, 1, 1e300, 0.0, 1e300)));
+        return c;
     }
 
     @Test
-    public void decisionValidation() {
+    void decisionValidation() {
         Object[][] bad = {{0, 0.0, "size"}, {1, -0.01, "spread"}, {2, 1.1, "fill_prob"},
             {2, Double.NaN, "fill_prob"}, {3, -1.0, "adverse_move"}, {4, -1.0, "eta"},
             {5, 0.0, "alpha"}, {5, 1.5, "alpha"}, {6, 0.0, "weight"}};
@@ -366,34 +374,41 @@ public final class PlacementTest {
         }
     }
 
-    @Test
-    public void liquidationParamsValidation() {
-        expectThrow("total_units",
-                () -> new LiquidationParams(0, 50, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005, 0.0));
-        expectThrow("total_units",
-                () -> new LiquidationParams(1001, 50, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005, 0.0));
-        expectThrow("n_periods",
-                () -> new LiquidationParams(10, 0, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005, 0.0));
-        expectThrow("n_periods",
-                () -> new LiquidationParams(10, 1001, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005, 0.0));
-        expectThrow("dt",
-                () -> new LiquidationParams(10, 50, 0.0, 0.5, 0.02, 30.0, 0.3, 0.005, 0.0));
-        expectThrow("sigma",
-                () -> new LiquidationParams(10, 50, 0.02, -1.0, 0.02, 30.0, 0.3, 0.005, 0.0));
-        expectThrow("spread",
-                () -> new LiquidationParams(10, 50, 0.02, 0.5, Double.NaN, 30.0, 0.3, 0.005, 0.0));
-        expectThrow("kappa",
-                () -> new LiquidationParams(10, 50, 0.02, 0.5, 0.02, 0.0, 0.3, 0.005, 0.0));
-        expectThrow("p_touch",
-                () -> new LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0, 0.0, 0.005, 0.0));
-        expectThrow("p_touch",
-                () -> new LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0, 1.01, 0.005, 0.0));
-        expectThrow("beta",
-                () -> new LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0, 0.3, -1.0, 0.0));
-        expectThrow("phi", () -> new LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005,
-                Double.POSITIVE_INFINITY));
-        expectThrow("n_paths", () -> Placement.simulateLiquidation(patient(0.5, 10, 50), 1, 0));
-        expectThrow("total_units", () -> Placement.aggressiveSchedule(0, 5));
-        expectThrow("n_periods", () -> Placement.aggressiveSchedule(5, 0));
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("liquidationParamsValidationCases")
+    void liquidationParamsValidation(String fragment, Executable call) {
+        assertRejects(fragment, call);
+    }
+
+    static List<Arguments> liquidationParamsValidationCases() {
+        List<Arguments> c = new ArrayList<>();
+        c.add(bad("total_units",
+                () -> new LiquidationParams(0, 50, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005, 0.0)));
+        c.add(bad("total_units",
+                () -> new LiquidationParams(1001, 50, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005, 0.0)));
+        c.add(bad("n_periods",
+                () -> new LiquidationParams(10, 0, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005, 0.0)));
+        c.add(bad("n_periods",
+                () -> new LiquidationParams(10, 1001, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005, 0.0)));
+        c.add(bad("dt",
+                () -> new LiquidationParams(10, 50, 0.0, 0.5, 0.02, 30.0, 0.3, 0.005, 0.0)));
+        c.add(bad("sigma",
+                () -> new LiquidationParams(10, 50, 0.02, -1.0, 0.02, 30.0, 0.3, 0.005, 0.0)));
+        c.add(bad("spread",
+                () -> new LiquidationParams(10, 50, 0.02, 0.5, Double.NaN, 30.0, 0.3, 0.005, 0.0)));
+        c.add(bad("kappa",
+                () -> new LiquidationParams(10, 50, 0.02, 0.5, 0.02, 0.0, 0.3, 0.005, 0.0)));
+        c.add(bad("p_touch",
+                () -> new LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0, 0.0, 0.005, 0.0)));
+        c.add(bad("p_touch",
+                () -> new LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0, 1.01, 0.005, 0.0)));
+        c.add(bad("beta",
+                () -> new LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0, 0.3, -1.0, 0.0)));
+        c.add(bad("phi", () -> new LiquidationParams(10, 50, 0.02, 0.5, 0.02, 30.0, 0.3, 0.005,
+                Double.POSITIVE_INFINITY)));
+        c.add(bad("n_paths", () -> Placement.simulateLiquidation(patient(0.5, 10, 50), 1, 0)));
+        c.add(bad("total_units", () -> Placement.aggressiveSchedule(0, 5)));
+        c.add(bad("n_periods", () -> Placement.aggressiveSchedule(5, 0)));
+        return c;
     }
 }

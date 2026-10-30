@@ -2,4 +2,4 @@
 # Run the etrade demo with Maven.
 set -euo pipefail
 cd "$(dirname "$0")"
-mvn -q -B compile exec:java
+mvn -q -B test-compile exec:java

@@ -41,7 +41,7 @@ public record ASParams(double s0, double sigma, double horizon, double dt, doubl
         require(Math.abs(n - Math.round(n)) < 1e-9,
                 "horizon must be an integer multiple of dt");
         require(n <= AvellanedaStoikov.MAX_AS_STEPS,
-                "horizon/dt must be <= 10000000 steps");
+                "horizon/dt must be <= " + AvellanedaStoikov.MAX_AS_STEPS + " steps");
     }
 
     /** Number of simulation steps {@code T/dt}. */

@@ -13,6 +13,11 @@ final class Validation {
         }
     }
 
+    /** Requires {@code v} to be non-null; the message names the argument. */
+    static void requireNonNull(Object v, String name) {
+        require(v != null, name + " must not be null");
+    }
+
     /** Requires {@code v} to be finite (not NaN/inf). */
     static void requireFinite(double v, String name) {
         require(Double.isFinite(v), name + " must be finite");

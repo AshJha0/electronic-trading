@@ -1,6 +1,7 @@
 package io.github.ashjha0.etrade;
 
 import static io.github.ashjha0.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.requireNonNull;
 
 /**
  * Market-unit layer: builds model parameters from quoted market quantities and reports
@@ -125,10 +126,10 @@ public final class Market {
         positive("session_seconds", m.sessionSeconds());
         positive("horizon_days", m.horizonDays());
         double sigma = m.price() * m.dailyVol();
-        double k = Math.log(2.0) / (m.halvingTicks() * m.tick());
+        double k = StrictMath.log(2.0) / (m.halvingTicks() * m.tick());
         return new ASParams(m.price(), sigma, m.horizonDays(), m.dtSeconds() / m.sessionSeconds(),
                 m.skewTicks() * m.tick() / (sigma * sigma * m.horizonDays()), k,
-                m.touchFillsPerDay() * Math.exp(k * m.tick() / 2.0), m.qMax(),
+                m.touchFillsPerDay() * StrictMath.exp(k * m.tick() / 2.0), m.qMax(),
                 m.liqTicks() * m.tick());
     }
 
@@ -302,7 +303,7 @@ public final class Market {
                 "alpha must be in (0, 1]");
         double sigma = m.price() * m.dailyVol();
         return new Impact.Params(m.totalShares(), m.nIntervals(), m.tau(), sigma,
-                m.y() * sigma / Math.pow(m.adv(), m.alpha()), m.alpha(),
+                m.y() * sigma / StrictMath.pow(m.adv(), m.alpha()), m.alpha(),
                 m.spread() / (m.permFrac() * m.adv()), m.lambdaRa(),
                 m.price() * m.driftBpsPerDay() * 1e-4, m.weights());
     }
@@ -345,6 +346,7 @@ public final class Market {
      * @return the report
      */
     public static PretradeReport pretradeReport(ImpactMarket m, double[] lambdas) {
+        requireNonNull(m, "m");
         require(lambdas != null && lambdas.length > 0, "lambdas must be non-empty");
         Impact.Params p0 = impactParamsFromMarket(m.withLambdaRa(0.0));
         double notional = m.totalShares() * m.price();
@@ -368,7 +370,7 @@ public final class Market {
     private static PretradeRow row(String label, double lam, double[] x, int horizon,
                                    Impact.Params p, double notional, double hs) {
         double e = bps(Impact.expectedCost(p, x), notional);
-        double sd = bps(Math.sqrt(Impact.varianceCost(p, x)), notional);
+        double sd = bps(StrictMath.sqrt(Impact.varianceCost(p, x)), notional);
         return new PretradeRow(label, lam, e, sd, e + hs, horizon);
     }
 }
