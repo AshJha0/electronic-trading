@@ -57,53 +57,53 @@ inline constexpr int kMaxPaths = 10'000'000;
 /// paper's model-validity condition `gamma_p*tau < 2*eta`
 /// (std::domain_error on violation, including equality).
 struct ACParams {
-    double total_shares;  ///< X >= 0, shares to sell (0 = empty trajectory).
-    int n_intervals;      ///< N in [1, kMaxAcIntervals], number of trading intervals.
-    double tau;           ///< Interval length (> 0).
-    double sigma;         ///< Arithmetic vol per sqrt(time unit) (>= 0).
-    double eta;           ///< Linear temporary impact coefficient (> 0).
-    double gamma_p;       ///< Linear permanent impact coefficient (>= 0).
-    double lambda_ra;     ///< Risk aversion (>= 0); 0 gives the TWAP limit.
+    const double total_shares;  ///< X >= 0, shares to sell (0 = empty trajectory).
+    const int n_intervals;      ///< N in [1, kMaxAcIntervals], number of trading intervals.
+    const double tau;           ///< Interval length (> 0).
+    const double sigma;         ///< Arithmetic vol per sqrt(time unit) (>= 0).
+    const double eta;           ///< Linear temporary impact coefficient (> 0).
+    const double gamma_p;       ///< Linear permanent impact coefficient (>= 0).
+    const double lambda_ra;     ///< Risk aversion (>= 0); 0 gives the TWAP limit.
 
     ACParams(double total_shares, int n_intervals, double tau, double sigma,
              double eta, double gamma_p, double lambda_ra);
 
     /// Total horizon T = N * tau.
-    double horizon() const { return n_intervals * tau; }
+    [[nodiscard]] double horizon() const noexcept { return n_intervals * tau; }
 
     /// Adjusted temporary impact eta_tilde = eta*(1 - gamma_p*tau/(2*eta)).
-    double eta_tilde() const { return eta * (1.0 - gamma_p * tau / (2.0 * eta)); }
+    [[nodiscard]] double eta_tilde() const noexcept { return eta * (1.0 - gamma_p * tau / (2.0 * eta)); }
 
     /// Copy of these params with a different risk aversion.
-    ACParams with_lambda(double new_lambda_ra) const;
+    [[nodiscard]] ACParams with_lambda(double new_lambda_ra) const;
 };
 
 /// Discrete urgency parameter kappa: the root of
 /// `(2/tau^2)*(cosh(kappa*tau) - 1) = kappa_tilde^2`; 0 when
 /// `lambda_ra*sigma^2 == 0`.
-double ac_kappa(const ACParams& params);
+[[nodiscard]] double ac_kappa(const ACParams& params);
 
 /// Characteristic decay time theta = 1/kappa (the paper's e-folding time,
 /// not ln(2)/kappa); +infinity in the TWAP limit (kappa == 0) — reported as
 /// infinity, not an error.
-double half_life(const ACParams& params);
+[[nodiscard]] double half_life(const ACParams& params);
 
 /// Alias of half_life() under the paper's name (theta = 1/kappa).
-double characteristic_time(const ACParams& params);
+[[nodiscard]] double characteristic_time(const ACParams& params);
 
 /// Optimal holdings path x_0..x_N (length N+1, x_0 = X exactly, x_N = 0
 /// exactly, every entry finite for any valid parameters).
-std::vector<double> ac_trajectory(const ACParams& params);
+[[nodiscard]] std::vector<double> ac_trajectory(const ACParams& params);
 
 /// Optimal trade list n_1..n_N (shares sold per interval, sums to X).
-std::vector<double> ac_trade_list(const ACParams& params);
+[[nodiscard]] std::vector<double> ac_trade_list(const ACParams& params);
 
 /// Trade list n_j = x_{j-1} - x_j from a finite holdings path (length >= 2).
-std::vector<double> trades_from_holdings(const std::vector<double>& holdings);
+[[nodiscard]] std::vector<double> trades_from_holdings(const std::vector<double>& holdings);
 
 /// Linear TWAP holdings path x_j = X*(N-j)/N (length N+1).  Requires finite
 /// `total_shares >= 0` and `1 <= n_intervals <= kMaxAcIntervals`.
-std::vector<double> twap_holdings(double total_shares, int n_intervals);
+[[nodiscard]] std::vector<double> twap_holdings(double total_shares, int n_intervals);
 
 /// POV (percentage-of-volume) holdings path: sells
 /// `participation*market_volume_rate*tau` shares per interval until done
@@ -112,7 +112,7 @@ std::vector<double> twap_holdings(double total_shares, int n_intervals);
 /// `market_volume_rate > 0`, `participation` in the open interval (0, 1)
 /// and `X/clip <= kMaxPovIntervals` (a clip too small for the order is an
 /// input error, never a huge allocation).
-std::vector<double> pov_holdings(double total_shares, double tau,
+[[nodiscard]] std::vector<double> pov_holdings(double total_shares, double tau,
                                  double market_volume_rate, double participation);
 
 /// E[IS] of a fully liquidating schedule through the exact discrete sum
@@ -120,44 +120,44 @@ std::vector<double> pov_holdings(double total_shares, double tau,
 /// of length >= 2, and satisfy `|x_N| <= 1e-9 * max(1, |x_0|)`.  The order
 /// size X in the permanent-impact term is the schedule's `x_0`, not
 /// `params.total_shares` (pinned).
-double expected_cost(const ACParams& params, const std::vector<double>& holdings);
+[[nodiscard]] double expected_cost(const ACParams& params, const std::vector<double>& holdings);
 
 /// E[IS] of the optimal trajectory.
-double expected_cost(const ACParams& params);
+[[nodiscard]] double expected_cost(const ACParams& params);
 
 /// Var[IS] = sigma^2 * tau * sum_{j=1..N} x_j^2 (exact discrete sum).  The
 /// path must be finite and of length >= 2.
-double variance_cost(const ACParams& params, const std::vector<double>& holdings);
+[[nodiscard]] double variance_cost(const ACParams& params, const std::vector<double>& holdings);
 
 /// Var[IS] of the optimal trajectory.
-double variance_cost(const ACParams& params);
+[[nodiscard]] double variance_cost(const ACParams& params);
 
 /// (E, Var) of instantaneous liquidation (all X in the first interval):
 /// `E = 0.5*gamma_p*X^2 + eta_tilde*X^2/tau`, `Var = 0`.
-std::pair<double, double> instantaneous_cost(const ACParams& params);
+[[nodiscard]] std::pair<double, double> instantaneous_cost(const ACParams& params);
 
 /// One point on the efficient frontier of execution.
 struct FrontierPoint {
-    double lambda_ra;  ///< Risk aversion of this point.
-    double kappa;      ///< Discrete urgency parameter.
-    double e_cost;     ///< E[IS] of the optimal schedule.
-    double var_cost;   ///< Var[IS] of the optimal schedule.
-    double std_cost;   ///< sqrt(Var[IS]).
+    double lambda_ra = 0.0;  ///< Risk aversion of this point.
+    double kappa = 0.0;      ///< Discrete urgency parameter.
+    double e_cost = 0.0;     ///< E[IS] of the optimal schedule.
+    double var_cost = 0.0;   ///< Var[IS] of the optimal schedule.
+    double std_cost = 0.0;   ///< sqrt(Var[IS]).
 };
 
 /// Sweep a risk-aversion grid (non-empty, each entry finite and >= 0; order
 /// preserved, duplicates allowed) and return `(lambda, kappa, E, Var,
 /// sqrt(Var))` per point.
-std::vector<FrontierPoint> efficient_frontier(const ACParams& params,
+[[nodiscard]] std::vector<FrontierPoint> efficient_frontier(const ACParams& params,
                                               const std::vector<double>& lambdas);
 
 /// Monte Carlo implementation-shortfall summary (arithmetic-walk sim).
 struct ISSimResult {
-    double mean;     ///< Sample mean of IS across paths.
-    double var;      ///< Sample variance (ddof = 1).
-    double se_mean;  ///< sqrt(var / n_paths).
-    double se_var;   ///< var * sqrt(2/(n_paths - 1)) (normal approximation).
-    int n_paths;     ///< Number of simulated paths.
+    double mean = 0.0;     ///< Sample mean of IS across paths.
+    double var = 0.0;      ///< Sample variance (ddof = 1).
+    double se_mean = 0.0;  ///< sqrt(var / n_paths).
+    double se_var = 0.0;   ///< var * sqrt(2/(n_paths - 1)) (normal approximation).
+    int n_paths = 0;       ///< Number of simulated paths.
 };
 
 /// Simulate IS of a schedule under the arithmetic random walk (S_0 = 0; IS
@@ -169,11 +169,11 @@ struct ISSimResult {
 /// forms statistically, not bit-for-bit; deterministic per seed within one
 /// standard-library implementation, since std::normal_distribution's
 /// algorithm is implementation-defined).
-ISSimResult simulate_is(const ACParams& params, const std::vector<double>& holdings,
+[[nodiscard]] ISSimResult simulate_is(const ACParams& params, const std::vector<double>& holdings,
                         int n_paths = 10000, std::uint64_t seed = 0);
 
 /// Simulate IS of the optimal trajectory.
-ISSimResult simulate_is(const ACParams& params, int n_paths = 10000,
+[[nodiscard]] ISSimResult simulate_is(const ACParams& params, int n_paths = 10000,
                         std::uint64_t seed = 0);
 
 }  // namespace etrade

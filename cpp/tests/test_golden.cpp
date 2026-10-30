@@ -199,19 +199,19 @@ TEST(Golden, AsSimLiquid) {
     const Value& c = find_case("as_sim_liquid");
     const etrade::ASSimResult r = etrade::simulate(as_params(c), 4000, 42);
     EXPECT_FALSE(r.cap_violated);
-    check_stat(c, "mean_pnl", r.mean_pnl(), r.se("mean_pnl"));
-    check_stat(c, "std_pnl", r.std_pnl(), r.se("std_pnl"));
-    check_stat(c, "mean_abs_q", r.mean_abs_q(), r.se("mean_abs_q"));
-    check_stat(c, "mean_max_abs_q", r.mean_max_abs_q(), r.se("mean_max_abs_q"));
-    check_stat(c, "mean_fills", r.mean_fills(), r.se("mean_fills"));
+    check_stat(c, "mean_pnl", r.mean_pnl(), r.se(etrade::ASStat::kMeanPnl));
+    check_stat(c, "std_pnl", r.std_pnl(), r.se(etrade::ASStat::kStdPnl));
+    check_stat(c, "mean_abs_q", r.mean_abs_q(), r.se(etrade::ASStat::kMeanAbsQ));
+    check_stat(c, "mean_max_abs_q", r.mean_max_abs_q(), r.se(etrade::ASStat::kMeanMaxAbsQ));
+    check_stat(c, "mean_fills", r.mean_fills(), r.se(etrade::ASStat::kMeanFills));
 }
 
 TEST(Golden, AsSimFx) {
     const Value& c = find_case("as_sim_fx");
     const etrade::ASSimResult r = etrade::simulate(as_params(c), 4000, 7);
-    check_stat(c, "mean_pnl", r.mean_pnl(), r.se("mean_pnl"));
-    check_stat(c, "std_pnl", r.std_pnl(), r.se("std_pnl"));
-    check_stat(c, "mean_abs_q", r.mean_abs_q(), r.se("mean_abs_q"));
+    check_stat(c, "mean_pnl", r.mean_pnl(), r.se(etrade::ASStat::kMeanPnl));
+    check_stat(c, "std_pnl", r.std_pnl(), r.se(etrade::ASStat::kStdPnl));
+    check_stat(c, "mean_abs_q", r.mean_abs_q(), r.se(etrade::ASStat::kMeanAbsQ));
 }
 
 TEST(Golden, AsFixedComparisonLiquid) {
@@ -221,8 +221,8 @@ TEST(Golden, AsFixedComparisonLiquid) {
         etrade::simulate(p, 4000, 42, etrade::Agent::kAS);
     const etrade::ASSimResult r_fx = etrade::simulate(
         p, 4000, 42, etrade::Agent::kFixed, in(c, "fixed_spread"));
-    check_stat(c, "as_rms_q", r_as.rms_q(), r_as.se("rms_q"));
-    check_stat(c, "fixed_rms_q", r_fx.rms_q(), r_fx.se("rms_q"));
+    check_stat(c, "as_rms_q", r_as.rms_q(), r_as.se(etrade::ASStat::kRmsQ));
+    check_stat(c, "fixed_rms_q", r_fx.rms_q(), r_fx.se(etrade::ASStat::kRmsQ));
 }
 
 void check_is_decomposition(const char* name, etrade::Side side) {

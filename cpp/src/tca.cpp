@@ -1,4 +1,5 @@
 #include "etrade/tca.hpp"
+#include "etrade/detail/require.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -16,9 +17,7 @@ constexpr double kLanczos[9] = {0.99999999999980993,  676.5203681218851,   -1259
                                 -0.13857109526572012, 9.9843695780195716e-6,
                                 1.5056327351493116e-7};
 
-void require(bool cond, const std::string& msg) {
-    if (!cond) throw std::invalid_argument(msg);
-}
+using detail::require;
 
 double sell_sign(Side side) { return side == Side::kSell ? 1.0 : -1.0; }
 

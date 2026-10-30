@@ -1,4 +1,5 @@
 #include "etrade/execution.hpp"
+#include "etrade/detail/require.hpp"
 
 #include "etrade/impact.hpp"
 
@@ -12,9 +13,7 @@
 namespace etrade {
 namespace {
 
-void require(bool cond, const std::string& msg) {
-    if (!cond) throw std::invalid_argument(msg);
-}
+using detail::require;
 
 std::string intervals_msg() {
     return "n_intervals must be an integer in [1, " + std::to_string(kMaxExecIntervals) + "]";

@@ -1,4 +1,5 @@
 #include "etrade/almgren_chriss.hpp"
+#include "etrade/detail/require.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,10 +11,7 @@ namespace etrade {
 
 namespace {
 
-/// Throw std::invalid_argument unless `cond` holds.
-void require(bool cond, const char* msg) {
-    if (!cond) throw std::invalid_argument(msg);
-}
+using detail::require;
 
 /// Validate a user-supplied holdings path: length >= 2, all finite.
 void require_holdings(const std::vector<double>& x) {
