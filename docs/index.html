@@ -72,16 +72,17 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
     <tr><td>US small cap</td><td>sell 10% ADV: E[IS] 265 bps, sd 179 bps; A-S 54 / 29 bps (market spread 25 bps)</td></tr>
     <tr><td>US ETF</td><td>sell 1% ADV: E[IS] 0.2 bps, sd 51 bps; A-S 0.5 / 0.3 bps (market spread 0.2 bp)</td></tr>
     <tr><td>EUR/USD</td><td>sell 5% of venue volume: E[IS] 2.4 bps, sd 26 bps; A-S 0.8 / 0.5 bps (market spread 0.45 bp)</td></tr>
-    <tr><td>Caveat</td><td>presets are illustrative, not fitted to data; this table uses the papers' linear impact calibration; the pre-trade report below uses square-root impact</td></tr>
+    <tr><td>Almgren-Chriss example</td><td>sell 20% ADV: E[IS] 216 bps, sd 90 bps (the paper's own parameters)</td></tr>
+    <tr><td>Caveat</td><td>presets are illustrative, not fitted to data; this table uses the Almgren-Chriss linear impact calibration; the pre-trade report below uses square-root impact</td></tr>
   </table></div>
 
   <h2>Pre-trade report (square-root impact)</h2>
   <div class="numbers"><table>
     <tr><td>Order</td><td>US large cap, sell 5% ADV in one day, U-shaped volume curve; square-root-law estimate 33.54 bps</td></tr>
     <tr><td>TWAP / VWAP</td><td>34.96 / 33.77 bps expected impact, 81.6 / 79.9 bps standard deviation</td></tr>
-    <tr><td>Optimal</td><td>lambda 1e-6: 36.95 bps, sd 56.6 bps · lambda 1e-5: 58.26 bps, sd 21.6 bps</td></tr>
+    <tr><td>Optimal</td><td>lambda 0: 33.77 bps, sd 79.9 bps (matches VWAP) · lambda 1e-7: 33.83 bps, sd 76.5 bps · lambda 1e-6: 36.95 bps, sd 56.6 bps · lambda 1e-5: 58.26 bps, sd 21.6 bps</td></tr>
     <tr><td>Alpha-aware</td><td>with a 50 bps/day adverse drift the drift-aware schedule costs 52.13 bps against 57.31 bps for VWAP</td></tr>
-    <tr><td>Solver</td><td>pinned Newton method with a KKT certificate; reproduces Almgren-Chriss to 1e-16 at alpha = 1; cross-checked against SciPy</td></tr>
+    <tr><td>Solver</td><td>pinned Newton method with a KKT certificate; at alpha = 1 it reproduces the Almgren-Chriss trajectory (holdings within 1e-10 of X, costs within 1e-12 relative); the Python suite cross-checks it against SciPy</td></tr>
   </table></div>
 
   <h2>What's inside</h2>
@@ -95,7 +96,7 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
     <div class="card"><h3>Execution analytics</h3>
       <p>Perold (1988) implementation-shortfall decomposition into delay, trading and opportunity components for buy and sell orders (with the identity and price-shift invariance tested), participation rate, and a native two-variable OLS used to fit cost-per-share against participation on pinned RNG-free synthetic fills.</p></div>
     <div class="card"><h3>Golden-value testing</h3>
-      <p>One <code>golden.json</code> with 19 cases loaded by all four suites: deterministic cases under a relative-or-absolute tolerance of 1e-10 to 1e-12, Monte Carlo cases as reference values plus standard errors. Sample values differ across languages by design; distributions must agree.</p></div>
+      <p><code>golden.json</code> with 19 model cases, <code>market_golden.json</code> with 9 and <code>impact_golden.json</code> with 8, loaded by all four suites: deterministic cases under a relative-or-absolute tolerance of 1e-9 to 1e-12, Monte Carlo cases as reference values plus standard errors. Sample values differ across languages by design; distributions must agree.</p></div>
     <div class="card"><h3>Property, numeric and validation tests</h3>
       <p>Per language: trajectory monotonicity, inventory cap respected at every step, frontier monotonicity, continuity across the TWAP branch, overflow safety at <code>kappa·T &gt; 2500</code>, <code>ac_kappa_small_tau</code> at millisecond tau, and every rule in API_SPEC §6 — NaN/inf, empty grids, non-liquidating schedules, participation above 1, sizes beyond the pinned bounds.</p></div>
     <div class="card"><h3>Error contract</h3>
@@ -103,7 +104,7 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
     <div class="card"><h3>Reference papers</h3>
       <p>Almgren &amp; Chriss (2000), <em>Journal of Risk</em>; Avellaneda &amp; Stoikov (2008), <em>Quantitative Finance</em>; Perold (1988) and Wagner &amp; Edwards (1993) for the shortfall decomposition and its naming; Guéant, Lehalle &amp; Fernandez-Tapia (2013) for the inventory-capped variant behind <code>q_max</code>; MiFID II Art. 17/27, Reg NMS Rules 605/606 and SEC Rule 15c3-5 in the LEARN guide's regulatory section.</p></div>
     <div class="card"><h3>Units and what is out of scope</h3>
-      <p><code>tau</code>, <code>dt</code>, <code>T</code> in an abstract time unit (bundled sets use one trading day); <code>sigma</code> is arithmetic (currency per share per √time); prices may go negative; AC shares are fractional, A-S fills are one unit. Not covered: square-root impact, adaptive re-optimisation, adverse selection, order types, venues, ticks, lots, latency, calendars, and any calibration of <code>eta</code>, <code>gamma_p</code>, <code>A</code>, <code>k</code> to real markets.</p></div>
+      <p><code>tau</code>, <code>dt</code>, <code>T</code> in an abstract time unit (bundled sets use one trading day); <code>sigma</code> is arithmetic (currency per share per √time); prices may go negative; AC shares are fractional, A-S fills are one unit. Not covered yet: adaptive re-optimisation, adverse selection, decaying impact, order types, venues, ticks, lots, latency, calendars, and any calibration of <code>eta</code>, <code>alpha</code>, <code>gamma_p</code>, <code>A</code>, <code>k</code> or the volume curve to real markets.</p></div>
   </div>
 
   <h2>Part of a wider portfolio</h2>

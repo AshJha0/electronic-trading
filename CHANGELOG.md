@@ -4,6 +4,12 @@ All notable changes to this project. Dates are UTC.
 
 ## Unreleased
 
+### Documentation accuracy pass and site
+
+- Every number in README, LEARN, COOKBOOK, ARCHITECTURE and the landing page re-checked against the four demos and test suites; every COOKBOOK snippet run (Python) or compiled and run in a scratch harness (C++, Rust, Java). Corrections: two stale trajectory values in COOKBOOK recipe 1, deterministic values quoted to 15 significant digits (the last ulp differs by platform), the pre-trade table now lists every row the demos print, the scope and units notes no longer say square-root impact and volume curves are missing, ARCHITECTURE describes all five modules and the three golden files, and the roadmap marks F1 and F2 done.
+- LEARN gains Section 3.8 (parameters in market units); the power-law section becomes 3.9, and its references (Almgren et al. 2005, Tóth et al. 2011, Bouchaud et al. 2018) are in the reading list.
+- Documentation site built with MkDocs Material from the Markdown sources (`mkdocs.yml`), checked with `mkdocs build --strict` on every pull request and deployed to GitHub Pages from `main` by `.github/workflows/docs.yml`.
+
 ### Execution a desk would recognise (F2)
 
 - Power-law impact execution in all four languages (API_SPEC Section 8): temporary cost `eta_j * n^(1+alpha)` with per-interval liquidity weights, linear permanent impact and an optional adverse drift. `alpha = 1/2` is the square-root law; `alpha = 1` reproduces Almgren-Chriss exactly (asserted).
@@ -28,7 +34,7 @@ All notable changes to this project. Dates are UTC.
 - C++ builds on MSVC as well as GCC and Clang; GoogleTest is fetched when not installed; tests are optional.
 - Java builds with Maven (`mvn -f java/pom.xml verify`) on any OS; package renamed to `io.github.ashjha0.etrade`; Java 17 is the minimum.
 - Rust crate metadata completed; `serde_json` is now a dev-dependency only and the demo is an example (`cargo run --example demo`).
-- Documentation corrections: Java determinism scoped to one JVM build and platform; the `sinh` overflow motivation fixed (`kappa*T` does not depend on the grid); "1 ulp" claims replaced with "cancellation-free"; LEARN Section 12 renamed "Knowledge check" and sections renumbered.
+- Documentation corrections: Java determinism scoped to one JVM build and platform; the `sinh` overflow motivation fixed (`kappa*T` does not depend on the grid); "1 ulp" claims replaced with "cancellation-free"; the LEARN knowledge-check section renamed "Knowledge check" (now Section 13) and sections renumbered.
 
 ## 1.1.0 — 2026-09-06
 
