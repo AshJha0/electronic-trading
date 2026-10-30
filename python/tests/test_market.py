@@ -62,7 +62,7 @@ def test_market_golden(case: dict) -> None:
 
 
 def test_market_golden_count_and_presets_covered() -> None:
-    assert len(MARKET["cases"]) == 9
+    assert len(MARKET["cases"]) == 15
     names = {c["name"] for c in MARKET["cases"]}
     for preset, body in PRESETS.items():
         for side in ("ac", "as"):

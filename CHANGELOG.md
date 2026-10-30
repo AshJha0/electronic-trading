@@ -4,6 +4,13 @@ All notable changes to this project. Dates are UTC.
 
 ## Unreleased
 
+### Calibration from recorded ITCH data (F4b)
+
+- Calibration estimators in all four languages (API_SPEC Section 11): intraday volume curve, realised-variance volatility curve and daily volatility, quoted and effective spread statistics in ticks and bps, and the Avellaneda-Stoikov fill intensity `A exp(-k delta)`. The intensity is fitted by count-weighted least squares on the log rate at which market orders reach each distance, and reported in the Section 7.2 units (`touch_fills_per_day`, `halving_ticks`).
+- Fitted presets `itch_aapl_20191230`, `itch_msft_20191230`, `itch_qqq_20191230` in `data/presets.json`, from the NASDAQ TotalView-ITCH sample day 2019-12-30. Every preset now carries a `source` field. `FITTED_VOLUME_CURVE_13` is added next to the illustrative `US_EQUITY_VOLUME_CURVE_13`.
+- The ingestion tooling `data/calibration/fit_itch.py` (Python only) reads the sibling project's ingested books and writes only aggregates (`data/calibration/fitted_20191230.json`). Section 11.6 lists the caveats: one day, three names, one venue, a holiday week.
+- Nine calibration golden cases in `data/golden/calibration_golden.json`. `data/golden/market_golden.json` was regenerated with six cases for the fitted presets (15 in total; the nine existing cases are unchanged).
+
 ### Execution a desk would recognise (F2)
 
 - Power-law impact execution in all four languages (API_SPEC Section 8): temporary cost `eta_j * n^(1+alpha)` with per-interval liquidity weights, linear permanent impact and an optional adverse drift. `alpha = 1/2` is the square-root law; `alpha = 1` reproduces Almgren-Chriss exactly (asserted).

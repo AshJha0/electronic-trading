@@ -6,11 +6,14 @@ Outputs
   data/presets.json              named presets in market units
   data/golden/market_golden.json cross-language golden cases for API_SPEC s7
 
-The presets are illustrative, chosen inside typical public ranges for each
-instrument type (one-tick spreads for liquid US names and ETFs, wider for
-small caps, sub-bp for EUR/USD).  They are not fitted to any data; the
-calibration release replaces them with values fitted to recorded order-book
-data.  The paper preset reproduces the Almgren-Chriss (2000) example exactly.
+The five hand-written presets are illustrative, chosen inside typical public
+ranges for each instrument type (one-tick spreads for liquid US names and
+ETFs, wider for small caps, sub-bp for EUR/USD); the paper preset reproduces
+the Almgren-Chriss (2000) example exactly.  The ``itch_*`` presets are
+fitted to the NASDAQ TotalView-ITCH sample day 2019-12-30 from the committed
+aggregate ``data/calibration/fitted_20191230.json`` (written by
+``data/calibration/fit_itch.py``; API_SPEC Section 11.6 states the rules).
+Every preset carries a ``source`` field.
 
 Golden schema matches data/golden/golden.json: {"cases": [{name, kind,
 inputs, expect, tol}]}, flat scalar keys.  kind is "market_ac" or
@@ -36,6 +39,7 @@ PRESETS: dict[str, dict] = {
     "paper_almgren_chriss_2000": {
         "description": "Almgren and Chriss (2000) Section 4 example: price 50, spread 1/8, "
         "ADV 5M, 30% annual vol; reproduces params_liquid.json (AC) exactly.",
+        "source": "Almgren and Chriss (2000), Section 4",
         "ac": {
             "price": 50.0,
             "spread": 0.125,
@@ -50,6 +54,7 @@ PRESETS: dict[str, dict] = {
     "us_large_cap": {
         "description": "Liquid US large cap: $100, one-tick (1 bp) spread, 1.5% daily vol, "
         "ADV 5M; sell 5% of ADV over one day in 30-minute bins.",
+        "source": "illustrative, not fitted to data",
         "ac": {
             "price": 100.0,
             "spread": 0.01,
@@ -77,6 +82,7 @@ PRESETS: dict[str, dict] = {
     "us_small_cap": {
         "description": "US small cap: $20, five-tick (25 bp) spread, 3.5% daily vol, "
         "ADV 300k; sell 10% of ADV over one day.",
+        "source": "illustrative, not fitted to data",
         "ac": {
             "price": 20.0,
             "spread": 0.05,
@@ -104,6 +110,7 @@ PRESETS: dict[str, dict] = {
     "us_etf": {
         "description": "Very liquid US ETF: $500, one-tick (0.2 bp) spread, 1% daily vol, "
         "ADV 60M; sell 1% of ADV over one day.",
+        "source": "illustrative, not fitted to data",
         "ac": {
             "price": 500.0,
             "spread": 0.01,
@@ -132,6 +139,7 @@ PRESETS: dict[str, dict] = {
         "description": "EUR/USD on an electronic venue: 1.10, 0.5 pip spread (about 0.45 bp), "
         "0.5% daily vol, 2bn EUR daily venue volume, 24-hour session; sell 100M EUR "
         "(5% of volume) over one day in hourly bins.",
+        "source": "illustrative, not fitted to data",
         "ac": {
             "price": 1.10,
             "spread": 5.0e-5,
@@ -157,6 +165,70 @@ PRESETS: dict[str, dict] = {
         },
     },
 }
+
+
+FITTED = DATA_DIR / "calibration" / "fitted_20191230.json"
+
+#: Inputs the data cannot fit, taken from the illustrative preset of the same
+#: instrument type: order size as a fraction of ADV, intervals, and the A-S
+#: skew, inventory limit, liquidation penalty and step.
+FITTED_TEMPLATE = {"AAPL": "us_large_cap", "MSFT": "us_large_cap", "QQQ": "us_etf"}
+ORDER_FRAC_OF_ADV = 0.05
+
+
+def _sig(x: float, digits: int = 4) -> float:
+    return float(f"{x:.{digits}g}")
+
+
+def fitted_presets() -> dict[str, dict]:
+    """Presets fitted to one ITCH day (API_SPEC 11.6)."""
+    fit = json.loads(FITTED.read_text())
+    out: dict[str, dict] = {}
+    for sym, f in fit["symbols"].items():
+        template = PRESETS[FITTED_TEMPLATE[sym]]
+        tick = f["tick"]
+        price = round(f["volume_weighted_mid"], 2)
+        spread = round(f["quoted_spread"]["mean_ticks"] * tick, 6)
+        adv = float(round(f["volume_shares"]))
+        daily_vol = _sig(f["daily_vol"])
+        # lambda_ra is not fitted: keep the template's lambda_ra * sigma^2 / eta
+        t_ac = template["ac"]
+        t_ratio = (
+            t_ac["lambda_ra"]
+            * (t_ac["price"] * t_ac["daily_vol"]) ** 2
+            / (t_ac["spread"] / (mk.DEFAULT_TEMP_FRAC * t_ac["adv"]))
+        )
+        eta = spread / (mk.DEFAULT_TEMP_FRAC * adv)
+        lambda_ra = _sig(t_ratio * eta / (price * daily_vol) ** 2, 3)
+        fi = f["fill_intensity"]
+        as_block = dict(template["as"])
+        as_block.update(
+            price=price,
+            tick=tick,
+            daily_vol=daily_vol,
+            touch_fills_per_day=float(round(fi["touch_fills_per_day"])),
+            halving_ticks=round(fi["halving_ticks"], 3),
+        )
+        out[f"itch_{sym.lower()}_20191230"] = {
+            "description": f"{sym} fitted to one NASDAQ ITCH day (2019-12-30): volume-weighted "
+            f"mid {price}, mean quoted spread {f['quoted_spread']['mean_ticks']:.2f} ticks, "
+            f"open-to-close realised vol {100 * daily_vol:.3f}%, NASDAQ continuous volume "
+            f"{adv:.0f} shares as ADV; sell {ORDER_FRAC_OF_ADV:.0%} of it over one day. "
+            f"Order size, lambda_ra, skew, q_max, liq_ticks and dt follow {FITTED_TEMPLATE[sym]}.",
+            "source": fit["source"],
+            "ac": {
+                "price": price,
+                "spread": spread,
+                "adv": adv,
+                "daily_vol": daily_vol,
+                "total_shares": float(round(ORDER_FRAC_OF_ADV * adv / 100.0) * 100),
+                "n_intervals": 13,
+                "tau": 1.0 / 13.0,
+                "lambda_ra": lambda_ra,
+            },
+            "as": as_block,
+        }
+    return out
 
 
 def ac_expect(c: dict) -> dict:
@@ -217,6 +289,7 @@ def build_cases() -> list[dict]:
 
 
 def main() -> None:
+    PRESETS.update(fitted_presets())
     (DATA_DIR / "presets.json").write_text(json.dumps(PRESETS, indent=2) + "\n")
     cases = build_cases()
     (DATA_DIR / "golden" / "market_golden.json").write_text(
