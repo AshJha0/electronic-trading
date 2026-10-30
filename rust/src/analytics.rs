@@ -48,6 +48,31 @@ impl FromStr for Side {
     }
 }
 
+impl Side {
+    /// Lowercase name, the inverse of [`FromStr`].
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Side::Buy => "buy",
+            Side::Sell => "sell",
+        }
+    }
+}
+
+impl std::fmt::Display for Side {
+    /// Writes `"buy"` / `"sell"`, the names [`FromStr`] accepts.
+    ///
+    /// ```
+    /// use etrade::Side;
+    /// let s: Side = "sell".parse().unwrap();
+    /// assert_eq!(s, Side::Sell);
+    /// assert_eq!(s.to_string(), "sell");
+    /// assert!("SELL".parse::<Side>().is_err());
+    /// ```
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Implementation-shortfall components (currency costs; positive = loss).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ISDecomposition {

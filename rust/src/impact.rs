@@ -175,6 +175,83 @@ impl ImpactParams {
     }
 }
 
+/// Named-field form of [`ImpactParams::new`]: the same arguments, labelled, so a
+/// call site cannot silently swap two numbers of the same type.
+///
+/// [`ImpactSpec::build`] (or `ImpactParams::try_from(spec)`) runs exactly the validation of
+/// [`ImpactParams::new`] and returns the same errors.
+///
+/// ```
+/// use etrade::impact::{optimal_schedule, ImpactSpec};
+///
+/// let p = ImpactSpec {
+///     total_shares: 1e6,
+///     n_intervals: 5,
+///     tau: 1.0,
+///     sigma: 0.95,
+///     eta: 2.5e-6,
+///     alpha: 1.0,
+///     gamma_p: 2.5e-7,
+///     lambda_ra: 2e-6,
+///     drift: 0.0,
+///     weights: None,
+/// }
+/// .build()?;
+/// let s = optimal_schedule(&p)?;
+/// assert_eq!(s.holdings().len(), 6);
+/// assert_eq!(s.holdings()[0], 1e6);
+/// # Ok::<(), etrade::EtradeError>(())
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImpactSpec {
+    /// Shares to sell, `X >= 0`.
+    pub total_shares: f64,
+    /// Trading intervals `N`.
+    pub n_intervals: usize,
+    /// Interval length, `> 0`.
+    pub tau: f64,
+    /// Arithmetic volatility per sqrt(time unit), `>= 0`.
+    pub sigma: f64,
+    /// Temporary impact coefficient, `> 0`.
+    pub eta: f64,
+    /// Impact exponent, `0 < alpha <= 1`.
+    pub alpha: f64,
+    /// Linear permanent impact coefficient, `>= 0`.
+    pub gamma_p: f64,
+    /// Risk aversion, `>= 0`.
+    pub lambda_ra: f64,
+    /// Expected price drift per time unit.
+    pub drift: f64,
+    /// Volume weights per interval; `None` selects `tau` per interval.
+    pub weights: Option<Vec<f64>>,
+}
+
+impl ImpactSpec {
+    /// Validate and build the [`ImpactParams`] (same checks as [`ImpactParams::new`]).
+    pub fn build(self) -> Result<ImpactParams, EtradeError> {
+        ImpactParams::try_from(self)
+    }
+}
+
+impl TryFrom<ImpactSpec> for ImpactParams {
+    type Error = EtradeError;
+
+    fn try_from(s: ImpactSpec) -> Result<Self, Self::Error> {
+        ImpactParams::new(
+            s.total_shares,
+            s.n_intervals,
+            s.tau,
+            s.sigma,
+            s.eta,
+            s.alpha,
+            s.gamma_p,
+            s.lambda_ra,
+            s.drift,
+            s.weights,
+        )
+    }
+}
+
 fn check_holdings(p: &ImpactParams, x: &[f64]) -> Result<(), EtradeError> {
     require(
         x.len() == p.n_intervals + 1,
@@ -243,11 +320,18 @@ pub fn vwap_holdings(total_shares: f64, weights: &[f64]) -> Result<Vec<f64>, Etr
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScheduleResult {
     /// Holdings path, length `N + 1`.
-    pub holdings: Vec<f64>,
+    holdings: Vec<f64>,
     /// Horizon `m` actually used (`x_k = 0` for `k >= m`).
     pub horizon: usize,
     /// Total Newton iterations.
     pub iterations: usize,
+}
+
+impl ScheduleResult {
+    /// Holdings path, length `N + 1`.
+    pub fn holdings(&self) -> &[f64] {
+        &self.holdings
+    }
 }
 
 fn thomas(diag: &[f64], off: &[f64], rhs: &[f64]) -> Vec<f64> {

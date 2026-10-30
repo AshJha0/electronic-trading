@@ -100,9 +100,16 @@ pub struct VolatilityCurve {
     /// `sqrt(sum_j RV_j)`: open-to-close volatility of the session.
     pub daily_vol: f64,
     /// `sqrt(RV_j)` per bin.
-    pub bin_vol: Vec<f64>,
+    bin_vol: Vec<f64>,
     /// Number of returns inside the session.
     pub n_returns: usize,
+}
+
+impl VolatilityCurve {
+    /// `sqrt(RV_j)` per bin.
+    pub fn bin_vol(&self) -> &[f64] {
+        &self.bin_vol
+    }
 }
 
 /// Realised volatility per bin and for the session (API_SPEC 11.3).

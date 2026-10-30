@@ -184,6 +184,88 @@ impl ACParams {
     }
 }
 
+/// Named-field form of [`ACParams::new`]: the same arguments, labelled, so a
+/// call site cannot silently swap two numbers of the same type.
+///
+/// [`ACSpec::build`] (or `ACParams::try_from(spec)`) runs exactly the validation of
+/// [`ACParams::new`] and returns the same errors.
+///
+/// ```
+/// use etrade::{ACParams, ACSpec};
+///
+/// let p = ACSpec {
+///     total_shares: 1e6,
+///     n_intervals: 10,
+///     tau: 1.0,
+///     sigma: 0.95,
+///     eta: 2.5e-6,
+///     gamma_p: 2.5e-7,
+///     lambda_ra: 1e-6,
+/// }
+/// .build()?;
+/// let x = etrade::ac_trajectory(&p);
+/// assert_eq!(x.len(), 11);
+/// assert_eq!((x[0], x[10]), (1e6, 0.0));
+/// // `ACParams::try_from(spec)` is the same validation.
+/// assert!(ACParams::try_from(ACSpec { eta: -1.0, ..ACSpec::from(p) }).is_err());
+/// # Ok::<(), etrade::EtradeError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ACSpec {
+    /// Shares to sell, `X >= 0`.
+    pub total_shares: f64,
+    /// Trading intervals `N`, `1 <= N <= MAX_AC_INTERVALS`.
+    pub n_intervals: usize,
+    /// Interval length, `> 0`.
+    pub tau: f64,
+    /// Arithmetic volatility per sqrt(time unit), `>= 0`.
+    pub sigma: f64,
+    /// Linear temporary impact coefficient, `> 0`.
+    pub eta: f64,
+    /// Linear permanent impact coefficient, `>= 0`.
+    pub gamma_p: f64,
+    /// Risk aversion, `>= 0`.
+    pub lambda_ra: f64,
+}
+
+impl ACSpec {
+    /// Validate and build the [`ACParams`] (same checks as [`ACParams::new`]).
+    pub fn build(self) -> Result<ACParams, EtradeError> {
+        ACParams::try_from(self)
+    }
+}
+
+impl TryFrom<ACSpec> for ACParams {
+    type Error = EtradeError;
+
+    fn try_from(s: ACSpec) -> Result<Self, Self::Error> {
+        ACParams::new(
+            s.total_shares,
+            s.n_intervals,
+            s.tau,
+            s.sigma,
+            s.eta,
+            s.gamma_p,
+            s.lambda_ra,
+        )
+    }
+}
+
+impl From<ACParams> for ACSpec {
+    /// The spec a validated parameter set was built from.
+    fn from(p: ACParams) -> Self {
+        Self {
+            total_shares: p.total_shares,
+            n_intervals: p.n_intervals,
+            tau: p.tau,
+            sigma: p.sigma,
+            eta: p.eta,
+            gamma_p: p.gamma_p,
+            lambda_ra: p.lambda_ra,
+        }
+    }
+}
+
 /// Discrete urgency parameter `kappa`.
 ///
 /// Solves `(2/tau^2)*(cosh(kappa*tau) - 1) = kappa_tilde^2` with
@@ -226,6 +308,19 @@ pub fn characteristic_time(params: &ACParams) -> f64 {
 /// Uses the sinh solution in the overflow-free `exp/exp_m1` ratio form;
 /// switches to the exact linear (TWAP) branch when `kappa*T < KAPPA_T_LIMIT`
 /// (covers `lambda_ra = 0` and `sigma = 0`).
+///
+/// ```
+/// use etrade::{ac_trade_list, ac_trajectory, ACParams};
+///
+/// let p = ACParams::new(1e6, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6)?;
+/// let x = ac_trajectory(&p);
+/// assert_eq!((x[0], x[5]), (1e6, 0.0));
+/// // Risk aversion front-loads: holdings fall faster than TWAP.
+/// assert!(x[1] < 0.8e6);
+/// let n = ac_trade_list(&p);
+/// assert!((n.iter().sum::<f64>() - 1e6).abs() < 1e-6);
+/// # Ok::<(), etrade::EtradeError>(())
+/// ```
 pub fn ac_trajectory(params: &ACParams) -> Vec<f64> {
     let n = params.n_intervals();
     let x0 = params.total_shares();

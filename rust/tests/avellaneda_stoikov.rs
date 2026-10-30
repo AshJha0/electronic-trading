@@ -96,11 +96,11 @@ fn simulation_respects_inventory_cap_and_is_deterministic() {
     assert!(res.mean_fills() > 0.0);
     // Determinism: same seed twice gives identical results.
     let res2 = etrade::simulate(&p, 500, 11, &SimConfig::default()).unwrap();
-    assert_eq!(res.pnl, res2.pnl);
-    assert_eq!(res.fills_path, res2.fills_path);
+    assert_eq!(res.pnl(), res2.pnl());
+    assert_eq!(res.fills_path(), res2.fills_path());
     // Different seed differs.
     let res3 = etrade::simulate(&p, 500, 12, &SimConfig::default()).unwrap();
-    assert_ne!(res.pnl, res3.pnl);
+    assert_ne!(res.pnl(), res3.pnl());
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn tight_cap_binds_and_zero_cap_quotes_nothing() {
     let none = ASParams::new(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 0, 0.5).unwrap();
     let res0 = etrade::simulate(&none, 100, 3, &SimConfig::default()).unwrap();
     assert_eq!(res0.mean_fills(), 0.0);
-    assert!(res0.pnl.iter().all(|&v| v == 0.0));
+    assert!(res0.pnl().iter().all(|&v| v == 0.0));
 }
 
 #[test]
@@ -221,14 +221,14 @@ fn mean_fills_counts_both_sides() {
     let sat = ASParams::new(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 1e6, 10_000, 0.0).unwrap();
     let r = etrade::simulate(&sat, 50, 1, &SimConfig::default()).unwrap();
     assert_eq!(r.mean_fills(), 2.0 * sat.n_steps() as f64);
-    assert!(r.fills_path.iter().all(|&f| f == 400.0));
+    assert!(r.fills_path().iter().all(|&f| f == 400.0));
     // Liquid set: bounded by 2 per step, integral, >= peak inventory.
     let p = liquid();
     let l = etrade::simulate(&p, 400, 8, &SimConfig::default()).unwrap();
     for i in 0..l.n_paths() {
-        assert!(l.fills_path[i] <= 2.0 * p.n_steps() as f64);
-        assert!(l.fills_path[i] >= l.max_abs_q_path[i]);
-        assert_eq!(l.fills_path[i], l.fills_path[i].round());
+        assert!(l.fills_path()[i] <= 2.0 * p.n_steps() as f64);
+        assert!(l.fills_path()[i] >= l.max_abs_q_path()[i]);
+        assert_eq!(l.fills_path()[i], l.fills_path()[i].round());
     }
     assert!(l.se(ASStat::MeanFills) > 0.0);
 }
@@ -271,14 +271,20 @@ fn stress_edge_fractions() {
         stress_time_frac: 1.0,
         ..SimConfig::default()
     };
-    assert_eq!(etrade::simulate(&p, 300, 9, &late).unwrap().pnl, base.pnl);
+    assert_eq!(
+        etrade::simulate(&p, 300, 9, &late).unwrap().pnl(),
+        base.pnl()
+    );
     // factor = 1.0 at any fraction: identical.
     let unit = SimConfig {
         stress_factor: 1.0,
         stress_time_frac: 0.0,
         ..SimConfig::default()
     };
-    assert_eq!(etrade::simulate(&p, 300, 9, &unit).unwrap().pnl, base.pnl);
+    assert_eq!(
+        etrade::simulate(&p, 300, 9, &unit).unwrap().pnl(),
+        base.pnl()
+    );
     // frac = 0.0 with factor 5: every step stressed, dispersion up.
     let early = SimConfig {
         stress_factor: 5.0,
@@ -309,9 +315,9 @@ fn n_steps_integrality_float() {
     let r = etrade::simulate(&p1, 200, 4, &SimConfig::default()).unwrap();
     for i in 0..r.n_paths() {
         // one step: the time average of |q| is the single post-update value
-        assert_eq!(r.mean_abs_q_path[i], r.max_abs_q_path[i]);
-        assert_eq!(r.rms_q_path[i], r.max_abs_q_path[i]);
-        assert!(r.fills_path[i] <= 2.0);
+        assert_eq!(r.mean_abs_q_path()[i], r.max_abs_q_path()[i]);
+        assert_eq!(r.rms_q_path()[i], r.max_abs_q_path()[i]);
+        assert!(r.fills_path()[i] <= 2.0);
     }
     assert_eq!(r.mean_abs_q(), r.mean_max_abs_q());
     // step-count bound

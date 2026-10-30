@@ -349,7 +349,7 @@ fn pretrade_section() -> Result<(), Box<dyn Error>> {
         "{:>10} {:>9} {:>9} {:>9} {:>9} {:>8}",
         "strategy", "lambda", "impact", "sd", "total", "horizon"
     );
-    for r in &rep.rows {
+    for r in rep.rows() {
         println!(
             "{:>10} {:>9} {:7.2}bp {:7.2}bp {:7.2}bp {:8}",
             r.label,
@@ -368,7 +368,7 @@ fn pretrade_section() -> Result<(), Box<dyn Error>> {
     let vwap = vwap_holdings(m.total_shares, &US_EQUITY_VOLUME_CURVE_13)?;
     let s = optimal_schedule(&p)?;
     let e_v = bps(impact_expected_cost(&p, &vwap)?, notional)?;
-    let e_o = bps(impact_expected_cost(&p, &s.holdings)?, notional)?;
+    let e_o = bps(impact_expected_cost(&p, s.holdings())?, notional)?;
     println!(
         "alpha-aware: with 50 bps/day adverse drift, VWAP costs {e_v:.2} bps and the \
          drift-aware schedule {e_o:.2} bps (saves {:.2} bps)",

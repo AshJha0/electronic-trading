@@ -73,7 +73,7 @@ fn actual(case: &Value) -> Vec<(String, f64)> {
         let rep = pretrade_report(&m, &lambdas).unwrap();
         out.push(("sqrt_law_bps".to_string(), rep.sqrt_law_bps));
         out.push(("half_spread_bps".to_string(), rep.half_spread_bps));
-        for (i, r) in rep.rows.iter().enumerate() {
+        for (i, r) in rep.rows().iter().enumerate() {
             out.push((format!("row{i}_impact_bps"), r.impact_bps));
             out.push((format!("row{i}_sd_bps"), r.sd_bps));
             out.push((format!("row{i}_horizon"), r.horizon as f64));
@@ -92,15 +92,15 @@ fn actual(case: &Value) -> Vec<(String, f64)> {
     }
     let r = optimal_schedule(&p).unwrap();
     for j in 1..p.n_intervals() {
-        out.push((format!("xfrac_{j:02}"), r.holdings[j] / p.total_shares()));
+        out.push((format!("xfrac_{j:02}"), r.holdings()[j] / p.total_shares()));
     }
     out.push((
         "e_cost".to_string(),
-        impact_expected_cost(&p, &r.holdings).unwrap(),
+        impact_expected_cost(&p, r.holdings()).unwrap(),
     ));
     out.push((
         "var_cost".to_string(),
-        impact_variance_cost(&p, &r.holdings).unwrap(),
+        impact_variance_cost(&p, r.holdings()).unwrap(),
     ));
     out.push(("horizon".to_string(), r.horizon as f64));
     out
@@ -172,11 +172,11 @@ fn alpha_one_reproduces_almgren_chriss() {
     let ip = ImpactParams::new(1e6, 5, 1.0, 0.95, 2.5e-6, 1.0, 2.5e-7, 2e-6, 0.0, None).unwrap();
     let r = optimal_schedule(&ip).unwrap();
     let x = etrade::ac_trajectory(&ac);
-    for (a, b) in r.holdings.iter().zip(&x) {
+    for (a, b) in r.holdings().iter().zip(&x) {
         assert!((a - b).abs() <= 1e-10 * 1e6);
     }
     let e_ac = etrade::expected_cost(&ac, None).unwrap();
-    assert!((impact_expected_cost(&ip, &r.holdings).unwrap() / e_ac - 1.0).abs() < 1e-12);
+    assert!((impact_expected_cost(&ip, r.holdings()).unwrap() / e_ac - 1.0).abs() < 1e-12);
     assert!(r.iterations <= 3);
 }
 
@@ -206,7 +206,7 @@ fn drift_shortens_the_horizon() {
         let r = optimal_schedule(&impact_params_from_market(&m).unwrap()).unwrap();
         assert!(r.horizon <= prev);
         prev = r.horizon;
-        assert!(r.holdings[r.horizon..].iter().all(|v| *v == 0.0));
+        assert!(r.holdings()[r.horizon..].iter().all(|v| *v == 0.0));
     }
     assert!(prev < 13);
 }
@@ -233,12 +233,14 @@ fn vwap_beats_twap_under_the_curve() {
 #[test]
 fn pretrade_report_structure() {
     let rep = pretrade_report(&large_cap(), &[0.0, 1e-6, 1e-5]).unwrap();
-    let labels: Vec<&str> = rep.rows.iter().map(|r| r.label).collect();
+    let labels: Vec<&str> = rep.rows().iter().map(|r| r.label).collect();
     assert_eq!(labels, ["twap", "vwap", "optimal", "optimal", "optimal"]);
-    for r in &rep.rows {
+    for r in rep.rows() {
         assert_eq!(r.total_bps, r.impact_bps + rep.half_spread_bps);
     }
-    assert!(rep.rows[2].sd_bps > rep.rows[3].sd_bps && rep.rows[3].sd_bps > rep.rows[4].sd_bps);
+    assert!(
+        rep.rows()[2].sd_bps > rep.rows()[3].sd_bps && rep.rows()[3].sd_bps > rep.rows()[4].sd_bps
+    );
     assert!(pretrade_report(&large_cap(), &[]).is_err());
 }
 
@@ -280,6 +282,6 @@ fn zero_shares_is_the_zero_schedule() {
         ..large_cap()
     };
     let r = optimal_schedule(&impact_params_from_market(&m).unwrap()).unwrap();
-    assert!(r.holdings.iter().all(|v| *v == 0.0));
+    assert!(r.holdings().iter().all(|v| *v == 0.0));
     assert_eq!(r.iterations, 0);
 }
