@@ -1,7 +1,9 @@
 #include "etrade/mm.hpp"
+#include "etrade/detail/require.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstdlib>
 #include <deque>
 #include <random>
@@ -11,13 +13,11 @@ namespace etrade {
 
 namespace {
 
-/// Throw std::invalid_argument unless `cond` holds.
-void require(bool cond, const char* msg) {
-    if (!cond) throw std::invalid_argument(msg);
-}
+using detail::require;
 
 /// Sample mean of a per-path array.
 double mean_of(const std::vector<double>& v) {
+    require(!v.empty(), "statistic undefined for an empty result (no paths)");
     double s = 0.0;
     for (double x : v) s += x;
     return s / static_cast<double>(v.size());
@@ -25,6 +25,7 @@ double mean_of(const std::vector<double>& v) {
 
 /// Sample standard deviation (ddof = 1).
 double std_of(const std::vector<double>& v) {
+    require(v.size() >= 2, "sample std needs at least two paths");
     const double m = mean_of(v);
     double s = 0.0;
     for (double x : v) s += (x - m) * (x - m);

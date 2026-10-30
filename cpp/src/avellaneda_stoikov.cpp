@@ -1,4 +1,5 @@
 #include "etrade/avellaneda_stoikov.hpp"
+#include "etrade/detail/require.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -13,13 +14,11 @@ const double kDefaultFixedSpread = std::numeric_limits<double>::quiet_NaN();
 
 namespace {
 
-/// Throw std::invalid_argument unless `cond` holds.
-void require(bool cond, const char* msg) {
-    if (!cond) throw std::invalid_argument(msg);
-}
+using detail::require;
 
 /// Sample mean of a per-path array.
 double mean_of(const std::vector<double>& v) {
+    require(!v.empty(), "statistic undefined for an empty result (no paths)");
     double s = 0.0;
     for (double x : v) s += x;
     return s / static_cast<double>(v.size());
@@ -27,6 +26,7 @@ double mean_of(const std::vector<double>& v) {
 
 /// Sample standard deviation (ddof = 1).
 double std_of(const std::vector<double>& v) {
+    require(v.size() >= 2, "sample std needs at least two paths");
     const double m = mean_of(v);
     double s = 0.0;
     for (double x : v) s += (x - m) * (x - m);
@@ -120,23 +120,33 @@ double ASSimResult::rms_q() const { return mean_of(rms_q_path); }
 
 double ASSimResult::mean_fills() const { return mean_of(fills_path); }
 
-double ASSimResult::se(const std::string& stat) const {
+double ASSimResult::se(ASStat stat) const {
     const double m = static_cast<double>(n_paths());
-    if (stat == "std_pnl") return std_pnl() / std::sqrt(2.0 * (m - 1.0));
     const std::vector<double>* arr = nullptr;
-    if (stat == "mean_pnl") arr = &pnl;
-    else if (stat == "mean_abs_q") arr = &mean_abs_q_path;
-    else if (stat == "mean_max_abs_q") arr = &max_abs_q_path;
-    else if (stat == "rms_q") arr = &rms_q_path;
-    else if (stat == "mean_fills") arr = &fills_path;
-    if (arr == nullptr) {
-        throw std::invalid_argument("unknown statistic '" + stat + "'");
+    switch (stat) {
+        case ASStat::kStdPnl: return std_pnl() / std::sqrt(2.0 * (m - 1.0));
+        case ASStat::kMeanPnl: arr = &pnl; break;
+        case ASStat::kMeanAbsQ: arr = &mean_abs_q_path; break;
+        case ASStat::kMeanMaxAbsQ: arr = &max_abs_q_path; break;
+        case ASStat::kRmsQ: arr = &rms_q_path; break;
+        case ASStat::kMeanFills: arr = &fills_path; break;
     }
+    require(arr != nullptr, "unknown statistic");
     return std_of(*arr) / std::sqrt(m);
 }
 
+double ASSimResult::se(const std::string& stat) const {
+    if (stat == "mean_pnl") return se(ASStat::kMeanPnl);
+    if (stat == "std_pnl") return se(ASStat::kStdPnl);
+    if (stat == "mean_abs_q") return se(ASStat::kMeanAbsQ);
+    if (stat == "mean_max_abs_q") return se(ASStat::kMeanMaxAbsQ);
+    if (stat == "rms_q") return se(ASStat::kRmsQ);
+    if (stat == "mean_fills") return se(ASStat::kMeanFills);
+    throw std::invalid_argument("unknown statistic '" + stat + "'");
+}
+
 ASSimResult simulate(const ASParams& params, int n_paths, std::uint64_t seed,
-                     Agent agent, double fixed_spread, double stress_factor,
+                     Agent agent, std::optional<double> fixed_spread_opt, double stress_factor,
                      double stress_time_frac) {
     require(n_paths >= 2 && n_paths <= kMaxAsPaths,
             "n_paths must be an integer in [2, 10000000]");
@@ -145,7 +155,9 @@ ASSimResult simulate(const ASParams& params, int n_paths, std::uint64_t seed,
     require(std::isfinite(stress_time_frac) && stress_time_frac >= 0.0 &&
                 stress_time_frac <= 1.0,
             "stress_time_frac must be in [0, 1]");
-    if (std::isnan(fixed_spread)) fixed_spread = average_as_spread(params);
+    // A NaN spread is the deprecated kDefaultFixedSpread sentinel: read as empty.
+    if (fixed_spread_opt && std::isnan(*fixed_spread_opt)) fixed_spread_opt.reset();
+    const double fixed_spread = fixed_spread_opt.value_or(average_as_spread(params));
     require(std::isfinite(fixed_spread) && fixed_spread > 0.0,
             "fixed_spread must be finite and > 0");
 

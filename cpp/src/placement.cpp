@@ -1,4 +1,5 @@
 #include "etrade/placement.hpp"
+#include "etrade/detail/require.hpp"
 
 #include "etrade/almgren_chriss.hpp"
 
@@ -12,9 +13,7 @@
 namespace etrade {
 namespace {
 
-void require(bool cond, const std::string& msg) {
-    if (!cond) throw std::invalid_argument(msg);
-}
+using detail::require;
 
 struct Stat {
     double mean;
@@ -121,6 +120,11 @@ PlacementDecision place_or_cross(double size, double spread, double fill_prob, d
 }
 
 // ------------------------------------------------------------------ liquidation
+
+double LiquidationPolicy::expected_cost() const {
+    require(!cost.empty() && !cost.front().empty(), "expected_cost of an empty policy");
+    return cost.front().back();
+}
 
 LiquidationParams::LiquidationParams(int total_units_, int n_periods_, double dt_, double sigma_,
                                      double spread_, double kappa_, double p_touch_, double beta_,

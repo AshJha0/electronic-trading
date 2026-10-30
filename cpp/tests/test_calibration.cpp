@@ -230,3 +230,20 @@ TEST(Calibration, Validation) {
         }
     }
 }
+
+namespace {
+
+TEST(MiniJson, RejectsMalformedUnicodeEscapeAndDeepNesting) {
+    const std::string bs = "\\";
+    EXPECT_EQ(mini_json::parse("\"a" + bs + "u0041" + bs + "u00e9\"").str, "aA\xC3\xA9");
+    EXPECT_THROW((void)mini_json::parse(std::string("\"\\") + "u12G4\""), std::runtime_error);
+    EXPECT_THROW((void)mini_json::parse(std::string("\"\\") + "u12\""), std::runtime_error);
+    const std::string ok(mini_json::kMaxDepth, '[');
+    EXPECT_NO_THROW((void)mini_json::parse(ok + std::string(mini_json::kMaxDepth, ']')));
+    EXPECT_THROW((void)mini_json::parse(ok + "[]" + std::string(mini_json::kMaxDepth, ']')),
+                 std::runtime_error);
+    EXPECT_DOUBLE_EQ(mini_json::parse("-1.25e-3").number, -1.25e-3);
+    EXPECT_THROW((void)mini_json::parse("1.2.3"), std::runtime_error);
+}
+
+}  // namespace

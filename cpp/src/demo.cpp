@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <optional>
 #include <vector>
 
 #include "etrade/almgren_chriss.hpp"
@@ -110,7 +111,7 @@ void as_section(const etrade::ASParams& ap, const char* label,
                 r_as.rms_q(), r_fx.rms_q());
     const auto stress =
         etrade::simulate(ap, n_paths, seed, etrade::Agent::kAS,
-                         etrade::kDefaultFixedSpread, 2.0, 0.5);
+                         std::nullopt, 2.0, 0.5);
     std::printf("stress (vol x2 after T/2): std PnL %.4f -> %.4f\n",
                 r_as.std_pnl(), stress.std_pnl());
 }

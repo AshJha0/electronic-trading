@@ -3,11 +3,16 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 #include "etrade/almgren_chriss.hpp"
+#include "etrade/analytics.hpp"
+#include "etrade/execution.hpp"
+#include "etrade/placement.hpp"
 
 namespace {
 
@@ -156,47 +161,47 @@ TEST(ACMonteCarlo, DeterministicPerSeed) {
 }
 
 TEST(ACValidation, RejectsBadInputs) {
-    EXPECT_THROW(ACParams(-1.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
+    EXPECT_THROW((void)ACParams(-1.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
                  std::invalid_argument);
-    EXPECT_THROW(ACParams(1e6, 0, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
+    EXPECT_THROW((void)ACParams(1e6, 0, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
                  std::invalid_argument);
-    EXPECT_THROW(ACParams(1e6, 5, 0.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
+    EXPECT_THROW((void)ACParams(1e6, 5, 0.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
                  std::invalid_argument);
-    EXPECT_THROW(ACParams(1e6, 5, 1.0, -0.1, 2.5e-6, 2.5e-7, 2e-6),
+    EXPECT_THROW((void)ACParams(1e6, 5, 1.0, -0.1, 2.5e-6, 2.5e-7, 2e-6),
                  std::invalid_argument);
-    EXPECT_THROW(ACParams(1e6, 5, 1.0, 0.95, 0.0, 2.5e-7, 2e-6),
+    EXPECT_THROW((void)ACParams(1e6, 5, 1.0, 0.95, 0.0, 2.5e-7, 2e-6),
                  std::invalid_argument);
-    EXPECT_THROW(ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, -1e-9, 2e-6),
+    EXPECT_THROW((void)ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, -1e-9, 2e-6),
                  std::invalid_argument);
-    EXPECT_THROW(ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, -1e-9),
+    EXPECT_THROW((void)ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, -1e-9),
                  std::invalid_argument);
     const double nan = std::numeric_limits<double>::quiet_NaN();
-    EXPECT_THROW(ACParams(nan, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
+    EXPECT_THROW((void)ACParams(nan, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
                  std::invalid_argument);
 }
 
 TEST(ACValidation, ModelValidityIsDomainError) {
     // gamma_p*tau >= 2*eta (equality included) -> std::domain_error.
-    EXPECT_THROW(ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 5.0e-6, 2e-6),
+    EXPECT_THROW((void)ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 5.0e-6, 2e-6),
                  std::domain_error);
-    EXPECT_THROW(ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 6.0e-6, 2e-6),
+    EXPECT_THROW((void)ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 6.0e-6, 2e-6),
                  std::domain_error);
-    EXPECT_NO_THROW(ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 4.9e-6, 2e-6));
+    EXPECT_NO_THROW((void)ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 4.9e-6, 2e-6));
 }
 
 TEST(ACValidation, RejectsNonLiquidatingAndDegenerateSchedules) {
     const ACParams p = liquid();
-    EXPECT_THROW(etrade::expected_cost(p, {1e6, 5e5, 1.0}),
+    EXPECT_THROW((void)etrade::expected_cost(p, {1e6, 5e5, 1.0}),
                  std::invalid_argument);
-    EXPECT_THROW(etrade::trades_from_holdings({1.0}), std::invalid_argument);
-    EXPECT_THROW(etrade::efficient_frontier(p, {}), std::invalid_argument);
-    EXPECT_THROW(etrade::pov_holdings(1e6, 1.0, 2.5e6, 1.0),
+    EXPECT_THROW((void)etrade::trades_from_holdings({1.0}), std::invalid_argument);
+    EXPECT_THROW((void)etrade::efficient_frontier(p, {}), std::invalid_argument);
+    EXPECT_THROW((void)etrade::pov_holdings(1e6, 1.0, 2.5e6, 1.0),
                  std::invalid_argument);
-    EXPECT_THROW(etrade::pov_holdings(1e6, 1.0, 2.5e6, 0.0),
+    EXPECT_THROW((void)etrade::pov_holdings(1e6, 1.0, 2.5e6, 0.0),
                  std::invalid_argument);
-    EXPECT_THROW(etrade::pov_holdings(1e6, 1.0, 0.0, 0.15),
+    EXPECT_THROW((void)etrade::pov_holdings(1e6, 1.0, 0.0, 0.15),
                  std::invalid_argument);
-    EXPECT_THROW(etrade::simulate_is(p, 1, 0), std::invalid_argument);
+    EXPECT_THROW((void)etrade::simulate_is(p, 1, 0), std::invalid_argument);
 }
 
 }  // namespace
@@ -285,8 +290,8 @@ TEST(ACRobustness, KappaSmallTauAccuracy) {
 }
 
 TEST(ACRobustness, PovClipTooSmallIsInputError) {
-    EXPECT_THROW(etrade::pov_holdings(1e6, 1.0, 1.0, 1e-9), std::invalid_argument);
-    EXPECT_THROW(etrade::pov_holdings(etrade::kMaxPovIntervals + 1.0, 1.0, 1.0, 0.5),
+    EXPECT_THROW((void)etrade::pov_holdings(1e6, 1.0, 1.0, 1e-9), std::invalid_argument);
+    EXPECT_THROW((void)etrade::pov_holdings(etrade::kMaxPovIntervals + 1.0, 1.0, 1.0, 0.5),
                  std::invalid_argument);
 }
 
@@ -307,11 +312,11 @@ TEST(ACRobustness, PovBoundaryIntervalCounts) {
 
 TEST(ACRobustness, SimulateIsRejectsNonLiquidatingSchedule) {
     const ACParams p = liquid();
-    EXPECT_THROW(etrade::simulate_is(p, {1e6, 5e5, 1e3}, 10, 0), std::invalid_argument);
-    EXPECT_THROW(etrade::simulate_is(p, {1e6, std::nan(""), 0.0}, 10, 0),
+    EXPECT_THROW((void)etrade::simulate_is(p, {1e6, 5e5, 1e3}, 10, 0), std::invalid_argument);
+    EXPECT_THROW((void)etrade::simulate_is(p, {1e6, std::nan(""), 0.0}, 10, 0),
                  std::invalid_argument);
-    EXPECT_THROW(etrade::simulate_is(p, {1e6}, 10, 0), std::invalid_argument);
-    EXPECT_THROW(etrade::simulate_is(p, etrade::kMaxPaths + 1, 0), std::invalid_argument);
+    EXPECT_THROW((void)etrade::simulate_is(p, {1e6}, 10, 0), std::invalid_argument);
+    EXPECT_THROW((void)etrade::simulate_is(p, etrade::kMaxPaths + 1, 0), std::invalid_argument);
 }
 
 TEST(ACRobustness, SimulateIsTwapMatchesClosedForms) {
@@ -327,9 +332,9 @@ TEST(ACRobustness, FrontierRejectsNonFiniteLambdaAndKeepsOrder) {
     const ACParams p = liquid();
     const double nan = std::numeric_limits<double>::quiet_NaN();
     const double inf = std::numeric_limits<double>::infinity();
-    EXPECT_THROW(etrade::efficient_frontier(p, {1e-7, nan}), std::invalid_argument);
-    EXPECT_THROW(etrade::efficient_frontier(p, {inf}), std::invalid_argument);
-    EXPECT_THROW(etrade::efficient_frontier(p, {1e-7, -1e-7}), std::invalid_argument);
+    EXPECT_THROW((void)etrade::efficient_frontier(p, {1e-7, nan}), std::invalid_argument);
+    EXPECT_THROW((void)etrade::efficient_frontier(p, {inf}), std::invalid_argument);
+    EXPECT_THROW((void)etrade::efficient_frontier(p, {1e-7, -1e-7}), std::invalid_argument);
     const auto f = etrade::efficient_frontier(p, {2e-6, 1e-8, 2e-6});
     ASSERT_EQ(f.size(), 3u);
     EXPECT_DOUBLE_EQ(f[0].lambda_ra, 2e-6);
@@ -342,19 +347,19 @@ TEST(ACRobustness, FrontierRejectsNonFiniteLambdaAndKeepsOrder) {
 TEST(ACRobustness, TwapAndPovRejectNonFinite) {
     const double nan = std::numeric_limits<double>::quiet_NaN();
     const double inf = std::numeric_limits<double>::infinity();
-    EXPECT_THROW(etrade::twap_holdings(inf, 5), std::invalid_argument);
-    EXPECT_THROW(etrade::twap_holdings(nan, 5), std::invalid_argument);
-    EXPECT_THROW(etrade::pov_holdings(nan, 1.0, 1e6, 0.1), std::invalid_argument);
-    EXPECT_THROW(etrade::pov_holdings(inf, 1.0, 1e6, 0.1), std::invalid_argument);
-    EXPECT_THROW(etrade::pov_holdings(1e6, inf, 1e6, 0.1), std::invalid_argument);
-    EXPECT_THROW(etrade::pov_holdings(1e6, 1.0, inf, 0.1), std::invalid_argument);
-    EXPECT_THROW(etrade::pov_holdings(1e6, 1.0, 1e6, nan), std::invalid_argument);
+    EXPECT_THROW((void)etrade::twap_holdings(inf, 5), std::invalid_argument);
+    EXPECT_THROW((void)etrade::twap_holdings(nan, 5), std::invalid_argument);
+    EXPECT_THROW((void)etrade::pov_holdings(nan, 1.0, 1e6, 0.1), std::invalid_argument);
+    EXPECT_THROW((void)etrade::pov_holdings(inf, 1.0, 1e6, 0.1), std::invalid_argument);
+    EXPECT_THROW((void)etrade::pov_holdings(1e6, inf, 1e6, 0.1), std::invalid_argument);
+    EXPECT_THROW((void)etrade::pov_holdings(1e6, 1.0, inf, 0.1), std::invalid_argument);
+    EXPECT_THROW((void)etrade::pov_holdings(1e6, 1.0, 1e6, nan), std::invalid_argument);
 }
 
 TEST(ACRobustness, SizeBoundsAreInputErrors) {
-    EXPECT_THROW(ACParams(1e6, etrade::kMaxAcIntervals + 1, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
+    EXPECT_THROW((void)ACParams(1e6, etrade::kMaxAcIntervals + 1, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6),
                  std::invalid_argument);
-    EXPECT_THROW(etrade::twap_holdings(1e6, etrade::kMaxAcIntervals + 1),
+    EXPECT_THROW((void)etrade::twap_holdings(1e6, etrade::kMaxAcIntervals + 1),
                  std::invalid_argument);
     EXPECT_EQ(etrade::twap_holdings(1.0, etrade::kMaxAcIntervals).size(),
               static_cast<std::size_t>(etrade::kMaxAcIntervals) + 1);
@@ -363,9 +368,9 @@ TEST(ACRobustness, SizeBoundsAreInputErrors) {
 TEST(ACRobustness, CostFunctionsValidateHoldings) {
     const ACParams p = liquid();
     const double inf = std::numeric_limits<double>::infinity();
-    EXPECT_THROW(etrade::variance_cost(p, {1e6}), std::invalid_argument);
-    EXPECT_THROW(etrade::variance_cost(p, {1e6, inf, 0.0}), std::invalid_argument);
-    EXPECT_THROW(etrade::expected_cost(p, {1e6, std::nan(""), 0.0}), std::invalid_argument);
+    EXPECT_THROW((void)etrade::variance_cost(p, {1e6}), std::invalid_argument);
+    EXPECT_THROW((void)etrade::variance_cost(p, {1e6, inf, 0.0}), std::invalid_argument);
+    EXPECT_THROW((void)etrade::expected_cost(p, {1e6, std::nan(""), 0.0}), std::invalid_argument);
     // X is taken from the schedule (x_0), not from params (pinned).
     const auto half = etrade::twap_holdings(5e5, 5);
     const double e_half = 0.5 * p.gamma_p * 5e5 * 5e5 + p.eta_tilde() * 5e5 * 5e5 / 5.0;
@@ -383,6 +388,37 @@ TEST(ACRobustness, TrajectoryX0ExactAndSinhIdentityModerate) {
             EXPECT_NEAR(x[j], ref, 1e-14 * ref);
         }
     }
+}
+
+}  // namespace
+
+namespace {
+
+// Validated parameters are immutable after construction (reads still work).
+static_assert(!std::is_copy_assignable_v<ACParams>);
+static_assert(!std::is_assignable_v<decltype((std::declval<ACParams&>().sigma)), double>);
+static_assert(!std::is_assignable_v<decltype((std::declval<ACParams&>().n_intervals)), int>);
+static_assert(std::is_copy_constructible_v<ACParams>);
+static_assert(!std::is_copy_assignable_v<etrade::TransientParams>);
+static_assert(!std::is_copy_assignable_v<etrade::SignalParams>);
+static_assert(!std::is_copy_assignable_v<etrade::LiquidationParams>);
+
+TEST(ACResults, DefaultConstructedResultsAreZero) {
+    const etrade::FrontierPoint fp{};
+    EXPECT_EQ(fp.lambda_ra, 0.0);
+    EXPECT_EQ(fp.std_cost, 0.0);
+    const etrade::ISSimResult is{};
+    EXPECT_EQ(is.mean, 0.0);
+    EXPECT_EQ(is.se_var, 0.0);
+    EXPECT_EQ(is.n_paths, 0);
+    const etrade::OLSResult o{};
+    EXPECT_EQ(o.slope, 0.0);
+    EXPECT_EQ(o.n_obs, 0);
+    const etrade::ISDecomposition d{};
+    EXPECT_EQ(d.total, 0.0);
+    EXPECT_EQ(d.remaining_qty, 0.0);
+    const etrade::LiquidationPolicy pol{};
+    EXPECT_THROW((void)pol.expected_cost(), std::invalid_argument);
 }
 
 }  // namespace

@@ -30,12 +30,12 @@ inline constexpr int kMaxOrders = 10000;
 /// Transient-impact problem (API_SPEC 12.1); validated on construction
 /// (std::invalid_argument), including convexity `gamma_p < kappa*(1-a)/(1+a)`.
 struct TransientParams {
-    double total_shares;  ///< X >= 0.
-    int n_intervals;      ///< N in [1, kMaxExecIntervals].
-    double tau;           ///< Interval length > 0.
-    double kappa;         ///< Displacement per share (inverse depth) > 0.
-    double rho;           ///< Resilience rate, finite and > 0.
-    double gamma_p;       ///< Permanent impact >= 0.
+    const double total_shares;  ///< X >= 0.
+    const int n_intervals;      ///< N in [1, kMaxExecIntervals].
+    const double tau;           ///< Interval length > 0.
+    const double kappa;         ///< Displacement per share (inverse depth) > 0.
+    const double rho;           ///< Resilience rate, finite and > 0.
+    const double gamma_p;       ///< Permanent impact >= 0.
 
     TransientParams(double total_shares, int n_intervals, double tau, double kappa, double rho,
                     double gamma_p = 0.0);
@@ -53,9 +53,9 @@ struct TransientParams {
 
 /// Observable AR(1) drift signal and fill risk (API_SPEC 12.2); validated on construction.
 struct SignalParams {
-    double phi;        ///< AR(1) coefficient in [0, 1).
-    double signal_sd;  ///< Stationary sd of the signal >= 0.
-    double fill_risk;  ///< Max unfilled fraction in [0, 1).
+    const double phi;        ///< AR(1) coefficient in [0, 1).
+    const double signal_sd;  ///< Stationary sd of the signal >= 0.
+    const double fill_risk;  ///< Max unfilled fraction in [0, 1).
 
     explicit SignalParams(double phi = 0.0, double signal_sd = 0.0, double fill_risk = 0.0);
 };

@@ -1,4 +1,5 @@
 #include "etrade/analytics.hpp"
+#include "etrade/detail/require.hpp"
 
 #include <cmath>
 #include <stdexcept>
@@ -7,10 +8,7 @@ namespace etrade {
 
 namespace {
 
-/// Throw std::invalid_argument unless `cond` holds.
-void require(bool cond, const char* msg) {
-    if (!cond) throw std::invalid_argument(msg);
-}
+using detail::require;
 
 }  // namespace
 

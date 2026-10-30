@@ -52,20 +52,20 @@ TEST(ISDecomposition, FullyExecutedHasNoOpportunityCost) {
 }
 
 TEST(ISDecomposition, RejectsBadInputs) {
-    EXPECT_THROW(etrade::decompose_shortfall(Side::kSell, 100, 99.5, 98.8,
+    EXPECT_THROW((void)etrade::decompose_shortfall(Side::kSell, 100, 99.5, 98.8,
                                              1000, {300, 400}, {99.4}),
                  std::invalid_argument);  // length mismatch
-    EXPECT_THROW(etrade::decompose_shortfall(Side::kSell, 100, 99.5, 98.8, 500,
+    EXPECT_THROW((void)etrade::decompose_shortfall(Side::kSell, 100, 99.5, 98.8, 500,
                                              {300, 400}, {99.4, 99.2}),
                  std::invalid_argument);  // over-execution
-    EXPECT_THROW(etrade::decompose_shortfall(Side::kSell, 100, 99.5, 98.8,
+    EXPECT_THROW((void)etrade::decompose_shortfall(Side::kSell, 100, 99.5, 98.8,
                                              1000, {-1.0}, {99.4}),
                  std::invalid_argument);  // negative fill
-    EXPECT_THROW(etrade::decompose_shortfall(
+    EXPECT_THROW((void)etrade::decompose_shortfall(
                      Side::kSell, std::numeric_limits<double>::quiet_NaN(),
                      99.5, 98.8, 1000, {300}, {99.4}),
                  std::invalid_argument);  // non-finite price
-    EXPECT_THROW(etrade::decompose_shortfall(Side::kSell, 100, 99.5, 98.8,
+    EXPECT_THROW((void)etrade::decompose_shortfall(Side::kSell, 100, 99.5, 98.8,
                                              -1.0, {}, {}),
                  std::invalid_argument);  // negative parent qty
 }
@@ -73,9 +73,9 @@ TEST(ISDecomposition, RejectsBadInputs) {
 TEST(Participation, ComputesAndValidates) {
     EXPECT_DOUBLE_EQ(etrade::participation_rate(120000.0, 1500000.0), 0.08);
     EXPECT_DOUBLE_EQ(etrade::participation_rate(0.0, 1.0), 0.0);
-    EXPECT_THROW(etrade::participation_rate(-1.0, 100.0),
+    EXPECT_THROW((void)etrade::participation_rate(-1.0, 100.0),
                  std::invalid_argument);
-    EXPECT_THROW(etrade::participation_rate(1.0, 0.0), std::invalid_argument);
+    EXPECT_THROW((void)etrade::participation_rate(1.0, 0.0), std::invalid_argument);
 }
 
 TEST(Ols, RecoversExactLine) {
@@ -98,11 +98,11 @@ TEST(Ols, ConstantYGivesRSquaredOne) {
 }
 
 TEST(Ols, RejectsDegenerateInputs) {
-    EXPECT_THROW(etrade::ols({1.0}, {2.0}), std::invalid_argument);
-    EXPECT_THROW(etrade::ols({1.0, 2.0}, {1.0}), std::invalid_argument);
-    EXPECT_THROW(etrade::ols({1.0, 1.0}, {1.0, 2.0}), std::invalid_argument);
+    EXPECT_THROW((void)etrade::ols({1.0}, {2.0}), std::invalid_argument);
+    EXPECT_THROW((void)etrade::ols({1.0, 2.0}, {1.0}), std::invalid_argument);
+    EXPECT_THROW((void)etrade::ols({1.0, 1.0}, {1.0, 2.0}), std::invalid_argument);
     EXPECT_THROW(
-        etrade::ols({1.0, std::numeric_limits<double>::infinity()}, {1.0, 2.0}),
+        (void)etrade::ols({1.0, std::numeric_limits<double>::infinity()}, {1.0, 2.0}),
         std::invalid_argument);
 }
 
@@ -112,7 +112,7 @@ TEST(Impact, SyntheticFillsArePinned) {
     EXPECT_DOUBLE_EQ(part.front(), 0.02);
     EXPECT_NEAR(part.back(), 0.20, 1e-15);
     EXPECT_DOUBLE_EQ(cost[0], 0.5 + 8.0 * 0.02 + 0.05 * std::sin(0.3));
-    EXPECT_THROW(etrade::synthetic_impact_fills(1), std::invalid_argument);
+    EXPECT_THROW((void)etrade::synthetic_impact_fills(1), std::invalid_argument);
 }
 
 TEST(Impact, RegressionRecoversSlopeApproximately) {
@@ -162,10 +162,10 @@ TEST(ISDecomposition, EmptyFills) {
 }
 
 TEST(Participation, AboveOneIsInputError) {
-    EXPECT_THROW(etrade::participation_rate(2e6, 1.5e6), std::invalid_argument);
+    EXPECT_THROW((void)etrade::participation_rate(2e6, 1.5e6), std::invalid_argument);
     EXPECT_DOUBLE_EQ(etrade::participation_rate(1.5e6, 1.5e6), 1.0);  // boundary
-    EXPECT_THROW(etrade::participation_rate(std::nan(""), 1.0), std::invalid_argument);
-    EXPECT_THROW(etrade::participation_rate(1.0, std::numeric_limits<double>::infinity()),
+    EXPECT_THROW((void)etrade::participation_rate(std::nan(""), 1.0), std::invalid_argument);
+    EXPECT_THROW((void)etrade::participation_rate(1.0, std::numeric_limits<double>::infinity()),
                  std::invalid_argument);
 }
 

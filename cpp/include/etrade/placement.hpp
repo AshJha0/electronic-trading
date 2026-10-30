@@ -48,15 +48,15 @@ struct PlacementDecision {
 /// Liquidation with limit and market orders (API_SPEC 13.3); validated on
 /// construction (std::invalid_argument).
 struct LiquidationParams {
-    int total_units;  ///< Q in [1, kMaxLiqUnits].
-    int n_periods;    ///< N in [1, kMaxLiqPeriods].
-    double dt;        ///< Period length > 0.
-    double sigma;     ///< Mid volatility >= 0.
-    double spread;    ///< Quoted spread >= 0.
-    double kappa;     ///< Fill decay per unit of depth > 0.
-    double p_touch;   ///< Per-period fill probability at the touch, (0, 1].
-    double beta;      ///< Book walk per unit of a market order >= 0.
-    double phi;       ///< Running inventory penalty >= 0.
+    const int total_units;  ///< Q in [1, kMaxLiqUnits].
+    const int n_periods;    ///< N in [1, kMaxLiqPeriods].
+    const double dt;        ///< Period length > 0.
+    const double sigma;     ///< Mid volatility >= 0.
+    const double spread;    ///< Quoted spread >= 0.
+    const double kappa;     ///< Fill decay per unit of depth > 0.
+    const double p_touch;   ///< Per-period fill probability at the touch, (0, 1].
+    const double beta;      ///< Book walk per unit of a market order >= 0.
+    const double phi;       ///< Running inventory penalty >= 0.
 
     LiquidationParams(int total_units, int n_periods, double dt, double sigma, double spread,
                       double kappa, double p_touch, double beta, double phi = 0.0);
@@ -69,7 +69,7 @@ struct LiquidationPolicy {
     std::vector<std::vector<bool>> market;
 
     /// C_0(Q): expected shortfall plus penalties.
-    [[nodiscard]] double expected_cost() const { return cost.front().back(); }
+    [[nodiscard]] double expected_cost() const;
 };
 
 [[nodiscard]] LiquidationPolicy liquidation_policy(const LiquidationParams& p);

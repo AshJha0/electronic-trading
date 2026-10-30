@@ -1,4 +1,5 @@
 #include "etrade/impact.hpp"
+#include "etrade/detail/require.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,9 +11,7 @@
 namespace etrade {
 namespace {
 
-void require(bool cond, const std::string& msg) {
-    if (!cond) throw std::invalid_argument(msg);
-}
+using detail::require;
 
 std::vector<double> thomas(const std::vector<double>& diag, const std::vector<double>& off,
                            const std::vector<double>& rhs) {

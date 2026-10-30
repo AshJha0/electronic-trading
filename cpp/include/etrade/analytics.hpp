@@ -32,18 +32,18 @@ enum class Side {
 
 /// Implementation-shortfall components (currency costs; positive = loss).
 struct ISDecomposition {
-    double total;          ///< delay + trading + opportunity (exact identity).
-    double delay;          ///< Drift cost before trading started.
-    double trading;        ///< Execution slippage of the fills vs arrival.
-    double opportunity;    ///< Cost of the unfilled remainder vs decision.
-    double executed_qty;   ///< Q = sum of fill quantities.
-    double remaining_qty;  ///< R = X - Q.
+    double total = 0.0;          ///< delay + trading + opportunity (exact identity).
+    double delay = 0.0;          ///< Drift cost before trading started.
+    double trading = 0.0;        ///< Execution slippage of the fills vs arrival.
+    double opportunity = 0.0;    ///< Cost of the unfilled remainder vs decision.
+    double executed_qty = 0.0;   ///< Q = sum of fill quantities.
+    double remaining_qty = 0.0;  ///< R = X - Q.
 };
 
 /// Decompose implementation shortfall into delay/trading/opportunity.
 /// Validates finiteness, `total_qty >= 0`, equal-length non-negative fills
 /// and `Q <= X` (std::invalid_argument on violation).
-ISDecomposition decompose_shortfall(Side side, double decision_price,
+[[nodiscard]] ISDecomposition decompose_shortfall(Side side, double decision_price,
                                     double arrival_price, double close_price,
                                     double total_qty,
                                     const std::vector<double>& fill_qtys,
@@ -53,19 +53,19 @@ ISDecomposition decompose_shortfall(Side side, double decision_price,
 /// Requires `executed_volume >= 0`, `market_volume > 0` and
 /// `executed_volume <= market_volume` (market volume includes own fills; a
 /// rate above 1 is an input error).
-double participation_rate(double executed_volume, double market_volume);
+[[nodiscard]] double participation_rate(double executed_volume, double market_volume);
 
 /// Simple linear regression y = intercept + slope * x.
 struct OLSResult {
-    double slope;      ///< Sxy / Sxx.
-    double intercept;  ///< mean(y) - slope * mean(x).
-    double r_squared;  ///< 1 - SSR/SST (1.0 when SST == 0).
-    int n_obs;         ///< Number of observations.
+    double slope = 0.0;      ///< Sxy / Sxx.
+    double intercept = 0.0;  ///< mean(y) - slope * mean(x).
+    double r_squared = 0.0;  ///< 1 - SSR/SST (1.0 when SST == 0).
+    int n_obs = 0;           ///< Number of observations.
 };
 
 /// Tiny native OLS in closed form.  Requires equal lengths, >= 2 finite
 /// observations and non-degenerate x (Sxx > 0).
-OLSResult ols(const std::vector<double>& x, const std::vector<double>& y);
+[[nodiscard]] OLSResult ols(const std::vector<double>& x, const std::vector<double>& y);
 
 /// Deterministic synthetic (participation, per-share cost) fills — pinned,
 /// RNG-free, identical across languages:
@@ -74,12 +74,12 @@ OLSResult ols(const std::vector<double>& x, const std::vector<double>& y);
 ///     cost_i = intercept + slope*part_i + noise_amp*sin(2.5*i + 0.3)
 ///
 /// Requires `n_obs >= 2`.  Returns (participations, costs).
-std::pair<std::vector<double>, std::vector<double>> synthetic_impact_fills(
+[[nodiscard]] std::pair<std::vector<double>, std::vector<double>> synthetic_impact_fills(
     int n_obs = 25, double intercept = 0.5, double slope = 8.0,
     double noise_amp = 0.05);
 
 /// Market-impact regression: per-share cost on participation rate.
-OLSResult estimate_impact(const std::vector<double>& participations,
+[[nodiscard]] OLSResult estimate_impact(const std::vector<double>& participations,
                           const std::vector<double>& costs);
 
 }  // namespace etrade
