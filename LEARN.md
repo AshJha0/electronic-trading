@@ -659,7 +659,7 @@ suggests. The code evaluates `P(T <= t)` by uniformisation: a Poisson-weighted
 sum over a discrete-time chain, with the Poisson mass outside the window
 below `exp(-50)`. The textbook partial-fraction formula alternates in sign
 for deep queues and loses all its digits, so it is not used (derived, see
-`docs/ARCHITECTURE.md` Section 7). With `theta = 0` the answer is the Poisson
+`docs/ARCHITECTURE.md` Section 3, note 17). With `theta = 0` the answer is the Poisson
 tail `P(N(t) >= q_ahead + size)`; the Python suite checks that identity and
 the incomplete-beta formula for the queue ahead alone (asserted).
 

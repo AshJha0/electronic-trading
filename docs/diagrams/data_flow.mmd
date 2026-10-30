@@ -17,12 +17,16 @@ flowchart TB
         GENT["generate_tca.py"]
         GENC["generate_calibration.py"]
         GENX["generate_execution.py"]
+        GENMM["generate_mm.py"]
+        GENP["generate_placement.py"]
         GOLD["golden/golden.json<br/>19 cases: exact + statistical"]
         GOLDM["golden/market_golden.json<br/>15 cases"]
         GOLDI["golden/impact_golden.json<br/>8 cases"]
         GOLDT["golden/tca_golden.json<br/>11 cases"]
         GOLDC["golden/calibration_golden.json<br/>9 cases"]
         GOLDX["golden/execution_golden.json<br/>8 cases: exact + statistical"]
+        GOLDMM["golden/mm_golden.json<br/>14 cases: exact + statistical"]
+        GOLDP["golden/placement_golden.json<br/>11 cases: exact + statistical"]
         FIT --> FJ
         FJ --> GENM
         GEN --> PJ
@@ -34,6 +38,9 @@ flowchart TB
         GENT --> GOLDT
         GENC --> GOLDC
         GENX --> GOLDX
+        PR --> GENMM
+        GENMM --> GOLDMM
+        GENP --> GOLDP
     end
 
     IAP --> FIT
@@ -47,6 +54,8 @@ flowchart TB
         TC["tca"]
         CA["calibration"]
         EX["execution"]
+        MM["mm"]
+        PL["placement"]
     end
 
     PJ --> AC
@@ -57,7 +66,7 @@ flowchart TB
     CA -. "estimators used by" .-> FIT
 
     subgraph OUT["outputs"]
-        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report)"]
+        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report,<br/>TCA, calibration, execution extensions,<br/>friction ledger, placement)"]
         TESTS["4 language test suites<br/>exact cases: 1e-9..1e-12<br/>statistical cases: 4-SE band"]
     end
 
@@ -69,3 +78,5 @@ flowchart TB
     GOLDT --> TESTS
     GOLDC --> TESTS
     GOLDX --> TESTS
+    GOLDMM --> TESTS
+    GOLDP --> TESTS

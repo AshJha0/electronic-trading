@@ -172,6 +172,40 @@ classDiagram
         +simulate_adaptive(p, sig, n_paths, seed) AdaptiveSimResult
         +internalise(buys, sells, market inputs) InternalisationResult
     }
+    class MMConfig {
+        +agent
+        +float tick
+        +float maker_fee
+        +int latency_steps
+        +float informed_prob
+        +float signal_accuracy
+        +float fixed_spread
+    }
+    class mm {
+        +round_to_tick(bid, ask, tick) tuple
+        +glft_half_spreads(params, q) tuple
+        +weighted_mid(bid, ask, bid_size, ask_size) float
+        +order_flow_imbalance(bid_px, bid_sz, ask_px, ask_sz) array
+        +simulate_mm(params, n_paths, seed, config) MMResult
+    }
+    class LiquidationParams {
+        +int total_units
+        +int n_periods
+        +float dt
+        +float sigma
+        +float spread
+        +float kappa
+        +float p_touch
+        +float beta
+        +float phi
+    }
+    class placement {
+        +queue_fill_probability(q_ahead, size, mu, theta, horizon) float
+        +place_or_cross(size, spread, fill_prob, adverse_move, eta, alpha, weight) PlacementDecision
+        +liquidation_policy(p) LiquidationPolicy
+        +aggressive_cost(p) float
+        +simulate_liquidation(p, n_paths, seed) LiquidationSimResult
+    }
 
     almgren_chriss ..> ACParams : validates on construction
     almgren_chriss --> FrontierPoint
@@ -195,3 +229,10 @@ classDiagram
     execution --> InternalisationResult
     execution --> ACParams
     execution --> market
+    mm ..> MMConfig : validates on construction
+    mm --> ASParams
+    mm --> MMResult
+    placement ..> LiquidationParams : validates on construction
+    placement --> PlacementDecision
+    placement --> LiquidationPolicy
+    placement --> LiquidationSimResult
