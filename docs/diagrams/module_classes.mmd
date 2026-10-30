@@ -95,6 +95,45 @@ classDiagram
         +int n_obs
     }
 
+    class ImpactParams {
+        +float total_shares
+        +int n_intervals
+        +float tau
+        +float sigma
+        +float eta
+        +float alpha
+        +float gamma_p
+        +float lambda_ra
+        +float drift
+        +weights
+        +etas() float[]
+    }
+    class impact {
+        +impact_expected_cost(p, holdings) float
+        +impact_variance_cost(p, holdings) float
+        +vwap_holdings(X, weights) array
+        +optimal_schedule(p) ScheduleResult
+        +sqrt_law_cost_bps(daily_vol, Q, adv, y) float
+    }
+    class ScheduleResult {
+        +array holdings
+        +int horizon
+        +int iterations
+    }
+    class market {
+        +ac_params_from_market(...) ACParams
+        +as_params_from_market(...) ASParams
+        +impact_params_from_market(...) ImpactParams
+        +bps(amount, notional) float
+        +half_spread_cost(spread, X) float
+        +pretrade_report(..., lambdas) PretradeReport
+    }
+    class PretradeReport {
+        +float sqrt_law_bps
+        +float half_spread_bps
+        +PretradeRow[] rows
+    }
+
     almgren_chriss ..> ACParams : validates on construction
     almgren_chriss --> FrontierPoint
     almgren_chriss --> ISSimResult
@@ -102,3 +141,9 @@ classDiagram
     avellaneda_stoikov --> ASSimResult
     analytics --> ISDecomposition
     analytics --> OLSResult
+    impact ..> ImpactParams : validates on construction
+    impact --> ScheduleResult
+    market --> ACParams
+    market --> ASParams
+    market --> ImpactParams
+    market --> PretradeReport

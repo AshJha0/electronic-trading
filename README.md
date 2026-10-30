@@ -18,10 +18,15 @@ shared golden values checked in CI on Linux, Windows and macOS.
 can be stated in market units (price, tick, spread, daily volatility, ADV)
 with results in basis points. Execution now has a power-law impact model
 (square-root by default) with intraday volume curves, alpha-aware schedules
-and a pre-trade cost report; at `alpha = 1` it reproduces Almgren-Chriss
-exactly. Market-making simulation does not yet include informed flow, fees or
-latency; that is the next release. Presets and the volume curve are
-illustrative, not fitted to data.
+and a pre-trade cost report; at `alpha = 1` it reproduces the Almgren-Chriss
+trajectory (holdings within 1e-10 of `X`, costs within 1e-12 relative,
+asserted in every suite). Market-making simulation does not yet include
+informed flow, fees or latency; that work is in progress. Presets and the
+volume curve are illustrative, not fitted to data.
+
+Documentation site: https://ashjha0.github.io/electronic-trading/ (the guide,
+cookbook, contract, architecture notes and changelog, built from the Markdown
+files in this repository).
 
 ### Pre-trade report
 
@@ -32,10 +37,15 @@ square-root impact and a U-shaped volume curve (`API_SPEC.md` Section 8):
 |---|---|---|---|---|
 | TWAP | 0 | 34.96 bps | 81.59 bps | 35.46 bps |
 | VWAP | 0 | 33.77 bps | 79.91 bps | 34.27 bps |
+| optimal | 0 | 33.77 bps | 79.91 bps | 34.27 bps |
+| optimal | 1e-7 | 33.83 bps | 76.51 bps | 34.33 bps |
 | optimal | 1e-6 | 36.95 bps | 56.60 bps | 37.45 bps |
 | optimal | 1e-5 | 58.26 bps | 21.56 bps | 58.76 bps |
 
-The closed-form square-root-law estimate is 33.54 bps. With a 50 bps/day
+At `lambda = 0` the optimum matches VWAP to the printed precision: with no
+risk penalty and no drift, the temporary cost is minimised by trading in
+proportion to liquidity (the small permanent-impact term moves it slightly). The
+closed-form square-root-law estimate is 33.54 bps. With a 50 bps/day
 adverse drift behind the order, the drift-aware schedule costs 52.13 bps
 against 57.31 bps for VWAP, a saving of 5.18 bps.
 
@@ -54,15 +64,21 @@ A-S spread at the open and at the close of the session):
 
 ### Roadmap
 
-1. **Market units and realistic presets** (done).
-2. **Execution a desk would recognise** (this release): square-root and
-   power-law impact, alpha-aware (urgency) schedules, intraday volume curve,
-   pre-trade cost report.
-3. **Market making that can lose money:** informed flow, fees and rebates,
-   tick grid, latency, PnL attribution, markouts, fair-value models.
-4. **Calibration on recorded order-book data** and post-trade TCA.
-5. **Strategy extensions:** limit-order placement, adaptive scheduling,
-   internalisation, hedged market making, risk controls.
+1. **F1. Market units and realistic presets** (done; `API_SPEC.md`
+   Section 7).
+2. **F2. Execution a desk would recognise** (done; Section 8): square-root
+   and power-law impact, alpha-aware (urgency) schedules, intraday volume
+   curve, pre-trade cost report.
+3. **F3. Market making that can lose money** (in progress): informed flow,
+   fees and rebates, tick grid, latency, PnL attribution, markouts,
+   fair-value models.
+4. **F4. Calibration on recorded order-book data and post-trade TCA** (in
+   progress).
+5. **F5. Strategy extensions** (in progress): limit-order placement,
+   adaptive scheduling, internalisation, hedged market making, risk controls.
+
+Nothing from F3-F5 is on `main` yet; the rest of this README describes only
+what is.
 
 Not investment advice and not a trading system; see the usage notes below.
 
@@ -101,9 +117,13 @@ electronic-trading/
   LEARN.md                 # theory: microstructure, AC, A-S, IS, regulation
   COOKBOOK.md              # task-oriented recipes in all four languages
   API_SPEC.md              # the pinned cross-language contract (normative)
+  CHANGELOG.md
+  mkdocs.yml               # documentation site (MkDocs Material)
   docs/
     ARCHITECTURE.md        # design, data flow, numerics, testing strategy
-    GITHUB_PAGES.md        # the docs site (live at https://ashjha0.github.io/electronic-trading/) and how to publish it
+    GITHUB_PAGES.md        # how the docs site is built and published
+    index.html             # stand-alone landing page (served until Pages switches to the Actions build)
+    site/                  # MkDocs landing page and stylesheet
     diagrams/*.mmd         # raw Mermaid sources
   data/
     params_liquid.json     # liquid large-cap parameter set
@@ -113,15 +133,15 @@ electronic-trading/
     presets.json           # market-unit presets (large cap, small cap, ETF, EUR/USD, paper)
     generate_data.py       # regenerates data + golden values (seeded)
     generate_market.py     # regenerates presets.json + market golden cases
-    golden/golden.json     # 19 cross-language golden cases
     generate_impact.py     # regenerates the power-law impact golden cases
+    golden/golden.json     # 19 cross-language golden cases
     golden/market_golden.json  # 9 market-unit golden cases
     golden/impact_golden.json  # 8 power-law impact golden cases
   python/
-    src/etrade/            # reference package (almgren_chriss, avellaneda_stoikov, analytics)
+    src/etrade/            # reference package (almgren_chriss, avellaneda_stoikov, analytics, impact, market)
     tests/                 # pytest suites incl. golden-value tests
     demo.py                # end-to-end demo report
-    requirements.txt
+    pyproject.toml  requirements.txt
   cpp/
     include/etrade/*.hpp   # C++17 library headers
     src/*.cpp  tests/*.cpp
@@ -177,11 +197,19 @@ mvn verify                           # compile with -Xlint:all -Werror and run t
 mvn -q exec:java                     # run the demo
 ```
 
+### Documentation site (MkDocs Material)
+
+```bash
+pip install -r docs/site/requirements.txt
+mkdocs serve                         # preview at http://127.0.0.1:8000/electronic-trading/
+mkdocs build --strict                # what the Docs workflow runs on every PR
+```
+
 Test counts above are the current suite sizes (Python 174, C++ 91, Rust 78,
 Java 85, 428 in total); every suite loads the same 19 model golden cases, the
 9 market golden cases and the 8 impact golden cases.
 
-## Sample demo output (Python reference, truncated)
+## Sample demo output (Python reference, abridged)
 
 ```
 etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov market making
@@ -196,8 +224,12 @@ etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov market making
 === Efficient frontier of execution (E[cost] vs sqrt(Var[cost])) ======
  lambda_ra      E[cost] $    sqrt(Var) $     kappa
    0.0e+00        600,000      1,040,673    0.0000
+   1.0e-08        600,089      1,032,060    0.0616
+   1.0e-07        607,557        961,623    0.1946
    5.0e-07        705,633        750,597    0.4325
+   1.0e-06        848,727        603,431    0.6071
    2.0e-06      1,078,215        449,368    0.8463
+   5.0e-06      1,472,888        272,687    1.2876
    1.0e-05      1,782,711        171,712    1.7267
 
 === Baselines: optimal vs TWAP vs POV vs instantaneous ================
@@ -209,6 +241,7 @@ etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov market making
 MC check (20k paths): E=1,075,336 (closed 1,078,215, se 3,177); Var/1e9=201.9 (closed 201.9)
 
 === Avellaneda-Stoikov market making (liquid large-cap) ===============
+params: s0=100.0 sigma=2.0 gamma=0.1 k=1.5 A=140.0 T=1.0 dt=0.005 q_max=20
 example quote at t=0, q=+3: bid=97.9546 ask=99.6454 (mid 100.0, reservation 98.8000)
          agent   mean PnL   std PnL  Sharpe  mean|q| mean max|q|   rms q   fills
            A-S    55.9191    6.3677    8.78    1.063       4.096   1.452    85.6
@@ -216,19 +249,26 @@ example quote at t=0, q=+3: bid=97.9546 ask=99.6454 (mid 100.0, reservation 98.8
 inventory control: A-S rms q = 1.452 vs fixed 4.964 (similar PnL, much tighter inventory)
 stress (vol x2 after T/2): std PnL 6.3677 -> 7.9045
 
+[FX-like market-making section omitted]
+
 === Implementation-shortfall decomposition (sell parent order) ========
 decision 100.00, arrival 99.50, close 98.80; executed 900/1000
          delay:     450.00 $
        trading:     230.00 $
    opportunity:     120.00 $
          TOTAL:     800.00 $
+participation rate example: 120k / 1.5m = 8.00%
 
 === Market-impact regression (cost/share vs participation, native OLS)
 fitted: cost = 0.5035 + 7.9707 * participation (true 0.50 + 8.00), R^2 = 0.9934, n = 25
 
+[presets and pre-trade sections omitted: they are the two tables at the top]
+
 done.
 ```
 
+The demo prints every section in full; the excerpt leaves out the FX-like
+market-making run and the two tables already shown at the top of this file.
 The simulation rows are 2,000-path samples from the Python demo; the C++,
 Rust and Java demos print their own samples (e.g. A-S fills 85.2 / 85.5 /
 85.3) that agree within the statistical bands. `fills` is the total number of
@@ -262,8 +302,15 @@ invariance, frontier monotonicity), the literature identity between the
 Almgren-Chriss closed forms and the discrete sums, overflow/underflow safety
 at `kappa*T > 2500`, and every validation rule of `API_SPEC.md` Section 6
 (non-finite inputs, size bounds, non-liquidating schedules, participation
-above 1, ...). Regenerate data and golden values with
-`python3 data/generate_data.py`.
+above 1, ...).
+
+Two further golden files follow the same schema and comparison rule:
+`data/golden/market_golden.json` (9 market-unit cases, tolerance 1e-12,
+`API_SPEC.md` Section 7.4) and `data/golden/impact_golden.json` (8 power-law
+impact cases, tolerance 1e-9, Section 8.5). Regenerate the three files with
+`python3 data/generate_data.py`, `python3 data/generate_market.py` and
+`python3 data/generate_impact.py`, on Linux or macOS: the committed values
+come from there, and the last bit of some libm results differs on Windows.
 
 ## Real-world usage notes
 
@@ -274,13 +321,17 @@ What a practitioner gets, and what is deliberately left out:
   Avellaneda-Stoikov (2008) finite-horizon market making with exponential
   arrival intensities, plus a hard inventory cap and a terminal liquidation
   penalty; Perold (1988) implementation-shortfall decomposition; participation
-  rate; a two-variable OLS. Nothing else — no square-root impact, no
-  adaptive re-optimisation, no adverse selection, no order types, venues,
-  ticks, lots or latency.
+  rate; a two-variable OLS; a power-law (square-root by default)
+  generalisation of the execution problem with intraday liquidity weights and
+  an adverse drift, solved numerically (`API_SPEC.md` Section 8); conversion
+  from market units with reporting in basis points (Section 7). Nothing else:
+  no adaptive re-optimisation, no adverse selection, no transient (decaying)
+  impact, no order types, venues, ticks, lots or latency.
 - **Units and conventions** (`API_SPEC.md` Section 0): `tau`, `dt`, `T` are in
   an abstract time unit (the bundled sets use 1 = one trading day) — nothing
-  ties them to a clock or a calendar (no day-count conventions, holidays or
-  intraday volume profiles); `sigma` is *arithmetic* (currency per share per
+  ties them to a clock or a calendar (no day-count conventions or holidays;
+  the intraday volume curve of Section 8 is a vector of per-interval weights,
+  not a clock); `sigma` is *arithmetic* (currency per share per
   sqrt(time unit)); prices may go negative; AC shares are fractional (no lot
   rounding); A-S fills are one unit each; all costs are in currency (positive
   = loss); `half_life` is the paper's `1/kappa` (an e-folding time), not
@@ -309,11 +360,13 @@ What a practitioner gets, and what is deliberately left out:
   and `Math.*` are not bit-specified); C++ is deterministic per standard
   library because `std::normal_distribution` is implementation-defined.
   Cross-language agreement is statistical (4-SE bands), never bitwise.
-- **What is verified.** 428 tests across the four suites: 19 shared golden
-  cases at 1e-10..1e-12, the paper's closed forms against the discrete sums
+- **What is verified.** 428 tests across the four suites: 19 shared model
+  golden cases at 1e-10..1e-12, 9 market-unit cases at 1e-12 and 8 power-law
+  impact cases at 1e-9, the paper's closed forms against the discrete sums
   at 1e-12, Monte Carlo against closed forms at 4 SE, and every validation
-  rule. What is *not* verified: calibration of `eta`, `gamma_p`, `A`, `k` to
-  any real market, and behaviour outside the documented model assumptions
+  rule; in the Python suite, the power-law solver against SciPy's
+  constrained optimiser. What is *not* verified: calibration of `eta`,
+  `gamma_p`, `alpha`, `Y`, `A`, `k` or the volume curve to any real market, and behaviour outside the documented model assumptions
   (`LEARN.md` Section 7).
 
 ## References

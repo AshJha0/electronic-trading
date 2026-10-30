@@ -1,0 +1,96 @@
+# Documentation site for https://ashjha0.github.io/electronic-trading/
+#
+# The pages are the Markdown files at the repository root and in docs/,
+# pulled in unchanged by docs/site/hooks.py; only the landing page and the
+# diagrams page live in docs/site/pages. Build locally with
+#   pip install -r docs/site/requirements.txt
+#   mkdocs serve          # or: mkdocs build --strict
+# See docs/GITHUB_PAGES.md for how the site is published.
+
+site_name: electronic-trading
+site_description: >-
+  Execution and market-making research platform: Almgren-Chriss, Avellaneda-Stoikov,
+  square-root impact and implementation shortfall, in Python, C++, Rust and Java.
+site_url: https://ashjha0.github.io/electronic-trading/
+repo_url: https://github.com/AshJha0/electronic-trading
+repo_name: AshJha0/electronic-trading
+edit_uri: ""
+copyright: MIT License, Copyright (c) 2026 Ashish Jha. Not investment advice.
+
+docs_dir: docs/site/pages
+site_dir: site
+hooks:
+  - docs/site/hooks.py
+watch:
+  - LEARN.md
+  - COOKBOOK.md
+  - API_SPEC.md
+  - CHANGELOG.md
+  - docs/ARCHITECTURE.md
+  - docs/diagrams
+
+nav:
+  - Home: index.md
+  - Learn: learn.md
+  - Cookbook: cookbook.md
+  - API contract: api-spec.md
+  - Architecture: architecture.md
+  - Diagrams: diagrams.md
+  - Changelog: changelog.md
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: green
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: green
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+extra_css:
+  - assets/extra.css
+extra_javascript:
+  - assets/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js
+
+markdown_extensions:
+  - tables
+  - attr_list
+  - md_in_html
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn

@@ -101,7 +101,7 @@ std::vector<std::pair<std::string, double>> actual_for(const Value& c) {
 
 TEST(MarketGolden, EveryCaseEveryKey) {
     const auto& cases = market_golden().at("cases").arr;
-    ASSERT_EQ(cases.size(), 9u);
+    ASSERT_EQ(cases.size(), 15u);
     for (const auto& c : cases) {
         const auto actual = actual_for(c);
         const Value& expect = c.at("expect");

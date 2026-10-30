@@ -1,13 +1,14 @@
 # ARCHITECTURE — `etrade`
 
 Design notes for the four parallel implementations (Python reference, C++,
-Rust, Java) of the Almgren-Chriss / Avellaneda-Stoikov / analytics stack.
+Rust, Java) of the Almgren-Chriss / Avellaneda-Stoikov / analytics stack,
+the power-law impact model and the market-unit layer.
 The normative contract is `../API_SPEC.md`; this document explains *why* it
 is shaped the way it is.
 
 ## 1. Component responsibilities
 
-Three independent modules per language, mirrored one-to-one across ports:
+Five modules per language, mirrored one-to-one across ports:
 
 | Module | Owns | Depends on |
 |---|---|---|
@@ -15,9 +16,12 @@ Three independent modules per language, mirrored one-to-one across ports:
 | `avellaneda_stoikov` | `ASParams` validation, reservation price / optimal spread / quotes closed forms, intensity and fill probability, the pinned path simulation with inventory cap, stress vol and terminal liquidation, per-path and aggregate statistics | RNG (simulation only) |
 | `analytics` | Perold IS decomposition (buy/sell), participation rate, native closed-form OLS, pinned RNG-free synthetic impact fills | nothing stochastic |
 | `impact` | power-law temporary impact with per-interval liquidity weights, linear permanent impact and adverse drift; exact cost and variance of any sell schedule; pinned Newton solver (tridiagonal Hessian, Armijo line search, decrement stop) with horizon bisection and a KKT certificate; VWAP schedule; square-root-law estimate (API_SPEC Section 8) | nothing (its own parameter type) |
-| `market` | conversion from market units (price, spread, tick, ADV, daily vol, touch fill rate, halving distance, opening skew) to `ACParams`/`ASParams`; bps and half-spread reporting helpers (API_SPEC Section 7) | `almgren_chriss`, `avellaneda_stoikov` (parameter types only) |
+| `market` | conversion from market units (price, spread, tick, ADV, daily vol, touch fill rate, halving distance, opening skew) to `ACParams`/`ASParams`/`ImpactParams`; bps and half-spread reporting helpers (API_SPEC Section 7); pre-trade report (Section 8.4) | `almgren_chriss`, `avellaneda_stoikov` (parameter types, `twap_holdings`), `impact` |
 
-The three model modules do not import each other; `market` only builds their parameter objects. Parameter objects are immutable value
+The four model modules (`almgren_chriss`, `avellaneda_stoikov`, `analytics`,
+`impact`) do not import each other. `market` builds their parameter objects
+and, for the pre-trade report, calls the `impact` cost and schedule
+functions. Parameter objects are immutable value
 types (frozen dataclasses in Python, plain structs/records elsewhere) that
 validate **at construction**, so every downstream function can assume valid
 inputs and stay branch-free. Functions that take user data (holdings paths,
@@ -35,11 +39,19 @@ flowchart TB
     subgraph DATA["data/ (shared, committed)"]
         PJ["params_liquid.json<br/>params_illiquid.json<br/>params_fx.json"]
         PO["parent_order.json<br/>(X, lambda grid, IS fills)"]
+        PR["presets.json<br/>(5 instruments in market units)"]
         GEN["generate_data.py<br/>(seeded, asserts AC closed forms vs MC)"]
+        GENM["generate_market.py"]
+        GENI["generate_impact.py"]
         GOLD["golden/golden.json<br/>19 cases: exact + statistical"]
+        GOLDM["golden/market_golden.json<br/>9 cases"]
+        GOLDI["golden/impact_golden.json<br/>8 cases"]
         GEN --> PJ
         GEN --> PO
         GEN --> GOLD
+        GENM --> PR
+        GENM --> GOLDM
+        GENI --> GOLDI
     end
 
     subgraph CORE["etrade core (identical in Python / C++ / Rust / Java)"]
@@ -48,33 +60,46 @@ flowchart TB
         ASP["ASParams<br/>validate: gamma > 0, T/dt integral,<br/>T/dt <= MAX_AS_STEPS, ..."]
         AS["avellaneda_stoikov<br/>reservation price, spread, quotes,<br/>intensity, fill prob,<br/>pinned simulation loop"]
         AN["analytics<br/>IS decomposition, participation,<br/>native OLS impact regression"]
+        IM["impact<br/>power-law cost, volume curve,<br/>VWAP, Newton solver + KKT"]
+        MK["market<br/>market units to parameters,<br/>bps helpers, pre-trade report"]
         ACP --> AC
         ASP --> AS
+        MK --> ACP
+        MK --> ASP
+        MK --> IM
     end
 
     PJ --> ACP
     PJ --> ASP
     PO --> AC
     PO --> AN
+    PR --> MK
 
     subgraph OUT["outputs"]
-        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit)"]
-        TESTS["4 language test suites<br/>exact cases: 1e-10..1e-12<br/>statistical cases: 4-SE band"]
+        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report)"]
+        TESTS["4 language test suites<br/>exact cases: 1e-9..1e-12<br/>statistical cases: 4-SE band"]
     end
 
     AC --> DEMO
     AS --> DEMO
     AN --> DEMO
+    MK --> DEMO
     AC --> TESTS
     AS --> TESTS
     AN --> TESTS
+    IM --> TESTS
+    MK --> TESTS
     GOLD --> TESTS
+    GOLDM --> TESTS
+    GOLDI --> TESTS
 ```
 
-`generate_data.py` is the single source of truth for the bundled JSON: it
-writes the parameter sets, the parent order, and the golden values (after
-asserting the AC closed forms against its own Monte Carlo), all seeded.
-Ports never regenerate data; they only consume it.
+Three Python scripts are the single source of truth for the bundled JSON.
+`generate_data.py` writes the parameter sets, the parent order and the model
+golden values (after asserting the AC closed forms against its own Monte
+Carlo), all seeded; `generate_market.py` writes `presets.json` and the market
+golden cases; `generate_impact.py` writes the power-law golden cases. Ports
+never regenerate data; they only consume it.
 
 ### Module surface
 
@@ -176,6 +201,45 @@ classDiagram
         +int n_obs
     }
 
+    class ImpactParams {
+        +float total_shares
+        +int n_intervals
+        +float tau
+        +float sigma
+        +float eta
+        +float alpha
+        +float gamma_p
+        +float lambda_ra
+        +float drift
+        +weights
+        +etas() float[]
+    }
+    class impact {
+        +impact_expected_cost(p, holdings) float
+        +impact_variance_cost(p, holdings) float
+        +vwap_holdings(X, weights) array
+        +optimal_schedule(p) ScheduleResult
+        +sqrt_law_cost_bps(daily_vol, Q, adv, y) float
+    }
+    class ScheduleResult {
+        +array holdings
+        +int horizon
+        +int iterations
+    }
+    class market {
+        +ac_params_from_market(...) ACParams
+        +as_params_from_market(...) ASParams
+        +impact_params_from_market(...) ImpactParams
+        +bps(amount, notional) float
+        +half_spread_cost(spread, X) float
+        +pretrade_report(..., lambdas) PretradeReport
+    }
+    class PretradeReport {
+        +float sqrt_law_bps
+        +float half_spread_bps
+        +PretradeRow[] rows
+    }
+
     almgren_chriss ..> ACParams : validates on construction
     almgren_chriss --> FrontierPoint
     almgren_chriss --> ISSimResult
@@ -183,6 +247,12 @@ classDiagram
     avellaneda_stoikov --> ASSimResult
     analytics --> ISDecomposition
     analytics --> OLSResult
+    impact ..> ImpactParams : validates on construction
+    impact --> ScheduleResult
+    market --> ACParams
+    market --> ASParams
+    market --> ImpactParams
+    market --> PretradeReport
 ```
 
 ## 2. The pinned A-S simulation loop
@@ -301,10 +371,22 @@ Design points:
    the SE formulas is what makes the 4-SE acceptance band well defined
    across languages.
 10. **Money in whole currency units, shares in floats.** No basis-point or
-    per-share normalisation inside the core: E and Var come out in currency,
-    letting the golden values assert the raw sums. Reporting layers (demo)
-    do the pretty-printing.
-11. **RNG policy.** Determinism is per-language, agreement is statistical.
+    per-share normalisation inside the model modules: E and Var come out in
+    currency, letting the golden values assert the raw sums. Conversion to
+    basis points happens only in `market` (`bps`, the pre-trade report) and
+    in the demos.
+11. **A pinned solver where there is no closed form.** The power-law model
+    has no closed-form optimum, so the algorithm itself is the contract
+    (`API_SPEC.md` Section 8.2): Newton steps on the tridiagonal Hessian
+    (Thomas algorithm, O(N) per step), Armijo backtracking that keeps every
+    trade strictly positive, fixed stopping tolerances and an iteration cap.
+    The problem is convex, so any port that follows the steps lands on the
+    same point to well within the 1e-9 golden tolerance. When a drift makes
+    finishing early optimal, the horizon is found by bisection and certified
+    with the KKT condition instead of trusted. `alpha = 1` with uniform
+    weights is asserted against the closed-form Almgren-Chriss trajectory,
+    and the Python suite cross-checks the solver against SciPy.
+12. **RNG policy.** Determinism is per-language, agreement is statistical.
     Python: `numpy.random.default_rng(seed)` (PCG64, stream versioned by
     NumPy); C++: `std::mt19937_64` with `std::uniform_real_distribution` /
     `std::normal_distribution` — deterministic per standard library only,
@@ -352,8 +434,10 @@ exception is a port bug that the tests catch.
 Five layers, replicated per language (Python 174 tests, C++ 91, Rust 78,
 Java 85, 428 in total):
 
-1. **Golden values** (`data/golden/golden.json`, 19 cases; every suite
-   asserts the count exactly and that every case is handled).
+1. **Golden values** (`data/golden/golden.json`, 19 cases;
+   `market_golden.json`, 9 cases at 1e-12; `impact_golden.json`, 8 cases at
+   1e-9; every suite asserts each count exactly and that every case is
+   handled).
    *Exact* cases (tol 1e-10..1e-12, relative for large magnitudes via
    `tol*max(1,|expected|)`) pin the closed forms: AC solutions on two
    parameter sets, `kappa` at millisecond `tau` (`ac_kappa_small_tau`),
@@ -403,7 +487,8 @@ Java 85, 428 in total):
   vectorises across paths; native ports loop per path; none parallelise —
   determinism and portability outrank speed here. No timing is asserted or
   enforced anywhere; as a rough indication only, on a shared 2-core box the
-  Python demo (three 2,000-path A-S runs plus a 20,000-path AC check) runs
+  Python demo (six 2,000-path A-S runs: A-S, fixed-spread and stressed on
+  the liquid and FX-like sets, plus a 20,000-path AC check) runs
   in a few seconds and each language's test suite in well under a minute.
 - `exp` is the hot function in the A-S loop. The intensity for a suppressed
   side is still computed (branch-free style) in the reference; ports may
