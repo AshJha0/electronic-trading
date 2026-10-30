@@ -17,7 +17,9 @@
 //! * [`execution`] — transient (Obizhaeva-Wang) impact, adaptive re-planning
 //!   and internalisation of opposite parent orders;
 //! * [`mm`] — market making with frictions: ticks, fees, latency, informed
-//!   flow, fair-value signals, GLFT quotes and PnL attribution.
+//!   flow, fair-value signals, GLFT quotes and PnL attribution;
+//! * [`placement`] — queue-position fill probability, passive or aggressive
+//!   for one child order, liquidation with limit and market orders.
 //!
 //! All fallible operations return [`Result`]`<_, `[`EtradeError`]`>`; no
 //! function panics on bad input (every size — intervals, POV clips, steps,
@@ -35,6 +37,7 @@ pub mod execution;
 pub mod impact;
 pub mod market;
 pub mod mm;
+pub mod placement;
 pub mod tca;
 
 pub use almgren_chriss::{
