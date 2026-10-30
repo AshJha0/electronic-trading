@@ -7,6 +7,8 @@
 #   ETRADE_BUILD_TESTS  build the GoogleTest suite (default ON when top level)
 #   ETRADE_WERROR       treat warnings as errors (default OFF; CI turns it on)
 #   ETRADE_SANITIZE     build with AddressSanitizer + UBSan (GCC/Clang only)
+#   ETRADE_BUILD_BENCHMARKS  build the Google Benchmark suite (default OFF)
+#   ETRADE_COVERAGE     instrument for gcov/lcov (GCC/Clang only, default OFF)
 # GoogleTest is taken from the system when available, otherwise fetched.
 cmake_minimum_required(VERSION 3.20)
 project(etrade VERSION 1.1.0 LANGUAGES CXX)
@@ -23,6 +25,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ETRADE_BUILD_TESTS "Build the etrade test suite" ${PROJECT_IS_TOP_LEVEL})
 option(ETRADE_WERROR "Treat compiler warnings as errors" OFF)
 option(ETRADE_SANITIZE "Build with ASan and UBSan (GCC/Clang)" OFF)
+option(ETRADE_BUILD_BENCHMARKS "Build the Google Benchmark suite" OFF)
+option(ETRADE_COVERAGE "Instrument for gcov/lcov coverage (GCC/Clang)" OFF)
 
 # Warning flags per compiler family (MSVC rejects -Wextra outright).
 add_library(etrade_warnings INTERFACE)
@@ -36,6 +40,10 @@ endif()
 if(ETRADE_SANITIZE AND NOT MSVC)
   target_compile_options(etrade_warnings INTERFACE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(etrade_warnings INTERFACE -fsanitize=address,undefined)
+endif()
+if(ETRADE_COVERAGE AND NOT MSVC)
+  target_compile_options(etrade_warnings INTERFACE --coverage -O0 -g)
+  target_link_options(etrade_warnings INTERFACE --coverage)
 endif()
 
 add_library(etrade
@@ -96,4 +104,8 @@ if(ETRADE_BUILD_TESTS)
   include(GoogleTest)
   gtest_discover_tests(etrade_tests WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                        DISCOVERY_TIMEOUT 60)
+endif()
+
+if(ETRADE_BUILD_BENCHMARKS)
+  add_subdirectory(benchmarks)
 endif()
