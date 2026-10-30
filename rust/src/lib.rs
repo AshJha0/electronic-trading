@@ -16,6 +16,8 @@
 //!   rate, native OLS market-impact regression;
 //! * [`execution`] — transient (Obizhaeva-Wang) impact, adaptive re-planning
 //!   and internalisation of opposite parent orders.
+//! * [`placement`] — queue-position fill probability, passive or aggressive
+//!   for one child order, liquidation with limit and market orders.
 //!
 //! All fallible operations return [`Result`]`<_, `[`EtradeError`]`>`; no
 //! function panics on bad input (every size — intervals, POV clips, steps,
@@ -32,6 +34,7 @@ mod error;
 pub mod execution;
 pub mod impact;
 pub mod market;
+pub mod placement;
 pub mod tca;
 
 pub use almgren_chriss::{
