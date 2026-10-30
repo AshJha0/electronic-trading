@@ -73,7 +73,7 @@ fn config_from(inp: &Value) -> MMConfig {
             1 => MMAgent::Glft,
             _ => MMAgent::Fixed,
         },
-        tick: num(inp, "tick"),
+        tick: num(inp, "quote_tick"),
         maker_fee: num(inp, "maker_fee"),
         latency_steps: num(inp, "latency_steps") as usize,
         informed_prob: num(inp, "informed_prob"),

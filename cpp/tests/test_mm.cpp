@@ -36,7 +36,7 @@ const Value& mm_golden() {
 double num(const Value& o, const std::string& k) { return o.at(k).number; }
 
 /// The preset in market units.  mm_sim inputs carry the MMConfig tick under
-/// "tick" (the generator overwrites the preset key), so simulations pass the
+/// "quote_tick" and the preset tick under "tick" (API_SPEC 9.7); simulations pass the
 /// preset's calibration tick explicitly.
 etrade::ASParams params_from(const Value& in, double preset_tick) {
     etrade::ASMarket m;
@@ -87,7 +87,7 @@ etrade::MMConfig config_from(const Value& in) {
     const int code = static_cast<int>(num(in, "agent_code"));
     c.agent = code == 0 ? etrade::MMAgent::kAs
                         : (code == 1 ? etrade::MMAgent::kGlft : etrade::MMAgent::kFixed);
-    c.tick = num(in, "tick");
+    c.tick = num(in, "quote_tick");
     c.maker_fee = num(in, "maker_fee");
     c.latency_steps = static_cast<int>(num(in, "latency_steps"));
     c.informed_prob = num(in, "informed_prob");

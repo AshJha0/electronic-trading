@@ -97,7 +97,7 @@ public final class MarketMakingTest {
         Map<String, Object> in = obj(c, "inputs");
         Map<String, Object> exp = obj(c, "expect");
         Agent agent = Agent.values()[(int) num(in, "agent_code")];
-        Config cfg = Config.defaults().withAgent(agent).withTick(num(in, "tick"))
+        Config cfg = Config.defaults().withAgent(agent).withTick(num(in, "quote_tick"))
                 .withMakerFee(num(in, "maker_fee"))
                 .withLatencySteps((int) num(in, "latency_steps"))
                 .withInformedProb(num(in, "informed_prob"))
