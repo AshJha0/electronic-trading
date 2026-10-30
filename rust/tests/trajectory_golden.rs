@@ -139,7 +139,7 @@ fn trajectory_golden_all_cases() {
                 };
                 let p = impact_params_from_market(&m).unwrap();
                 let r = optimal_schedule(&p).unwrap();
-                let fracs: Vec<f64> = r.holdings.iter().map(|v| v / p.total_shares()).collect();
+                let fracs: Vec<f64> = r.holdings().iter().map(|v| v / p.total_shares()).collect();
                 check_vector(name, exp, "xfrac", &fracs, tol)
             }
             other => panic!("unknown kind {other}"),

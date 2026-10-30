@@ -9,6 +9,7 @@ import org.junit.Test;
  * Standard-error formulas checked numerically (Sections 1, 2 and 9), plus
  * closed-form deterministic cases where every SE must be exactly zero.
  */
+@SuppressWarnings("deprecation") // exercises the String overloads kept for one release
 public final class NumericsTest {
 
     private static final String[] AS_STATS = {

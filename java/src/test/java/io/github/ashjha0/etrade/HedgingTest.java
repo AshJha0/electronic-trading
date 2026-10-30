@@ -46,8 +46,7 @@ public final class HedgingTest {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> load() {
         try {
-            return (Map<String, Object>) Json.parse(
-                    Files.readString(Path.of("../data/golden/hedging_golden.json")));
+            return (Map<String, Object>) TestData.load("golden/hedging_golden.json");
         } catch (IOException e) {
             throw new IllegalStateException("cannot load hedging_golden.json", e);
         }
@@ -256,8 +255,10 @@ public final class HedgingTest {
         assertTrue(fixedH.mean(Stat.RMS_X) < 0.5 * fixedH.mean(Stat.RMS_Q));
         assertTrue(fixedH.mean(Stat.HEDGE_COSTS) > 0.0);
         assertTrue(fixedH.mean(Stat.HEDGE_TRADES) > 0.0);
-        Result asUn = sim(BOOK, NO_HEDGE, NO_RISK);
-        Result asH = sim(BOOK, HEDGE, NO_RISK);
+        // The A-S variance cut is modest (about 5-17% across seeds), so 600 paths
+        // cannot resolve it reliably; 4000 paired paths can.
+        Result asUn = sim(BOOK, NO_HEDGE, NO_RISK, 4000, 11);
+        Result asH = sim(BOOK, HEDGE, NO_RISK, 4000, 11);
         assertTrue(asH.mean(Stat.RMS_SKEW) < 0.6 * asUn.mean(Stat.RMS_SKEW));
         assertTrue(asH.var(Stat.PNL) < asUn.var(Stat.PNL));
     }

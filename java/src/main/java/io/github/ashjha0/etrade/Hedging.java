@@ -7,7 +7,6 @@ import io.github.ashjha0.etrade.MarketMaking.Config;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.Map;
-import java.util.SplittableRandom;
 
 /**
  * Hedged market making and risk controls (API_SPEC Section 14).
@@ -34,7 +33,7 @@ import java.util.SplittableRandom;
  */
 public final class Hedging {
 
-    private static final double SQRT_2_OVER_PI = Math.sqrt(2.0 / Math.PI);
+    private static final double SQRT_2_OVER_PI = StrictMath.sqrt(2.0 / Math.PI);
 
     private Hedging() {
     }
@@ -215,7 +214,7 @@ public final class Hedging {
                 ss += (v - m) * (v - m);
             }
             int n = nPaths();
-            return Math.sqrt(ss / (n - 1)) / Math.sqrt(n);
+            return StrictMath.sqrt(ss / (n - 1)) / StrictMath.sqrt(n);
         }
 
         /**
@@ -251,7 +250,7 @@ public final class Hedging {
             int n = nPaths();
             double m2 = s2 / n;
             double m4 = s4 / n;
-            return Math.sqrt(Math.max(0.0, m4 - m2 * m2) / n);
+            return StrictMath.sqrt(Math.max(0.0, m4 - m2 * m2) / n);
         }
 
         /**
@@ -335,7 +334,7 @@ public final class Hedging {
     /**
      * Simulates the Section 9 maker with a hedge and risk controls (API_SPEC 14.4; loop
      * order pinned, see the class javadoc).  Deterministic per (seed, configs, nPaths);
-     * uses {@link SplittableRandom}, so sample values differ from the Python reference
+     * uses the pinned {@code NormalRng} generator (SplittableRandom uniforms, Marsaglia polar normals), so sample values differ from the Python reference
      * while agreeing statistically.  With default hedge and risk configs the result equals
      * Section 9 in distribution.
      *
@@ -361,7 +360,7 @@ public final class Hedging {
         require(risk.killStep() <= nSteps, "kill_step must be <= n_steps");
         require(risk.throttleWindow() <= nSteps, "throttle_window must be <= n_steps");
 
-        SplittableRandom rng = new SplittableRandom(seed);
+        NormalRng rng = new NormalRng(seed);
         double g = params.gamma();
         double sig = params.sigma();
         double sig2 = sig * sig;
@@ -371,19 +370,19 @@ public final class Hedging {
         double aRate = params.aRate();
         double qMax = params.qMax();
         double s0 = params.s0();
-        double sqdt = Math.sqrt(dt);
-        double markup = 2.0 / g * Math.log1p(g / k);
+        double sqdt = StrictMath.sqrt(dt);
+        double markup = 2.0 / g * StrictMath.log1p(g / k);
         double fixedHalf = 0.5 * (config.fixedSpread() != null ? config.fixedSpread()
                 : 0.5 * g * sig2 * bigT + markup);
-        double c1 = Math.log1p(g / k) / g;
-        double c2 = Math.sqrt(sig2 * g / (2.0 * k * aRate) * Math.pow(1.0 + g / k, 1.0 + k / g));
+        double c1 = StrictMath.log1p(g / k) / g;
+        double c2 = StrictMath.sqrt(sig2 * g / (2.0 * k * aRate) * StrictMath.pow(1.0 + g / k, 1.0 + k / g));
         double shiftScale = (2.0 * config.signalAccuracy() - 1.0) * sig * sqdt * SQRT_2_OVER_PI;
         double tick = config.tick();
         double fee = config.makerFee();
         Agent agent = config.agent();
         double h = hedge.hedgeRatio();
         double rho = hedge.rho();
-        double rhoPerp = Math.sqrt(Math.max(0.0, 1.0 - rho * rho));
+        double rhoPerp = StrictMath.sqrt(Math.max(0.0, 1.0 - rho * rho));
         double hCost = hedge.hedgeCost();
         int m = risk.throttleUpdates();
         int w = risk.throttleWindow();
@@ -437,12 +436,12 @@ public final class Hedging {
             for (int i = 0; i < nSteps; i++) {
                 double t = i * dt;
                 // 1. six draws, always, in the pinned order
-                double z = rng.nextGaussian();
+                double z = rng.nextNormal();
                 double uSig = rng.nextDouble();
                 double uAsk = rng.nextDouble();
                 double uBid = rng.nextDouble();
                 double uInf = rng.nextDouble();
-                double zB = rng.nextGaussian();
+                double zB = rng.nextNormal();
                 // 2. stops: kill switch first, then the loss limit on the marked PnL
                 double mark = cash + q * s + y * b;
                 boolean kill = active && i == killStep;
@@ -518,8 +517,8 @@ public final class Hedging {
                 // 5. Section 9 fills against the standing quotes
                 boolean canAsk = active && q > -qMax;
                 boolean canBid = active && q < qMax;
-                double pAsk = -Math.expm1(-aRate * Math.exp(-k * (askQ - s)) * dt);
-                double pBid = -Math.expm1(-aRate * Math.exp(-k * (s - bidQ)) * dt);
+                double pAsk = -StrictMath.expm1(-aRate * StrictMath.exp(-k * (askQ - s)) * dt);
+                double pBid = -StrictMath.expm1(-aRate * StrictMath.exp(-k * (s - bidQ)) * dt);
                 boolean fillAsk = canAsk && uAsk < pAsk;
                 boolean fillBid = canBid && uBid < pBid;
                 double move = sig * sqdt * z;
@@ -585,13 +584,13 @@ public final class Hedging {
             out.get(Stat.MARKOUT)[p] = markout;
             out.get(Stat.FILLS)[p] = fills;
             out.get(Stat.INFORMED_FILLS)[p] = informedFills;
-            out.get(Stat.RMS_Q)[p] = Math.sqrt(sumQ2 / nSteps);
+            out.get(Stat.RMS_Q)[p] = StrictMath.sqrt(sumQ2 / nSteps);
             out.get(Stat.HEDGE_PNL)[p] = hedgePnl;
             out.get(Stat.HEDGE_COSTS)[p] = hedgeCosts;
             out.get(Stat.HEDGE_TRADES)[p] = hedgeTrades;
             out.get(Stat.RISK_COSTS)[p] = riskCosts;
-            out.get(Stat.RMS_X)[p] = Math.sqrt(sumX2 / nSteps);
-            out.get(Stat.RMS_SKEW)[p] = Math.sqrt(sumSkew2 / nSteps);
+            out.get(Stat.RMS_X)[p] = StrictMath.sqrt(sumX2 / nSteps);
+            out.get(Stat.RMS_SKEW)[p] = StrictMath.sqrt(sumSkew2 / nSteps);
             out.get(Stat.QUOTE_UPDATES)[p] = quoteUpdates;
             out.get(Stat.LOSS_STOP)[p] = lossStop;
             out.get(Stat.KILL_STOP)[p] = killStop;

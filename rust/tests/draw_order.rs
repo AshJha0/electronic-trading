@@ -86,7 +86,7 @@ fn ref_as(p: &ASParams, order: AsOrder) -> Vec<f64> {
 fn as_reference_loop_reproduces_library_bitwise() {
     let p = params();
     let lib = simulate(&p, N_PATHS, SEED, &SimConfig::default()).unwrap();
-    assert_eq!(ref_as(&p, AsOrder::Right), lib.pnl);
+    assert_eq!(ref_as(&p, AsOrder::Right), lib.pnl());
     // the cap binds in this case (otherwise the skip test proves nothing)
     assert_eq!(lib.overall_max_abs_q, 1.0);
 }
@@ -95,8 +95,8 @@ fn as_reference_loop_reproduces_library_bitwise() {
 fn as_wrong_orders_diverge() {
     let p = params();
     let lib = simulate(&p, N_PATHS, SEED, &SimConfig::default()).unwrap();
-    assert_ne!(ref_as(&p, AsOrder::BidBeforeAsk), lib.pnl);
-    assert_ne!(ref_as(&p, AsOrder::SkipSuppressed), lib.pnl);
+    assert_ne!(ref_as(&p, AsOrder::BidBeforeAsk), lib.pnl());
+    assert_ne!(ref_as(&p, AsOrder::SkipSuppressed), lib.pnl());
 }
 
 #[derive(Clone, Copy, PartialEq)]

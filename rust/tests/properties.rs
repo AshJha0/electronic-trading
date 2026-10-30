@@ -107,8 +107,8 @@ proptest! {
     #[test]
     fn impact_optimal_schedule_is_a_liquidation(p in impact_params()) {
         let r = optimal_schedule(&p).unwrap();
-        prop_assert_eq!(r.holdings.len(), p.n_intervals() + 1);
-        check_schedule(&r.holdings, p.total_shares())?;
+        prop_assert_eq!(r.holdings().len(), p.n_intervals() + 1);
+        check_schedule(r.holdings(), p.total_shares())?;
     }
 }
 

@@ -4,12 +4,11 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertFalse;
 
 import java.util.Arrays;
-import java.util.SplittableRandom;
 import org.junit.Test;
 
 /**
  * Draw-order guards: an in-test reference of the Section 2.2 and Section 9.4
- * loops (same {@link SplittableRandom}, same per-path / per-step nesting)
+ * loops (same the pinned {@code NormalRng} generator (SplittableRandom uniforms, Marsaglia polar normals), same per-path / per-step nesting)
  * reproduces the library bitwise, and deliberately wrong draw orders diverge.
  */
 public final class DrawOrderTest {
@@ -28,14 +27,14 @@ public final class DrawOrderTest {
 
     /** Reference Section 2.2 loop for the A-S agent, no stress. */
     private static double[] asReference(ASParams p, int nPaths, long seed, AsOrder order) {
-        SplittableRandom rng = new SplittableRandom(seed);
+        NormalRng rng = new NormalRng(seed);
         int nSteps = p.nSteps();
         double g = p.gamma();
         double sig2 = p.sigma() * p.sigma();
         double bigT = p.horizon();
         double dt = p.dt();
-        double markup = 2.0 / g * Math.log1p(g / p.k());
-        double sqdt = Math.sqrt(dt);
+        double markup = 2.0 / g * StrictMath.log1p(g / p.k());
+        double sqdt = StrictMath.sqrt(dt);
         double[] pnl = new double[nPaths];
         for (int path = 0; path < nPaths; path++) {
             double s = p.s0();
@@ -61,8 +60,8 @@ public final class DrawOrderTest {
                     uAsk = rng.nextDouble();
                     uBid = rng.nextDouble();
                 }
-                double pAsk = -Math.expm1(-p.aRate() * Math.exp(-p.k() * (ask - s)) * dt);
-                double pBid = -Math.expm1(-p.aRate() * Math.exp(-p.k() * (s - bid)) * dt);
+                double pAsk = -StrictMath.expm1(-p.aRate() * StrictMath.exp(-p.k() * (ask - s)) * dt);
+                double pBid = -StrictMath.expm1(-p.aRate() * StrictMath.exp(-p.k() * (s - bid)) * dt);
                 if (quoteAsk && uAsk < pAsk) {
                     q -= 1.0;
                     cash += ask;
@@ -72,7 +71,7 @@ public final class DrawOrderTest {
                     cash -= bid;
                 }
                 double sigT = p.sigma() * 1.0;
-                s += sigT * sqdt * rng.nextGaussian();
+                s += sigT * sqdt * rng.nextNormal();
             }
             pnl[path] = cash + q * s - p.etaLiq() * Math.abs(q);
         }
@@ -82,7 +81,7 @@ public final class DrawOrderTest {
     /** Reference Section 9.4 loop (A-S quotes, tick rounding, latency, informed flow). */
     private static double[] mmReference(ASParams p, int nPaths, long seed,
                                         MarketMaking.Config c, MmOrder order) {
-        SplittableRandom rng = new SplittableRandom(seed);
+        NormalRng rng = new NormalRng(seed);
         int nSteps = p.nSteps();
         int lat = c.latencySteps();
         double g = p.gamma();
@@ -93,10 +92,10 @@ public final class DrawOrderTest {
         double k = p.k();
         double aRate = p.aRate();
         double qMax = p.qMax();
-        double sqdt = Math.sqrt(dt);
-        double markup = 2.0 / g * Math.log1p(g / k);
+        double sqdt = StrictMath.sqrt(dt);
+        double markup = 2.0 / g * StrictMath.log1p(g / k);
         double shiftScale = (2.0 * c.signalAccuracy() - 1.0) * sig * sqdt
-                * Math.sqrt(2.0 / Math.PI);
+                * StrictMath.sqrt(2.0 / Math.PI);
         double tick = c.tick();
         double fee = c.makerFee();
         double[] pnl = new double[nPaths];
@@ -119,9 +118,9 @@ public final class DrawOrderTest {
                     uAsk = rng.nextDouble();
                     uBid = rng.nextDouble();
                     uInf = rng.nextDouble();
-                    z = rng.nextGaussian();
+                    z = rng.nextNormal();
                 } else {
-                    z = rng.nextGaussian();
+                    z = rng.nextNormal();
                     uSig = rng.nextDouble();
                     if (order == MmOrder.SWAP_ASK_BID) {
                         uBid = rng.nextDouble();
@@ -145,8 +144,8 @@ public final class DrawOrderTest {
                 }
                 boolean canAsk = q > -qMax;
                 boolean canBid = q < qMax;
-                double pAsk = -Math.expm1(-aRate * Math.exp(-k * (ask - s)) * dt);
-                double pBid = -Math.expm1(-aRate * Math.exp(-k * (s - bid)) * dt);
+                double pAsk = -StrictMath.expm1(-aRate * StrictMath.exp(-k * (ask - s)) * dt);
+                double pBid = -StrictMath.expm1(-aRate * StrictMath.exp(-k * (s - bid)) * dt);
                 boolean fillAsk = canAsk && uAsk < pAsk;
                 boolean fillBid = canBid && uBid < pBid;
                 double move = sig * sqdt * z;

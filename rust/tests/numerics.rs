@@ -71,11 +71,11 @@ fn as_params(sigma: f64, a_rate: f64, q_max: u32) -> ASParams {
 fn check_as_se(r: &ASSimResult) {
     let m = r.n_paths() as f64;
     let pairs: [(ASStat, &[f64]); 5] = [
-        (ASStat::MeanPnl, &r.pnl),
-        (ASStat::MeanAbsQ, &r.mean_abs_q_path),
-        (ASStat::MeanMaxAbsQ, &r.max_abs_q_path),
-        (ASStat::RmsQ, &r.rms_q_path),
-        (ASStat::MeanFills, &r.fills_path),
+        (ASStat::MeanPnl, r.pnl()),
+        (ASStat::MeanAbsQ, r.mean_abs_q_path()),
+        (ASStat::MeanMaxAbsQ, r.max_abs_q_path()),
+        (ASStat::RmsQ, r.rms_q_path()),
+        (ASStat::MeanFills, r.fills_path()),
     ];
     for (stat, v) in pairs {
         let want = std1(v) / m.sqrt();
@@ -87,7 +87,7 @@ fn check_as_se(r: &ASSimResult) {
     }
     let want = r.std_pnl() / (2.0 * (m - 1.0)).sqrt();
     assert_eq!(r.se(ASStat::StdPnl), want);
-    assert!(rel_close(r.std_pnl(), std1(&r.pnl), 1e-13));
+    assert!(rel_close(r.std_pnl(), std1(r.pnl()), 1e-13));
 }
 
 #[test]
@@ -100,8 +100,8 @@ fn as_se_recomputed_from_per_path_arrays() {
 #[test]
 fn as_q_max_zero_quotes_nothing_all_se_zero() {
     let r = simulate(&as_params(2.0, 140.0, 0), 50, 5, &SimConfig::default()).unwrap();
-    assert!(r.pnl.iter().all(|&v| v == 0.0));
-    assert!(r.fills_path.iter().all(|&v| v == 0.0));
+    assert!(r.pnl().iter().all(|&v| v == 0.0));
+    assert!(r.fills_path().iter().all(|&v| v == 0.0));
     for stat in [
         ASStat::MeanPnl,
         ASStat::StdPnl,
@@ -121,12 +121,12 @@ fn as_saturating_fills_are_deterministic() {
     let p = as_params(0.0, 1e300, 5);
     let r = simulate(&p, 20, 9, &SimConfig::default()).unwrap();
     let n = p.n_steps() as f64;
-    assert!(r.fills_path.iter().all(|&v| v == 2.0 * n));
+    assert!(r.fills_path().iter().all(|&v| v == 2.0 * n));
     assert_eq!(r.se(ASStat::MeanFills), 0.0);
     assert_eq!(r.se(ASStat::MeanAbsQ), 0.0);
     // identical per-path values: SE is zero up to the rounding of the mean
-    assert!(r.pnl.iter().all(|&v| v == r.pnl[0]));
-    let scale = r.pnl[0].abs().max(1.0);
+    assert!(r.pnl().iter().all(|&v| v == r.pnl()[0]));
+    let scale = r.pnl()[0].abs().max(1.0);
     assert!(r.se(ASStat::MeanPnl) <= 1e-14 * scale);
     assert!(r.se(ASStat::StdPnl) <= 1e-14 * scale);
     let spread = 2.0 / p.gamma() * (p.gamma() / p.k()).ln_1p();

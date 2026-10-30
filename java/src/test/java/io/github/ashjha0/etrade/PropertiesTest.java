@@ -11,6 +11,7 @@ import org.junit.Test;
  * Seeded randomized property tests (fixed-seed {@link Random}, a few hundred
  * iterations each) plus the pinned product bounds of API_SPEC 0.
  */
+@SuppressWarnings("deprecation") // exercises the String overloads kept for one release
 public final class PropertiesTest {
 
     private static final int ITERS = 300;

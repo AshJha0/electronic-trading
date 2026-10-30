@@ -21,8 +21,7 @@ public final class TrajectoryGoldenTest {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> load() {
         try {
-            String text = Files.readString(Path.of("../data/golden/trajectory_golden.json"));
-            return (Map<String, Object>) Json.parse(text);
+            return (Map<String, Object>) TestData.load("golden/trajectory_golden.json");
         } catch (IOException e) {
             throw new IllegalStateException("cannot load trajectory_golden.json", e);
         }
