@@ -29,6 +29,7 @@ pub mod calibration;
 mod error;
 pub mod impact;
 pub mod market;
+pub mod tca;
 
 pub use almgren_chriss::{
     ac_kappa, ac_trade_list, ac_trajectory, characteristic_time, efficient_frontier, expected_cost,
