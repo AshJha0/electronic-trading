@@ -4,7 +4,7 @@ Avellaneda-Stoikov market making, and execution analytics.
 See API_SPEC.md at the project root for the pinned cross-language contract.
 """
 
-from . import execution, impact, market
+from . import execution, impact, market, tca
 from .almgren_chriss import (
     KAPPA_T_LIMIT,
     MAX_AC_INTERVALS,
@@ -87,6 +87,7 @@ __all__ = [
     "simulate",
     "simulate_is",
     "synthetic_impact_fills",
+    "tca",
     "trades_from_holdings",
     "twap_holdings",
     "variance_cost",
