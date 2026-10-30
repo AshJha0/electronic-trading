@@ -283,8 +283,16 @@ pub fn ac_kappa(params: &ACParams) -> f64 {
     if kt2 == 0.0 {
         return 0.0;
     }
+    if !kt2.is_finite() {
+        return f64::INFINITY;
+    }
     let x = 0.5 * kt2 * params.tau().powi(2);
-    (x + (x * (2.0 + x)).sqrt()).ln_1p() / params.tau()
+    let kappa = (x + (x * (2.0 + x)).sqrt()).ln_1p() / params.tau();
+    if kappa.is_finite() {
+        kappa
+    } else {
+        f64::INFINITY
+    }
 }
 
 /// Characteristic decay time `theta = 1/kappa` of the optimal trajectory
@@ -332,6 +340,12 @@ pub fn ac_trajectory(params: &ACParams) -> Vec<f64> {
         return vec![0.0; n + 1];
     }
     let kappa = ac_kappa(params);
+    if !kappa.is_finite() {
+        // kappa overflowed: infinite-urgency limit, everything in interval 1.
+        let mut x = vec![0.0; n + 1];
+        x[0] = x0;
+        return x;
+    }
     let big_t = params.horizon();
     let linear = kappa * big_t < KAPPA_T_LIMIT;
     // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT)
@@ -429,6 +443,10 @@ pub fn pov_holdings(
         "participation must be in (0, 1)",
     )?;
     let clip = participation * market_volume_rate * tau;
+    require(
+        clip.is_finite(),
+        "POV clip participation*market_volume_rate*tau must be finite",
+    )?;
     if total_shares == 0.0 {
         return Ok(vec![0.0, 0.0]);
     }
@@ -437,7 +455,7 @@ pub fn pov_holdings(
         ratio <= MAX_POV_INTERVALS as f64,
         "POV clip too small: would need > 10000000 intervals",
     )?;
-    let n_int = (ratio - 1e-12).ceil() as usize;
+    let n_int = ((ratio - 1e-12).ceil() as usize).max(1); // >= 1 for X > 0
     let mut x: Vec<f64> = (0..=n_int)
         .map(|i| (total_shares - clip * i as f64).max(0.0))
         .collect();
@@ -482,6 +500,9 @@ pub fn variance_cost(params: &ACParams, holdings: Option<&[f64]>) -> Result<f64,
     };
     require_holdings(x)?;
     let sum_x2: f64 = x.iter().skip(1).map(|v| v * v).sum();
+    if sum_x2 == 0.0 {
+        return Ok(0.0); // no residual exposure (avoids inf * 0)
+    }
     Ok(params.sigma().powi(2) * params.tau() * sum_x2)
 }
 

@@ -422,3 +422,11 @@ TEST(ACResults, DefaultConstructedResultsAreZero) {
 }
 
 }  // namespace
+
+TEST(ACRobustness, PovOverflowingClipAndTinyRemainder) {
+    EXPECT_THROW((void)etrade::pov_holdings(1.0, 1e200, 1e200, 0.5), std::invalid_argument);
+    const std::vector<double> x = etrade::pov_holdings(1e-13, 1.0, 1.0, 0.5);
+    ASSERT_EQ(x.size(), 2u);
+    EXPECT_EQ(x[0], 1e-13);
+    EXPECT_EQ(x[1], 0.0);
+}

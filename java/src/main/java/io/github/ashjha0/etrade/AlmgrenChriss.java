@@ -118,9 +118,13 @@ public final class AlmgrenChriss {
         if (kt2 == 0.0) {
             return 0.0;
         }
+        if (!Double.isFinite(kt2)) {
+            return Double.POSITIVE_INFINITY;
+        }
         // arccosh(1 + e) = log1p(e + sqrt(e*(2 + e))): accurate for small e too.
         double e = 0.5 * kt2 * params.tau() * params.tau();
-        return StrictMath.log1p(e + StrictMath.sqrt(e * (2.0 + e))) / params.tau();
+        double k = StrictMath.log1p(e + StrictMath.sqrt(e * (2.0 + e))) / params.tau();
+        return Double.isFinite(k) ? k : Double.POSITIVE_INFINITY;
     }
 
     /**
@@ -165,6 +169,10 @@ public final class AlmgrenChriss {
             return x;
         }
         double k = kappa(params);
+        if (!Double.isFinite(k)) {
+            x[0] = x0; // kappa overflowed: infinite-urgency limit, all in interval 1
+            return x;
+        }
         double bigT = params.horizon();
         if (k * bigT < KAPPA_T_LIMIT) {
             for (int j = 0; j <= n; j++) {
@@ -269,13 +277,14 @@ public final class AlmgrenChriss {
         require(Double.isFinite(participation) && participation > 0.0 && participation < 1.0,
                 "participation must be in (0, 1)");
         double clip = participation * marketVolumeRate * tau;
+        require(Double.isFinite(clip), "POV clip participation*market_volume_rate*tau must be finite");
         if (totalShares == 0.0) {
             return new double[2];
         }
         double ratio = totalShares / clip;   // bounded BEFORE any cast/allocation
         require(ratio <= MAX_POV_INTERVALS,
                 "POV clip too small: would need > " + MAX_POV_INTERVALS + " intervals");
-        int nInt = (int) Math.ceil(ratio - 1e-12);
+        int nInt = Math.max(1, (int) Math.ceil(ratio - 1e-12)); // >= 1 for X > 0
         double[] x = new double[nInt + 1];
         for (int i = 0; i <= nInt; i++) {
             x[i] = Math.max(totalShares - i * clip, 0.0);
@@ -344,6 +353,9 @@ public final class AlmgrenChriss {
         double sumX2 = 0.0;
         for (int j = 1; j < holdings.length; j++) {
             sumX2 += holdings[j] * holdings[j];
+        }
+        if (sumX2 == 0.0) {
+            return 0.0; // no residual exposure (avoids inf * 0)
         }
         return params.sigma() * params.sigma() * params.tau() * sumX2;
     }

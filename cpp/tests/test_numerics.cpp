@@ -73,6 +73,17 @@ TEST(Numerics, AcZeroSigmaIsDeterministic) {
     expect_rel(r.se_mean, std::sqrt(r.var / 50), 1e-15);
 }
 
+// Map the pinned statistic names to the enum overload (the string overload is deprecated).
+static etrade::ASStat stat_of(const std::string& name) {
+    if (name == "mean_pnl") return etrade::ASStat::kMeanPnl;
+    if (name == "std_pnl") return etrade::ASStat::kStdPnl;
+    if (name == "mean_abs_q") return etrade::ASStat::kMeanAbsQ;
+    if (name == "mean_max_abs_q") return etrade::ASStat::kMeanMaxAbsQ;
+    if (name == "rms_q") return etrade::ASStat::kRmsQ;
+    if (name == "mean_fills") return etrade::ASStat::kMeanFills;
+    throw std::invalid_argument("unknown statistic " + name);
+}
+
 // ---- Section 2 ASSimResult.se ---------------------------------------------
 
 TEST(Numerics, AsSeRecomputedFromPerPathArrays) {
@@ -80,18 +91,18 @@ TEST(Numerics, AsSeRecomputedFromPerPathArrays) {
     const int m = r.n_paths();
     for (const char* s : kAsStats) {
         const double expected = sample_std(as_path(r, s)) / std::sqrt(static_cast<double>(m));
-        EXPECT_NEAR(r.se(s), expected, 1e-12 * std::max(1.0, expected)) << s;
+        EXPECT_NEAR(r.se(stat_of(s)), expected, 1e-12 * std::max(1.0, expected)) << s;
     }
     EXPECT_NEAR(r.std_pnl(), sample_std(r.pnl), 1e-12 * r.std_pnl());
-    EXPECT_EQ(r.se("std_pnl"), r.std_pnl() / std::sqrt(2.0 * (m - 1.0)));
+    EXPECT_EQ(r.se(stat_of("std_pnl")), r.std_pnl() / std::sqrt(2.0 * (m - 1.0)));
 }
 
 TEST(Numerics, AsNoQuotingGivesZeroSe) {
     const etrade::ASSimResult r = etrade::simulate(as_base(0), 20, 5);
     for (double v : r.pnl) EXPECT_EQ(v, 0.0);
-    for (const char* s : kAsStats) EXPECT_EQ(r.se(s), 0.0) << s;
+    for (const char* s : kAsStats) EXPECT_EQ(r.se(stat_of(s)), 0.0) << s;
     EXPECT_EQ(r.std_pnl(), 0.0);
-    EXPECT_EQ(r.se("std_pnl"), 0.0);
+    EXPECT_EQ(r.se(stat_of("std_pnl")), 0.0);
 }
 
 TEST(Numerics, AsSaturatedFillsAreDeterministic) {
@@ -100,10 +111,10 @@ TEST(Numerics, AsSaturatedFillsAreDeterministic) {
     const etrade::ASSimResult r = etrade::simulate(p, 10, 9);
     const double n_steps = p.n_steps();
     for (double f : r.fills_path) EXPECT_EQ(f, 2.0 * n_steps);
-    EXPECT_EQ(r.se("mean_fills"), 0.0);
-    EXPECT_EQ(r.se("mean_abs_q"), 0.0);
+    EXPECT_EQ(r.se(stat_of("mean_fills")), 0.0);
+    EXPECT_EQ(r.se(stat_of("mean_abs_q")), 0.0);
     for (double v : r.pnl) EXPECT_EQ(v, r.pnl[0]);
-    EXPECT_LE(r.se("mean_pnl"), 1e-14 * std::max(1.0, std::abs(r.mean_pnl())));
+    EXPECT_LE(r.se(stat_of("mean_pnl")), 1e-14 * std::max(1.0, std::abs(r.mean_pnl())));
     const double spread = etrade::optimal_spread(p, 0.0);
     expect_rel(r.mean_pnl(), n_steps * spread, 1e-9);
 }

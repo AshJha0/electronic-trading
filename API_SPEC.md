@@ -176,6 +176,13 @@ x_j = X * (N - j) / N
 with no evaluation of the sinh ratio (no 0/0).  The sinh branch is continuous
 at the threshold to well below golden tolerance.
 
+**Infinite-urgency limit (pinned):** if `kappa` is not finite (the
+`kappa_tilde^2` or `log1p` evaluation overflows for absurd but finite
+inputs), the trajectory is the instantaneous schedule `x_0 = X`,
+`x_j = 0` for `j >= 1`, never NaN; `ac_kappa` then returns `+inf` (and
+`half_life` 0). `Var[IS]` of a schedule whose holdings after `x_0` are all
+zero is exactly 0 even when `sigma^2` overflows.
+
 Special cases: `X = 0` → all-zero trajectory, `E = Var = 0`.  `N = 1` →
 `x = [X, 0]`, single clip.
 
@@ -201,8 +208,12 @@ Special cases: `X = 0` → all-zero trajectory, `E = Var = 0`.  `N = 1` →
   participation `p in (0,1)` (both open endpoints; violation is an input
   error; all inputs finite).  Clip size `c = p*V*tau`.  The schedule sells
   `c` per interval until done, last clip partial: number of intervals
-  `M = ceil(X/c - 1e-12)`, holdings `x_i = max(X - i*c, 0)` for `i = 0..M`,
-  `x_M = 0` exactly.  **Bound (pinned):** `X/c <= MAX_POV_INTERVALS` is
+  `M = max(1, ceil(X/c - 1e-12))` for `X > 0` (a remainder below the
+  `1e-12` slack still takes one interval), holdings `x_i = max(X - i*c, 0)`
+  for `i = 0..M`, `x_M = 0` exactly.  A clip that is not finite (the product
+  `p*V*tau` overflowing) is the input error "POV clip
+  participation*market_volume_rate*tau must be finite"; a clip that
+  underflows to 0 fails the bound below.  **Bound (pinned):** `X/c <= MAX_POV_INTERVALS` is
   checked on the double ratio *before* the `ceil`/cast/allocation; violation
   is the input error "POV clip too small: would need > 10000000 intervals".
   E/Var from the Section 1.3 sums (the horizon is `M*tau`, not `N*tau`).
@@ -462,8 +473,12 @@ throws `IllegalArgumentException`.  Checked conditions include:
   `Q <= X`); finite prices; OLS `n >= 2` and non-degenerate x;
   `market_volume > 0` and `executed_volume <= market_volume`.
 
-No public function returns NaN or infinity from finite valid inputs, and no
-loop or allocation is unbounded (Section 0).
+No public function returns NaN from finite valid inputs, and no loop or
+allocation is unbounded (Section 0). A result whose true value exceeds the
+double range (for example a variance with `sigma` near `1e308`) is
+returned as infinity; the infinite-urgency limits of Section 1.4 are
+defined values, not errors. The property-based tests in every language
+draw extreme finite inputs to keep this true.
 
 Non-errors (documented behavior): negative prices (arithmetic walks);
 `kappa = 0` (TWAP branch, half-life = infinity); a quote through the mid

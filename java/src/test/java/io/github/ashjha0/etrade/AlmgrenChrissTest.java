@@ -423,4 +423,14 @@ final class AlmgrenChrissTest {
             }
         }
     }
+
+    @Test
+    void povOverflowingClipAndTinyRemainder() {
+        assertThrows(IllegalArgumentException.class,
+                () -> AlmgrenChriss.povHoldings(1.0, 1e200, 1e200, 0.5));
+        double[] x = AlmgrenChriss.povHoldings(1e-13, 1.0, 1.0, 0.5);
+        assertEquals(2, x.length);
+        assertEquals(1e-13, x[0], 0.0);
+        assertEquals(0.0, x[1], 0.0);
+    }
 }
