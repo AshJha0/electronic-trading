@@ -4,6 +4,7 @@ Avellaneda-Stoikov market making, and execution analytics.
 See API_SPEC.md at the project root for the pinned cross-language contract.
 """
 
+from . import market
 from .almgren_chriss import (
     KAPPA_T_LIMIT,
     MAX_AC_INTERVALS,
@@ -74,6 +75,7 @@ __all__ = [
     "half_life",
     "instantaneous_cost",
     "intensity",
+    "market",
     "ols",
     "optimal_spread",
     "participation_rate",

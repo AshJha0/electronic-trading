@@ -596,3 +596,67 @@ Documented **non-errors** in every language: negative prices (arithmetic
 walks), `kappa = 0` (TWAP branch, half-life = infinity), a quote through
 the mid (`delta < 0`), `q_max = 0` (no quoting, zero PnL), and `x_j`
 underflowing to exactly 0 far out on a very urgent schedule.
+
+---
+
+## 13. How do I set parameters in market units and report in bps?
+
+Describe the instrument the way a desk quotes it and let the market layer
+derive model units (API_SPEC Section 7). Execution impact uses the
+Almgren-Chriss calibration: one spread of temporary impact per 1% of ADV
+traded per day, one spread of permanent impact per 10% of ADV.
+
+**Python**
+
+```python
+from etrade import market as mk
+
+p = mk.ac_params_from_market(price=100.0, spread=0.01, adv=5e6, daily_vol=0.015,
+                             total_shares=250_000.0, n_intervals=13, tau=1/13,
+                             lambda_ra=1e-7)
+notional = 250_000.0 * 100.0
+print(mk.bps(et.expected_cost(p), notional))            # 5.35 bps
+print(mk.bps(mk.half_spread_cost(0.01, 250_000.0), notional))   # 0.50 bps
+a = mk.as_params_from_market(price=100.0, tick=0.01, daily_vol=0.015,
+                             touch_fills_per_day=1170.0, halving_ticks=0.462,
+                             skew_ticks=2.25, q_max=50, liq_ticks=1.0, dt_seconds=5.0)
+print(mk.bps(et.optimal_spread(a, 0.0), a.s0))          # 3.58 bps at the open
+```
+
+**C++**
+
+```cpp
+#include <etrade/market.hpp>
+
+etrade::ACMarket m;
+m.price = 100.0; m.spread = 0.01; m.adv = 5e6; m.daily_vol = 0.015;
+m.total_shares = 250'000.0; m.n_intervals = 13; m.tau = 1.0 / 13.0; m.lambda_ra = 1e-7;
+etrade::ACParams p = etrade::ac_params_from_market(m);
+double e_bps = etrade::bps(etrade::expected_cost(p), m.total_shares * m.price);  // 5.35
+```
+
+**Rust**
+
+```rust
+use etrade::market::{ac_params_from_market, bps, ACMarket};
+
+let m = ACMarket { price: 100.0, spread: 0.01, adv: 5e6, daily_vol: 0.015,
+                   total_shares: 250_000.0, n_intervals: 13, tau: 1.0 / 13.0,
+                   lambda_ra: 1e-7, ..ACMarket::default() };
+let p = ac_params_from_market(&m)?;
+let e_bps = bps(etrade::expected_cost(&p, None)?, m.total_shares * m.price)?;  // 5.35
+```
+
+**Java**
+
+```java
+Market.ACMarket m = Market.ACMarket.of(100.0, 0.01, 5e6, 0.015, 250_000.0, 13, 1.0 / 13.0, 1e-7);
+ACParams p = Market.acParamsFromMarket(m);
+double eBps = Market.bps(AlmgrenChriss.expectedCost(p), m.totalShares() * m.price());  // 5.35
+```
+
+The presets in `data/presets.json` (US large cap, US small cap, US ETF,
+EUR/USD and the Almgren-Chriss paper example) use exactly these inputs; the
+paper preset reproduces `params_liquid.json`. They are illustrative, not
+fitted to data, and the linear impact under-prices small orders relative to
+the square-root law.

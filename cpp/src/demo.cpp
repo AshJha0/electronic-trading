@@ -17,6 +17,7 @@
 #include "etrade/almgren_chriss.hpp"
 #include "etrade/analytics.hpp"
 #include "etrade/avellaneda_stoikov.hpp"
+#include "etrade/market.hpp"
 
 namespace {
 
@@ -138,6 +139,77 @@ void analytics_section() {
                 reg.intercept, reg.slope, reg.r_squared, reg.n_obs);
 }
 
+/// Presets in market units, results in bps (mirrors data/presets.json; the
+/// market golden cases pin the same numbers).
+void market_section() {
+    hdr("Market presets in bps (execution: sell order; market making: A-S spread)");
+    struct Row {
+        const char* name;
+        etrade::ACMarket ac;
+        bool has_as;
+        etrade::ASMarket as;
+    };
+    auto acm = [](double price, double spread, double adv, double vol, double x, int n,
+                  double tau, double lam) {
+        etrade::ACMarket m;
+        m.price = price;
+        m.spread = spread;
+        m.adv = adv;
+        m.daily_vol = vol;
+        m.total_shares = x;
+        m.n_intervals = n;
+        m.tau = tau;
+        m.lambda_ra = lam;
+        return m;
+    };
+    auto asm_ = [](double price, double tick, double vol, double touch, double halving,
+                   double skew, int qmax, double liq, double dt, double session) {
+        etrade::ASMarket m;
+        m.price = price;
+        m.tick = tick;
+        m.daily_vol = vol;
+        m.touch_fills_per_day = touch;
+        m.halving_ticks = halving;
+        m.skew_ticks = skew;
+        m.q_max = qmax;
+        m.liq_ticks = liq;
+        m.dt_seconds = dt;
+        m.session_seconds = session;
+        return m;
+    };
+    const Row rows[] = {
+        {"paper_almgren_chriss_2000", acm(50.0, 0.125, 5e6, 0.019, 1e6, 5, 1.0, 2e-6), false,
+         etrade::ASMarket{}},
+        {"us_large_cap", acm(100.0, 0.01, 5e6, 0.015, 250000.0, 13, 1.0 / 13.0, 1e-7), true,
+         asm_(100.0, 0.01, 0.015, 1170.0, 0.462, 2.25, 50, 1.0, 5.0, 23400.0)},
+        {"us_small_cap", acm(20.0, 0.05, 3e5, 0.035, 30000.0, 13, 1.0 / 13.0, 3e-5), true,
+         asm_(20.0, 0.01, 0.035, 195.0, 2.0, 5.0, 10, 5.0, 5.0, 23400.0)},
+        {"us_etf", acm(500.0, 0.01, 6e7, 0.01, 600000.0, 13, 1.0 / 13.0, 7e-10), true,
+         asm_(500.0, 0.01, 0.01, 11700.0, 0.5, 1.0, 200, 1.0, 1.0, 23400.0)},
+        {"eurusd", acm(1.10, 5e-5, 2e9, 0.005, 1e8, 24, 1.0 / 24.0, 8e-8), true,
+         asm_(1.10, 1e-5, 0.005, 8640.0, 2.0, 3.0, 50, 2.0, 5.0, 86400.0)},
+    };
+    std::printf("%26s %10s %8s %8s %9s %22s\n", "preset", "order %ADV", "E[IS]", "sd",
+                "half-sprd", "A-S spread open/close");
+    for (const Row& r : rows) {
+        const etrade::ACParams p = etrade::ac_params_from_market(r.ac);
+        const double notional = r.ac.total_shares * r.ac.price;
+        const double e = etrade::bps(etrade::expected_cost(p), notional);
+        const double sd = etrade::bps(std::sqrt(etrade::variance_cost(p)), notional);
+        const double hs =
+            etrade::bps(etrade::half_spread_cost(r.ac.spread, r.ac.total_shares), notional);
+        char mm[64] = "-";
+        if (r.has_as) {
+            const etrade::ASParams a = etrade::as_params_from_market(r.as);
+            std::snprintf(mm, sizeof mm, "%8.2f / %6.2f bps",
+                          etrade::bps(etrade::optimal_spread(a, 0.0), a.s0),
+                          etrade::bps(etrade::optimal_spread(a, a.horizon), a.s0));
+        }
+        std::printf("%26s %9.1f%% %6.2fbp %6.2fbp %7.2fbp %22s\n", r.name,
+                    r.ac.total_shares / r.ac.adv * 100.0, e, sd, hs, mm);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -154,6 +226,7 @@ int main() {
     as_section(fx, "Avellaneda-Stoikov market making (FX-like: tight spread)",
                7);
     analytics_section();
+    market_section();
     std::printf("\ndone.\n");
     return 0;
 }

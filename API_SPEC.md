@@ -427,3 +427,92 @@ Non-errors (documented behavior): negative prices (arithmetic walks);
 (`delta < 0`); `q_max = 0` (no quoting, zero PnL); `x_j` underflowing to
 exactly `0` far out on a very urgent schedule; a participation rate of
 exactly 1.
+
+## 7. Market units (conversion layer)
+
+The core modules take parameters in model units. Section 7 pins how they are
+built from the quantities a desk quotes, and how results are reported in
+basis points. Every port exposes these functions with the same names in its
+own style (C++ `etrade::ac_params_from_market`, Rust
+`etrade::market::ac_params_from_market`, Java `Market.acParamsFromMarket`);
+Python `etrade.market.*` is the reference. Golden cases live in a separate
+file, `data/golden/market_golden.json`, so the 19-case contract of Section 5
+is unchanged. Presets in market units are in `data/presets.json`.
+
+### 7.1 Almgren-Chriss from market quantities (pinned)
+
+Inputs: `price > 0`, full quoted `spread > 0` (currency), `adv > 0` (shares
+per trading day), `daily_vol > 0` (a fraction: 0.015 means 1.5%),
+`total_shares`, `n_intervals`, `tau` (trading days), `lambda_ra`, and
+`temp_frac`, `perm_frac` in `(0, 1]` (defaults 0.01 and 0.10). All finite.
+
+```
+sigma   = price * daily_vol
+eta     = spread / (temp_frac * adv)
+gamma_p = spread / (perm_frac * adv)
+```
+
+This is the calibration of Almgren and Chriss (2000, Section 4): trading
+1% of ADV per day costs one spread of temporary impact, 10% of ADV moves the
+price permanently by one spread. With the paper's price 50, spread 0.125,
+ADV 5e6 and daily vol 0.019 it reproduces `params_liquid.json` exactly
+(`eta = 2.5e-6`, `gamma_p = 2.5e-7`, `sigma = 0.95`). The result is an
+ordinary `ACParams` and is validated as in Section 1.2. The calibration is
+linear, so it inherits the linear model's known under-pricing of small
+orders relative to the square-root law.
+
+### 7.2 Avellaneda-Stoikov from market quantities (pinned)
+
+Inputs: `price > 0`, `tick > 0`, `daily_vol > 0`, `touch_fills_per_day > 0`
+(fill rate per side of a quote half a tick from the mid), `halving_ticks > 0`
+(distance in ticks over which the intensity halves), `skew_ticks > 0`
+(reservation-price shift per unit of inventory at `t = 0`, in ticks),
+integer `q_max >= 0`, `liq_ticks >= 0`, `dt_seconds > 0`,
+`session_seconds > 0` (default 23400) and `horizon_days > 0` (default 1).
+All finite.
+
+```
+sigma   = price * daily_vol
+k       = ln(2) / (halving_ticks * tick)
+A       = touch_fills_per_day * exp(k * tick / 2)
+gamma   = skew_ticks * tick / (sigma^2 * horizon_days)
+eta_liq = liq_ticks * tick
+horizon = horizon_days
+dt      = dt_seconds / session_seconds
+```
+
+Defining properties, asserted in every suite: `lambda(tick/2)` equals
+`touch_fills_per_day`; `lambda` halves every `halving_ticks` ticks; the
+opening skew `s - r(s, 1, 0)` equals `skew_ticks * tick`. The result is an
+ordinary `ASParams` and is validated as in Section 2.1, so a `dt_seconds`
+that does not divide the session is an input error.
+
+### 7.3 Reporting helpers (pinned)
+
+```
+bps(amount, notional)          = 1e4 * amount / notional      (notional > 0, amount finite)
+half_spread_cost(spread, X)    = 0.5 * spread * X              (spread > 0, X >= 0)
+```
+
+`half_spread_cost` is the paper's fixed cost `epsilon * X` with
+`epsilon = spread / 2`, omitted from `E[IS]` by Section 1.1; add it when
+reporting total expected cost.
+
+### 7.4 Market golden cases
+
+Schema as in Section 5. `kind` is `market_ac` or `market_as`; inputs are the
+Section 7.1 or 7.2 argument names (integers stored as floats); tolerance
+`1e-12` relative. Expected keys:
+
+- `market_ac`: `sigma`, `eta`, `gamma_p`, `kappa`, `e_cost_bps`,
+  `sd_cost_bps` (bps of `total_shares * price`), `spread_cost_bps`.
+- `market_as`: `sigma`, `k`, `a_rate`, `gamma`, `eta_liq`, `dt`, `n_steps`,
+  `spread_open_bps`, `spread_close_bps` (A-S spread at `t = 0` and `t = T`,
+  in bps of `price`).
+
+Nine cases: one `market_ac` for each of the five presets and one
+`market_as` for each of the four presets that carry an A-S block. Every
+suite asserts every expected key of every case and that the count is nine.
+
+Validation messages name the offending argument (for example
+`"spread must be finite and > 0"`).

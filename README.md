@@ -1,17 +1,53 @@
-# Electronic Trading (`etrade`)
+# Electronic Trading (`etrade`): execution and market-making research
 
 [![CI](https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml/badge.svg)](https://github.com/AshJha0/electronic-trading/actions/workflows/ci.yml)
 
-Optimal execution and market making, implemented four times over from the same
-pinned contract: **Almgren-Chriss (2000)** discrete optimal execution,
-**Avellaneda-Stoikov (2008)** finite-horizon market making, and execution
-analytics (Perold implementation-shortfall decomposition, participation rate,
-a tiny native OLS for market-impact estimation).
+A research platform for the two businesses at the centre of electronic
+trading: **executing large orders at low cost** and **making markets
+profitably**. It starts from the canonical models, Almgren-Chriss (2000)
+optimal execution and Avellaneda-Stoikov (2008) market making, plus
+implementation-shortfall analytics, and builds outward towards what decides
+money in practice: realistic costs, informed flow, fees and ticks, fair-value
+signals and measurement after the fact.
 
-The Python package `etrade` is the reference implementation; the C++
-(`etrade::` namespace), Rust (`etrade` crate) and Java (`io.github.ashjha0.etrade`)
-ports mirror `API_SPEC.md` exactly and are validated against shared golden
-values.
+Everything is implemented four times, in Python (the reference), C++, Rust
+and Java, from one pinned contract (`API_SPEC.md`), and held together by
+shared golden values checked in CI on Linux, Windows and macOS.
+
+**Where it stands.** The models are exact and cross-validated, and
+parameters can be stated in market units (price, tick, spread, daily
+volatility, ADV) with results reported in basis points. Execution costs still
+use the papers' linear impact, which under-prices small orders against the
+square-root law; market-making simulation does not yet include informed flow,
+fees or latency. Those are the next releases (see `CHANGELOG.md` and the
+roadmap below). Presets are illustrative, not fitted to data.
+
+### Market presets at a glance
+
+Produced by every demo from `data/presets.json` (sell orders over one day;
+A-S spread at the open and at the close of the session):
+
+| preset | order | E[IS] | sd | half-spread | A-S spread open / close |
+|---|---|---|---|---|---|
+| US large cap ($100, 1 bp spread) | 5% ADV | 5.4 bps | 75.5 bps | 0.5 bps | 3.6 / 1.3 bps |
+| US small cap ($20, 25 bp spread) | 10% ADV | 265.2 bps | 178.9 bps | 12.5 bps | 53.8 / 28.8 bps |
+| US ETF ($500, 0.2 bp spread) | 1% ADV | 0.2 bps | 50.6 bps | 0.1 bps | 0.5 / 0.3 bps |
+| EUR/USD (0.45 bp spread) | 5% of volume | 2.4 bps | 26.2 bps | 0.2 bps | 0.8 / 0.5 bps |
+| Almgren-Chriss (2000) example | 20% ADV | 215.6 bps | 89.9 bps | 12.5 bps | |
+
+### Roadmap
+
+1. **Market units and realistic presets** (this release).
+2. **Execution a desk would recognise:** square-root and power-law impact,
+   alpha-aware (urgency) schedules, intraday volume curve, pre-trade cost
+   report.
+3. **Market making that can lose money:** informed flow, fees and rebates,
+   tick grid, latency, PnL attribution, markouts, fair-value models.
+4. **Calibration on recorded order-book data** and post-trade TCA.
+5. **Strategy extensions:** limit-order placement, adaptive scheduling,
+   internalisation, hedged market making, risk controls.
+
+Not investment advice and not a trading system; see the usage notes below.
 
 ## Feature matrix
 
@@ -35,6 +71,8 @@ values.
 | Cancellation-free `kappa` (`log1p` form, any `tau`) | yes | yes | yes | yes |
 | Pinned size bounds (intervals, POV clips, steps, paths) — input errors, never UB/OOM | yes | yes | yes | yes |
 | Literature check: paper closed forms = discrete sums (1e-12) | yes | yes | yes | yes |
+| Market units: AC from price/spread/ADV/vol, A-S from tick/touch rate/halving/skew | yes | yes | yes | yes |
+| Reporting in bps; half-spread cost; 5 presets; 9 market golden cases | yes | yes | yes | yes |
 
 ## Directory layout
 
@@ -53,8 +91,11 @@ electronic-trading/
     params_illiquid.json   # small-cap illiquid parameter set
     params_fx.json         # FX-like parameter set (tight spread, high k)
     parent_order.json      # parent order, lambda grid, IS decomposition inputs
+    presets.json           # market-unit presets (large cap, small cap, ETF, EUR/USD, paper)
     generate_data.py       # regenerates data + golden values (seeded)
+    generate_market.py     # regenerates presets.json + market golden cases
     golden/golden.json     # 19 cross-language golden cases
+    golden/market_golden.json  # 9 market-unit golden cases
   python/
     src/etrade/            # reference package (almgren_chriss, avellaneda_stoikov, analytics)
     tests/                 # pytest suites incl. golden-value tests
@@ -83,7 +124,7 @@ and pull request (`.github/workflows/ci.yml`).
 ```bash
 pip install -e "python[dev]"         # installs etrade + pytest, ruff, mypy
 python python/demo.py                # run the demo
-pytest python                        # run the tests (107 tests)
+pytest python                        # run the tests (139 tests)
 ruff check . && (cd python && mypy)  # lint and type-check
 ```
 
@@ -92,7 +133,7 @@ ruff check . && (cd python && mypy)  # lint and type-check
 ```bash
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release   # GoogleTest is fetched if not installed
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release --output-on-failure   # run the tests (76 tests)
+ctest --test-dir build -C Release --output-on-failure   # run the tests (83 tests)
 ```
 
 The demo is `build/etrade_demo` (`build/Release/etrade_demo.exe` with MSVC).
@@ -103,7 +144,7 @@ Options: `-DETRADE_BUILD_TESTS=OFF`, `-DETRADE_WERROR=ON`,
 
 ```bash
 cd rust
-cargo test --release                 # run the tests (47 tests)
+cargo test --release                 # run the tests (62 tests)
 cargo run --release --example demo   # run the demo
 ```
 
@@ -111,12 +152,13 @@ cargo run --release --example demo   # run the demo
 
 ```bash
 cd java
-mvn verify                           # compile with -Xlint:all -Werror and run the tests (70 tests)
+mvn verify                           # compile with -Xlint:all -Werror and run the tests (77 tests)
 mvn -q exec:java                     # run the demo
 ```
 
-Test counts above are the current suite sizes (Python 107, C++ 76, Rust 47,
-Java 70, 300 in total); every suite loads the same 19 golden cases.
+Test counts above are the current suite sizes (Python 139, C++ 83, Rust 62,
+Java 77, 361 in total); every suite loads the same 19 model golden cases and
+the 9 market golden cases.
 
 ## Sample demo output (Python reference, truncated)
 
@@ -246,7 +288,7 @@ What a practitioner gets, and what is deliberately left out:
   and `Math.*` are not bit-specified); C++ is deterministic per standard
   library because `std::normal_distribution` is implementation-defined.
   Cross-language agreement is statistical (4-SE bands), never bitwise.
-- **What is verified.** 300 tests across the four suites: 19 shared golden
+- **What is verified.** 361 tests across the four suites: 19 shared golden
   cases at 1e-10..1e-12, the paper's closed forms against the discrete sums
   at 1e-12, Monte Carlo against closed forms at 4 SE, and every validation
   rule. What is *not* verified: calibration of `eta`, `gamma_p`, `A`, `k` to

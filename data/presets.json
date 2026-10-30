@@ -1,0 +1,119 @@
+{
+  "paper_almgren_chriss_2000": {
+    "description": "Almgren and Chriss (2000) Section 4 example: price 50, spread 1/8, ADV 5M, 30% annual vol; reproduces params_liquid.json (AC) exactly.",
+    "ac": {
+      "price": 50.0,
+      "spread": 0.125,
+      "adv": 5000000.0,
+      "daily_vol": 0.019,
+      "total_shares": 1000000.0,
+      "n_intervals": 5,
+      "tau": 1.0,
+      "lambda_ra": 2e-06
+    }
+  },
+  "us_large_cap": {
+    "description": "Liquid US large cap: $100, one-tick (1 bp) spread, 1.5% daily vol, ADV 5M; sell 5% of ADV over one day in 30-minute bins.",
+    "ac": {
+      "price": 100.0,
+      "spread": 0.01,
+      "adv": 5000000.0,
+      "daily_vol": 0.015,
+      "total_shares": 250000.0,
+      "n_intervals": 13,
+      "tau": 0.07692307692307693,
+      "lambda_ra": 1e-07
+    },
+    "as": {
+      "price": 100.0,
+      "tick": 0.01,
+      "daily_vol": 0.015,
+      "touch_fills_per_day": 1170.0,
+      "halving_ticks": 0.462,
+      "skew_ticks": 2.25,
+      "q_max": 50,
+      "liq_ticks": 1.0,
+      "dt_seconds": 5.0,
+      "session_seconds": 23400.0,
+      "horizon_days": 1.0
+    }
+  },
+  "us_small_cap": {
+    "description": "US small cap: $20, five-tick (25 bp) spread, 3.5% daily vol, ADV 300k; sell 10% of ADV over one day.",
+    "ac": {
+      "price": 20.0,
+      "spread": 0.05,
+      "adv": 300000.0,
+      "daily_vol": 0.035,
+      "total_shares": 30000.0,
+      "n_intervals": 13,
+      "tau": 0.07692307692307693,
+      "lambda_ra": 3e-05
+    },
+    "as": {
+      "price": 20.0,
+      "tick": 0.01,
+      "daily_vol": 0.035,
+      "touch_fills_per_day": 195.0,
+      "halving_ticks": 2.0,
+      "skew_ticks": 5.0,
+      "q_max": 10,
+      "liq_ticks": 5.0,
+      "dt_seconds": 5.0,
+      "session_seconds": 23400.0,
+      "horizon_days": 1.0
+    }
+  },
+  "us_etf": {
+    "description": "Very liquid US ETF: $500, one-tick (0.2 bp) spread, 1% daily vol, ADV 60M; sell 1% of ADV over one day.",
+    "ac": {
+      "price": 500.0,
+      "spread": 0.01,
+      "adv": 60000000.0,
+      "daily_vol": 0.01,
+      "total_shares": 600000.0,
+      "n_intervals": 13,
+      "tau": 0.07692307692307693,
+      "lambda_ra": 7e-10
+    },
+    "as": {
+      "price": 500.0,
+      "tick": 0.01,
+      "daily_vol": 0.01,
+      "touch_fills_per_day": 11700.0,
+      "halving_ticks": 0.5,
+      "skew_ticks": 1.0,
+      "q_max": 200,
+      "liq_ticks": 1.0,
+      "dt_seconds": 1.0,
+      "session_seconds": 23400.0,
+      "horizon_days": 1.0
+    }
+  },
+  "eurusd": {
+    "description": "EUR/USD on an electronic venue: 1.10, 0.5 pip spread (about 0.45 bp), 0.5% daily vol, 2bn EUR daily venue volume, 24-hour session; sell 100M EUR (5% of volume) over one day in hourly bins.",
+    "ac": {
+      "price": 1.1,
+      "spread": 5e-05,
+      "adv": 2000000000.0,
+      "daily_vol": 0.005,
+      "total_shares": 100000000.0,
+      "n_intervals": 24,
+      "tau": 0.041666666666666664,
+      "lambda_ra": 8e-08
+    },
+    "as": {
+      "price": 1.1,
+      "tick": 1e-05,
+      "daily_vol": 0.005,
+      "touch_fills_per_day": 8640.0,
+      "halving_ticks": 2.0,
+      "skew_ticks": 3.0,
+      "q_max": 50,
+      "liq_ticks": 2.0,
+      "dt_seconds": 5.0,
+      "session_seconds": 86400.0,
+      "horizon_days": 1.0
+    }
+  }
+}

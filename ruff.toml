@@ -5,6 +5,7 @@ extend-exclude = ["review_experiments"]
 
 [lint.per-file-ignores]
 "data/generate_data.py" = ["E402"]
+"data/generate_market.py" = ["E402"]
 "python/demo.py" = ["E402"]
 
 [format]

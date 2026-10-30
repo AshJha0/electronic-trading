@@ -159,6 +159,35 @@ def analytics_section(order: dict) -> None:
     )
 
 
+def market_section() -> None:
+    """Presets in market units, results in basis points (API_SPEC Section 7)."""
+    hdr("Market presets in bps (execution: sell order; market making: A-S spread)")
+    presets = load("presets.json")
+    print(
+        f"{'preset':>26} {'order %ADV':>10} {'E[IS]':>8} {'sd':>8} {'half-sprd':>9}"
+        f" {'A-S spread open/close':>22}"
+    )
+    for name, body in presets.items():
+        ac = body["ac"]
+        p = et.market.ac_params_from_market(**ac)
+        notional = ac["total_shares"] * ac["price"]
+        e = et.market.bps(et.expected_cost(p), notional)
+        sd = et.market.bps(math.sqrt(et.variance_cost(p)), notional)
+        hs = et.market.bps(et.market.half_spread_cost(ac["spread"], ac["total_shares"]), notional)
+        mm = "-"
+        if "as" in body:
+            a = et.market.as_params_from_market(**body["as"])
+            o = et.market.bps(et.optimal_spread(a, 0.0), a.s0)
+            c = et.market.bps(et.optimal_spread(a, a.horizon), a.s0)
+            mm = f"{o:8.2f} / {c:6.2f} bps"
+        print(
+            f"{name:>26} {ac['total_shares'] / ac['adv'] * 100:9.1f}% {e:6.2f}bp"
+            f" {sd:6.2f}bp {hs:7.2f}bp {mm:>22}"
+        )
+    print("execution costs use the paper's linear impact calibration (one spread per 1% ADV);")
+    print("it under-prices small orders against the square-root law.")
+
+
 def main() -> int:
     print("etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov market making")
     liq = load("params_liquid.json")
@@ -168,6 +197,7 @@ def main() -> int:
     as_section(liq, "liquid large-cap", seed=42)
     as_section(fx, "FX-like: tight spread, high k", seed=7)
     analytics_section(order)
+    market_section()
     print("\ndone.")
     return 0
 

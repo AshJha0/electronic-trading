@@ -26,6 +26,7 @@ pub mod almgren_chriss;
 pub mod analytics;
 pub mod avellaneda_stoikov;
 mod error;
+pub mod market;
 
 pub use almgren_chriss::{
     ac_kappa, ac_trade_list, ac_trajectory, characteristic_time, efficient_frontier, expected_cost,
