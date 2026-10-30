@@ -63,7 +63,8 @@ add_library(etrade
   src/placement.cpp
   src/calibration.cpp
   src/tca.cpp
-  src/mm.cpp)
+  src/mm.cpp
+  src/hedging.cpp)
 add_library(etrade::etrade ALIAS etrade)
 target_include_directories(etrade PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -111,7 +112,8 @@ if(ETRADE_BUILD_TESTS)
     tests/test_numerics.cpp
     tests/test_draw_order.cpp
     tests/test_trajectory_golden.cpp
-    tests/test_properties.cpp)
+    tests/test_properties.cpp
+    tests/test_hedging.cpp)
   target_include_directories(etrade_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   target_compile_definitions(etrade_tests PRIVATE
     ETRADE_GOLDEN_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../data/golden/golden.json"
