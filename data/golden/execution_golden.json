@@ -1,0 +1,239 @@
+{
+  "cases": [
+    {
+      "name": "transient_ow_no_permanent",
+      "kind": "transient_schedule",
+      "inputs": {
+        "total_shares": 1000000.0,
+        "n_intervals": 10.0,
+        "tau": 0.1,
+        "kappa": 2e-06,
+        "rho": 5.0,
+        "gamma_p": 0.0
+      },
+      "expect": {
+        "xfrac_01": 0.8057405502114889,
+        "xfrac_02": 0.7293054126586167,
+        "xfrac_03": 0.6528702751057444,
+        "xfrac_04": 0.576435137552872,
+        "xfrac_05": 0.49999999999999983,
+        "xfrac_06": 0.4235648624471276,
+        "xfrac_07": 0.34712972489425536,
+        "xfrac_08": 0.2706945873413831,
+        "xfrac_09": 0.19425944978851087,
+        "e_cost": 312083.76202414976,
+        "twap_e_cost": 330472.7995683508
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "transient_with_permanent",
+      "kind": "transient_schedule",
+      "inputs": {
+        "total_shares": 1000000.0,
+        "n_intervals": 10.0,
+        "tau": 0.1,
+        "kappa": 2e-06,
+        "rho": 5.0,
+        "gamma_p": 2e-07
+      },
+      "expect": {
+        "xfrac_01": 0.7852170171602212,
+        "xfrac_02": 0.7274131125052721,
+        "xfrac_03": 0.6500901304469924,
+        "xfrac_04": 0.5751936252590385,
+        "xfrac_05": 0.5,
+        "xfrac_06": 0.4248063747409615,
+        "xfrac_07": 0.34990986955300757,
+        "xfrac_08": 0.27258688749472787,
+        "xfrac_09": 0.21478298283977865,
+        "e_cost": 399378.9168222594,
+        "twap_e_cost": 420472.7995683508
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "transient_slow_resilience",
+      "kind": "transient_schedule",
+      "inputs": {
+        "total_shares": 250000.0,
+        "n_intervals": 26.0,
+        "tau": 0.038461538461538464,
+        "kappa": 4e-06,
+        "rho": 2.0,
+        "gamma_p": 1e-08
+      },
+      "expect": {
+        "xfrac_01": 0.7309649912618544,
+        "xfrac_02": 0.7155617229744006,
+        "xfrac_03": 0.6959012073224511,
+        "xfrac_04": 0.6763121502154388,
+        "xfrac_05": 0.6567218936658743,
+        "xfrac_06": 0.6371316572491356,
+        "xfrac_07": 0.6175414204944643,
+        "xfrac_08": 0.5979511837454651,
+        "xfrac_09": 0.5783609469963709,
+        "xfrac_10": 0.5587707102472782,
+        "xfrac_11": 0.5391804734981855,
+        "xfrac_12": 0.5195902367490928,
+        "xfrac_13": 0.5000000000000001,
+        "xfrac_14": 0.4804097632509074,
+        "xfrac_15": 0.46081952650181474,
+        "xfrac_16": 0.441229289752722,
+        "xfrac_17": 0.4216390530036293,
+        "xfrac_18": 0.40204881625453504,
+        "xfrac_19": 0.382458579505536,
+        "xfrac_20": 0.36286834275086466,
+        "xfrac_21": 0.3432781063341259,
+        "xfrac_22": 0.3236878497845614,
+        "xfrac_23": 0.30409879267754913,
+        "xfrac_24": 0.2844382770255996,
+        "xfrac_25": 0.26903500873814573,
+        "e_cost": 64006.03900006274,
+        "twap_e_cost": 71347.20679708554
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "internalise_buy_heavy",
+      "kind": "internalise",
+      "inputs": {
+        "price": 100.0,
+        "spread": 0.01,
+        "adv": 5000000.0,
+        "daily_vol": 0.015,
+        "n_intervals": 13.0,
+        "tau": 0.07692307692307693,
+        "volume_curve": 0.0,
+        "n_buys": 2.0,
+        "buy_0": 300000.0,
+        "buy_1": 100000.0,
+        "n_sells": 1.0,
+        "sell_0": 250000.0
+      },
+      "expect": {
+        "crossed_shares": 250000.0,
+        "residual_shares": 150000.0,
+        "baseline_cost": 255612.02279485966,
+        "internal_cost": 39178.835477992056,
+        "saved_cost": 216433.1873168676,
+        "saved_bps": 33.29741343336424,
+        "buy0_saved_bps": 33.000928770925604,
+        "buy1_saved_bps": 33.00092877092561,
+        "sell0_saved_bps": 33.77178889326607
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "internalise_balanced_curve",
+      "kind": "internalise",
+      "inputs": {
+        "price": 100.0,
+        "spread": 0.01,
+        "adv": 5000000.0,
+        "daily_vol": 0.015,
+        "n_intervals": 13.0,
+        "tau": 0.07692307692307693,
+        "volume_curve": 1.0,
+        "alpha": 0.6,
+        "y": 0.8,
+        "n_buys": 1.0,
+        "buy_0": 150000.0,
+        "n_sells": 2.0,
+        "sell_0": 50000.0,
+        "sell_1": 100000.0
+      },
+      "expect": {
+        "crossed_shares": 150000.0,
+        "residual_shares": 0.0,
+        "baseline_cost": 44322.652240809715,
+        "internal_cost": 0.0,
+        "saved_cost": 44322.652240809715,
+        "saved_bps": 14.774217413603239,
+        "buy0_saved_bps": 14.774217413603239,
+        "sell0_saved_bps": 14.77421741360324,
+        "sell1_saved_bps": 14.77421741360324
+      },
+      "tol": 1e-09
+    },
+    {
+      "name": "adaptive_no_signal",
+      "kind": "adaptive_sim",
+      "inputs": {
+        "ac_total_shares": 1000000.0,
+        "ac_n_intervals": 10.0,
+        "ac_tau": 0.5,
+        "ac_sigma": 0.95,
+        "ac_eta": 2.5e-06,
+        "ac_gamma_p": 2.5e-07,
+        "ac_lambda_ra": 2e-06,
+        "phi": 0.0,
+        "signal_sd": 0.0,
+        "fill_risk": 0.0,
+        "seed": 101.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "static_mean": 1152490.1499307535,
+        "static_mean_se": 4100.456558433364,
+        "adaptive_mean": 1152490.1499307537,
+        "adaptive_mean_se": 4100.456558433364
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "adaptive_signal",
+      "kind": "adaptive_sim",
+      "inputs": {
+        "ac_total_shares": 1000000.0,
+        "ac_n_intervals": 10.0,
+        "ac_tau": 0.5,
+        "ac_sigma": 0.95,
+        "ac_eta": 2.5e-06,
+        "ac_gamma_p": 2.5e-07,
+        "ac_lambda_ra": 2e-06,
+        "phi": 0.7,
+        "signal_sd": 0.5,
+        "fill_risk": 0.0,
+        "seed": 102.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "static_mean": 1147052.2105378823,
+        "static_mean_se": 4296.995434382185,
+        "adaptive_mean": 1095510.4274373355,
+        "adaptive_mean_se": 4523.855869810584,
+        "saving_mean": 51541.78310054678,
+        "saving_mean_se": 869.7378495471194
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "adaptive_fill_risk",
+      "kind": "adaptive_sim",
+      "inputs": {
+        "ac_total_shares": 1000000.0,
+        "ac_n_intervals": 10.0,
+        "ac_tau": 0.5,
+        "ac_sigma": 0.95,
+        "ac_eta": 2.5e-06,
+        "ac_gamma_p": 2.5e-07,
+        "ac_lambda_ra": 2e-06,
+        "phi": 0.0,
+        "signal_sd": 0.0,
+        "fill_risk": 0.5,
+        "seed": 103.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "static_mean": 1077688.144363258,
+        "static_mean_se": 6182.131778160283,
+        "adaptive_mean": 907488.9772916405,
+        "adaptive_mean_se": 5244.036694266743,
+        "saving_mean": 170199.1670716176,
+        "saving_mean_se": 2132.457635560477
+      },
+      "tol": 4.0
+    }
+  ]
+}

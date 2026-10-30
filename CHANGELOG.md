@@ -4,6 +4,13 @@ All notable changes to this project. Dates are UTC.
 
 ## Unreleased
 
+### Execution extensions (F5a)
+
+- Transient impact in all four languages (API_SPEC Section 12): a discrete Obizhaeva-Wang propagator with exponential resilience `exp(-rho*t)`, expected cost of any schedule by the displacement recursion, and the exact static optimum from one tridiagonal solve (the Kac-Murdock-Szego inverse). The Obizhaeva-Wang shape (equal blocks at both ends, constant rate between, ratio `1 - exp(-rho*tau)`) and the reduction to Section 1 linear impact as `rho -> infinity` with `kappa = 2*eta/tau` are asserted.
+- Adaptive re-planning: the Almgren-Chriss problem re-solved every interval from realised holdings and an observable AR(1) drift signal, with random partial fills; a seeded Monte Carlo compares static and adaptive cost (paired). Without a signal or fill risk the two coincide path by path (Almgren-Chriss is time consistent); with either, re-planning saves cost.
+- Internalisation: opposite parent orders are crossed at the mid and only the residual is costed with the Section 8 model; per-order and total savings in bps. Crossing never increases total impact cost (asserted).
+- Eight golden cases in `data/golden/execution_golden.json` (`data/generate_execution.py`), three of them statistical.
+
 ### Execution a desk would recognise (F2)
 
 - Power-law impact execution in all four languages (API_SPEC Section 8): temporary cost `eta_j * n^(1+alpha)` with per-interval liquidity weights, linear permanent impact and an optional adverse drift. `alpha = 1/2` is the square-root law; `alpha = 1` reproduces Almgren-Chriss exactly (asserted).
