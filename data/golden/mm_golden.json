@@ -1,0 +1,409 @@
+{
+  "cases": [
+    {
+      "name": "mm_tick_round_away",
+      "kind": "mm_tick",
+      "inputs": {
+        "bid": 99.9934,
+        "ask": 100.0066,
+        "tick": 0.01
+      },
+      "expect": {
+        "bid": 99.99000000000001,
+        "ask": 100.01
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "mm_tick_on_grid",
+      "kind": "mm_tick",
+      "inputs": {
+        "bid": 99.99,
+        "ask": 100.01,
+        "tick": 0.01
+      },
+      "expect": {
+        "bid": 99.99000000000001,
+        "ask": 100.01
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "mm_tick_continuous",
+      "kind": "mm_tick",
+      "inputs": {
+        "bid": 99.9934,
+        "ask": 100.0066,
+        "tick": 0.0
+      },
+      "expect": {
+        "bid": 99.9934,
+        "ask": 100.0066
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "mm_glft_qp0",
+      "kind": "mm_glft",
+      "inputs": {
+        "price": 100.0,
+        "tick": 0.01,
+        "daily_vol": 0.015,
+        "touch_fills_per_day": 1170.0,
+        "halving_ticks": 0.462,
+        "skew_ticks": 2.25,
+        "q_max": 50.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 5.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0,
+        "q": 0.0
+      },
+      "expect": {
+        "delta_bid": 0.006808452713199106,
+        "delta_ask": 0.006808452713199106
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "mm_glft_qp3",
+      "kind": "mm_glft",
+      "inputs": {
+        "price": 100.0,
+        "tick": 0.01,
+        "daily_vol": 0.015,
+        "touch_fills_per_day": 1170.0,
+        "halving_ticks": 0.462,
+        "skew_ticks": 2.25,
+        "q_max": 50.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 5.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0,
+        "q": 3.0
+      },
+      "expect": {
+        "delta_bid": 0.007668995166895468,
+        "delta_ask": 0.005947910259502745
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "mm_glft_qm2",
+      "kind": "mm_glft",
+      "inputs": {
+        "price": 100.0,
+        "tick": 0.01,
+        "daily_vol": 0.015,
+        "touch_fills_per_day": 1170.0,
+        "halving_ticks": 0.462,
+        "skew_ticks": 2.25,
+        "q_max": 50.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 5.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0,
+        "q": -2.0
+      },
+      "expect": {
+        "delta_bid": 0.006234757744068198,
+        "delta_ask": 0.007382147682330014
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "mm_weighted_mid",
+      "kind": "mm_wmid",
+      "inputs": {
+        "bid": 99.99,
+        "ask": 100.01,
+        "bid_size": 900.0,
+        "ask_size": 100.0
+      },
+      "expect": {
+        "wmid": 100.008
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "mm_ofi_five_states",
+      "kind": "mm_ofi",
+      "inputs": {
+        "bid_px_0": 100.0,
+        "bid_sz_0": 500.0,
+        "ask_px_0": 100.02,
+        "ask_sz_0": 400.0,
+        "bid_px_1": 100.0,
+        "bid_sz_1": 700.0,
+        "ask_px_1": 100.02,
+        "ask_sz_1": 300.0,
+        "bid_px_2": 100.01,
+        "bid_sz_2": 200.0,
+        "ask_px_2": 100.02,
+        "ask_sz_2": 600.0,
+        "bid_px_3": 100.01,
+        "bid_sz_3": 100.0,
+        "ask_px_3": 100.03,
+        "ask_sz_3": 900.0,
+        "bid_px_4": 100.0,
+        "bid_sz_4": 800.0,
+        "ask_px_4": 100.01,
+        "ask_sz_4": 250.0
+      },
+      "expect": {
+        "e_1": 300.0,
+        "e_2": -100.0,
+        "e_3": 500.0,
+        "e_4": -350.0,
+        "ofi": 350.0
+      },
+      "tol": 1e-12
+    },
+    {
+      "name": "mm_sim_frictionless",
+      "kind": "mm_sim",
+      "inputs": {
+        "price": 100.0,
+        "tick": 0.0,
+        "daily_vol": 0.015,
+        "touch_fills_per_day": 1170.0,
+        "halving_ticks": 0.462,
+        "skew_ticks": 2.25,
+        "q_max": 50.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 5.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0,
+        "agent_code": 0.0,
+        "maker_fee": 0.0,
+        "latency_steps": 0.0,
+        "informed_prob": 0.0,
+        "signal_accuracy": 0.5,
+        "seed": 101.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "pnl": 7.413502705253085,
+        "pnl_se": 0.009269645577007905,
+        "spread": 7.438632771791457,
+        "spread_se": 0.0016891814803991002,
+        "fees": 0.0,
+        "fees_se": 0.0,
+        "inventory": 0.007396933461627205,
+        "inventory_se": 0.00911308195119432,
+        "markout": 0.006753851220595162,
+        "markout_se": 0.004888138686955649,
+        "fills": 1075.5904,
+        "fills_se": 0.23346973422231818,
+        "informed_fills": 0.0,
+        "informed_fills_se": 0.0
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "mm_sim_tick_rebate",
+      "kind": "mm_sim",
+      "inputs": {
+        "price": 100.0,
+        "tick": 0.01,
+        "daily_vol": 0.015,
+        "touch_fills_per_day": 1170.0,
+        "halving_ticks": 0.462,
+        "skew_ticks": 2.25,
+        "q_max": 50.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 5.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0,
+        "agent_code": 0.0,
+        "maker_fee": 0.002,
+        "latency_steps": 0.0,
+        "informed_prob": 0.0,
+        "signal_accuracy": 0.5,
+        "seed": 102.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "pnl": 7.325301513876485,
+        "pnl_se": 0.009255881784321542,
+        "spread": 6.199329984949417,
+        "spread_se": 0.002022044598355383,
+        "fees": 1.160345600000001,
+        "fees_se": 0.00036444399981814824,
+        "inventory": -0.005084071071076427,
+        "inventory_se": 0.008906275621337535,
+        "markout": 0.004946657785812533,
+        "markout_se": 0.003656815991516438,
+        "fills": 580.1728,
+        "fills_se": 0.18222199990907392,
+        "informed_fills": 0.0,
+        "informed_fills_se": 0.0
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "mm_sim_informed",
+      "kind": "mm_sim",
+      "inputs": {
+        "price": 100.0,
+        "tick": 0.01,
+        "daily_vol": 0.015,
+        "touch_fills_per_day": 1170.0,
+        "halving_ticks": 0.462,
+        "skew_ticks": 2.25,
+        "q_max": 50.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 5.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0,
+        "agent_code": 0.0,
+        "maker_fee": 0.002,
+        "latency_steps": 0.0,
+        "informed_prob": 0.15,
+        "signal_accuracy": 0.5,
+        "seed": 103.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "pnl": 4.012217859778514,
+        "pnl_se": 0.010359625243722664,
+        "spread": 10.25176457434535,
+        "spread_se": 0.0025285485464960063,
+        "fees": 1.862444200000001,
+        "fees_se": 0.000436534354238153,
+        "inventory": -8.068861914564092,
+        "inventory_se": 0.010500236856924833,
+        "markout": -8.061652691908296,
+        "markout_se": 0.005015305960279509,
+        "fills": 931.2221,
+        "fills_se": 0.21826717711907662,
+        "informed_fills": 288.8654,
+        "informed_fills_se": 0.11597440081794885
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "mm_sim_informed_signal",
+      "kind": "mm_sim",
+      "inputs": {
+        "price": 100.0,
+        "tick": 0.01,
+        "daily_vol": 0.015,
+        "touch_fills_per_day": 1170.0,
+        "halving_ticks": 0.462,
+        "skew_ticks": 2.25,
+        "q_max": 50.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 5.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0,
+        "agent_code": 0.0,
+        "maker_fee": 0.002,
+        "latency_steps": 0.0,
+        "informed_prob": 0.15,
+        "signal_accuracy": 0.6,
+        "seed": 104.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "pnl": 4.995463853214809,
+        "pnl_se": 0.010312396269302243,
+        "spread": 9.811435161138043,
+        "spread_se": 0.0024867825525300676,
+        "fees": 1.9699117,
+        "fees_se": 0.0004427856853079642,
+        "inventory": -6.752325507920323,
+        "inventory_se": 0.010394655683931175,
+        "markout": -6.73635879414239,
+        "markout_se": 0.005204789355971097,
+        "fills": 984.95585,
+        "fills_se": 0.22139284265398898,
+        "informed_fills": 277.8781,
+        "informed_fills_se": 0.11412376278041991
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "mm_sim_latency",
+      "kind": "mm_sim",
+      "inputs": {
+        "price": 100.0,
+        "tick": 0.01,
+        "daily_vol": 0.015,
+        "touch_fills_per_day": 1170.0,
+        "halving_ticks": 0.462,
+        "skew_ticks": 2.25,
+        "q_max": 50.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 5.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0,
+        "agent_code": 0.0,
+        "maker_fee": 0.002,
+        "latency_steps": 1.0,
+        "informed_prob": 0.0,
+        "signal_accuracy": 0.5,
+        "seed": 105.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "pnl": -23.725976253043672,
+        "pnl_se": 0.01596542485780387,
+        "spread": -28.329913694822125,
+        "spread_se": 0.0056285548793923714,
+        "fees": 4.6540912999997115,
+        "fees_se": 0.0004919872516521501,
+        "inventory": 0.0024086417842953877,
+        "inventory_se": 0.015960851982500746,
+        "markout": 0.0046085060161152255,
+        "markout_se": 0.007356876191718867,
+        "fills": 2327.04565,
+        "fills_se": 0.24599362582610215,
+        "informed_fills": 0.0,
+        "informed_fills_se": 0.0
+      },
+      "tol": 4.0
+    },
+    {
+      "name": "mm_sim_glft",
+      "kind": "mm_sim",
+      "inputs": {
+        "price": 100.0,
+        "tick": 0.01,
+        "daily_vol": 0.015,
+        "touch_fills_per_day": 1170.0,
+        "halving_ticks": 0.462,
+        "skew_ticks": 2.25,
+        "q_max": 50.0,
+        "liq_ticks": 1.0,
+        "dt_seconds": 5.0,
+        "session_seconds": 23400.0,
+        "horizon_days": 1.0,
+        "agent_code": 1.0,
+        "maker_fee": 0.002,
+        "latency_steps": 0.0,
+        "informed_prob": 0.0,
+        "signal_accuracy": 0.5,
+        "seed": 106.0,
+        "n_paths_ref": 20000.0
+      },
+      "expect": {
+        "pnl": 11.000658292032625,
+        "pnl_se": 0.035576690014593036,
+        "spread": 9.267380469805245,
+        "spread_se": 0.002173545422779347,
+        "fees": 1.7596841000000014,
+        "fees_se": 0.00039853303726114064,
+        "inventory": -0.00024977777171991986,
+        "inventory_se": 0.03548212707280943,
+        "markout": -0.001241260648614896,
+        "markout_se": 0.004369217156062604,
+        "fills": 879.84205,
+        "fills_se": 0.1992665186305701,
+        "informed_fills": 0.0,
+        "informed_fills_se": 0.0
+      },
+      "tol": 4.0
+    }
+  ]
+}
