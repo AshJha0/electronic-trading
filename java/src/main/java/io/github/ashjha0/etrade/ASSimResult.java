@@ -1,4 +1,4 @@
-package com.quant.etrade;
+package io.github.ashjha0.etrade;
 
 /**
  * Per-path arrays and aggregate statistics of a market-making simulation.

@@ -1,4 +1,4 @@
-package com.quant.etrade;
+package io.github.ashjha0.etrade;
 
 /** Package-private input-validation helpers (throw {@link IllegalArgumentException}). */
 final class Validation {

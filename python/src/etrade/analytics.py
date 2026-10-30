@@ -37,8 +37,8 @@ from __future__ import annotations
 
 import math
 import numbers
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import numpy as np
 
@@ -65,10 +65,15 @@ class ISDecomposition:
     remaining_qty: float
 
 
-def decompose_shortfall(side: str, decision_price: float, arrival_price: float,
-                        close_price: float, total_qty: float,
-                        fill_qtys: Sequence[float],
-                        fill_prices: Sequence[float]) -> ISDecomposition:
+def decompose_shortfall(
+    side: str,
+    decision_price: float,
+    arrival_price: float,
+    close_price: float,
+    total_qty: float,
+    fill_qtys: Sequence[float],
+    fill_prices: Sequence[float],
+) -> ISDecomposition:
     """Decompose implementation shortfall into delay/trading/opportunity.
 
     ``side`` is 'buy' or 'sell'.  Raises ValueError on inconsistent inputs
@@ -77,20 +82,23 @@ def decompose_shortfall(side: str, decision_price: float, arrival_price: float,
     """
     if side not in ("buy", "sell"):
         raise ValueError("side must be 'buy' or 'sell'")
-    for name, p in (("decision_price", decision_price),
-                    ("arrival_price", arrival_price), ("close_price", close_price)):
-        _require(math.isfinite(p), f"{name} must be finite")
+    for name, price in (
+        ("decision_price", decision_price),
+        ("arrival_price", arrival_price),
+        ("close_price", close_price),
+    ):
+        _require(math.isfinite(price), f"{name} must be finite")
     _require(math.isfinite(total_qty) and total_qty >= 0.0, "total_qty must be >= 0")
     n = np.asarray(fill_qtys, dtype=float)
     p = np.asarray(fill_prices, dtype=float)
-    _require(n.shape == p.shape and n.ndim == 1,
-             "fill_qtys and fill_prices must be 1-D arrays of equal length")
+    _require(
+        n.shape == p.shape and n.ndim == 1,
+        "fill_qtys and fill_prices must be 1-D arrays of equal length",
+    )
     _require(bool(np.all(n >= 0.0)), "fill quantities must be >= 0")
-    _require(bool(np.all(np.isfinite(n))) and bool(np.all(np.isfinite(p))),
-             "fills must be finite")
+    _require(bool(np.all(np.isfinite(n))) and bool(np.all(np.isfinite(p))), "fills must be finite")
     executed = float(np.sum(n))
-    _require(executed <= total_qty * (1.0 + 1e-12) + 1e-12,
-             "executed quantity exceeds total_qty")
+    _require(executed <= total_qty * (1.0 + 1e-12) + 1e-12, "executed quantity exceeds total_qty")
     remaining = total_qty - executed
     sign = 1.0 if side == "sell" else -1.0
     delay = executed * sign * (decision_price - arrival_price)
@@ -107,12 +115,14 @@ def participation_rate(executed_volume: float, market_volume: float) -> float:
     ``executed_volume <= market_volume`` is required (a rate above 1 is an
     input error, not a warning).
     """
-    _require(math.isfinite(executed_volume) and executed_volume >= 0.0,
-             "executed_volume must be >= 0")
-    _require(math.isfinite(market_volume) and market_volume > 0.0,
-             "market_volume must be > 0")
-    _require(executed_volume <= market_volume,
-             "executed volume exceeds market volume — market volume must include own fills")
+    _require(
+        math.isfinite(executed_volume) and executed_volume >= 0.0, "executed_volume must be >= 0"
+    )
+    _require(math.isfinite(market_volume) and market_volume > 0.0, "market_volume must be > 0")
+    _require(
+        executed_volume <= market_volume,
+        "executed volume exceeds market volume — market volume must include own fills",
+    )
     return executed_volume / market_volume
 
 
@@ -134,11 +144,11 @@ def ols(x: Sequence[float], y: Sequence[float]) -> OLSResult:
     """
     xa = np.asarray(x, dtype=float)
     ya = np.asarray(y, dtype=float)
-    _require(xa.shape == ya.shape and xa.ndim == 1,
-             "x and y must be 1-D arrays of equal length")
+    _require(xa.shape == ya.shape and xa.ndim == 1, "x and y must be 1-D arrays of equal length")
     _require(xa.size >= 2, "need at least 2 observations")
-    _require(bool(np.all(np.isfinite(xa))) and bool(np.all(np.isfinite(ya))),
-             "x and y must be finite")
+    _require(
+        bool(np.all(np.isfinite(xa))) and bool(np.all(np.isfinite(ya))), "x and y must be finite"
+    )
     xm, ym = float(np.mean(xa)), float(np.mean(ya))
     sxx = float(np.sum((xa - xm) ** 2))
     _require(sxx > 0.0, "x is degenerate (zero variance)")
@@ -147,13 +157,13 @@ def ols(x: Sequence[float], y: Sequence[float]) -> OLSResult:
     intercept = ym - slope * xm
     resid = ya - (intercept + slope * xa)
     sst = float(np.sum((ya - ym) ** 2))
-    r2 = 1.0 if sst == 0.0 else 1.0 - float(np.sum(resid ** 2)) / sst
+    r2 = 1.0 if sst == 0.0 else 1.0 - float(np.sum(resid**2)) / sst
     return OLSResult(slope, intercept, r2, int(xa.size))
 
 
-def synthetic_impact_fills(n_obs: int = 25, intercept: float = 0.5,
-                           slope: float = 8.0,
-                           noise_amp: float = 0.05) -> tuple[np.ndarray, np.ndarray]:
+def synthetic_impact_fills(
+    n_obs: int = 25, intercept: float = 0.5, slope: float = 8.0, noise_amp: float = 0.05
+) -> tuple[np.ndarray, np.ndarray]:
     """Deterministic synthetic (participation, per-share cost) fills.
 
     Pinned, RNG-free construction (identical across languages):
@@ -167,7 +177,6 @@ def synthetic_impact_fills(n_obs: int = 25, intercept: float = 0.5,
     return part, cost
 
 
-def estimate_impact(participations: Sequence[float],
-                    costs: Sequence[float]) -> OLSResult:
+def estimate_impact(participations: Sequence[float], costs: Sequence[float]) -> OLSResult:
     """Market-impact regression: per-share cost on participation rate."""
     return ols(participations, costs)

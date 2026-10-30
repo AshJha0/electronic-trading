@@ -1,6 +1,6 @@
-package com.quant.etrade;
+package io.github.ashjha0.etrade;
 
-import static com.quant.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.require;
 
 /**
  * Avellaneda-Stoikov market-making parameters (2008 paper, finite horizon).

@@ -165,7 +165,7 @@ impl ASParams {
 /// Requires finite `s` and `q`, and `0 <= t <= T`.
 pub fn reservation_price(params: &ASParams, s: f64, q: f64, t: f64) -> Result<f64, EtradeError> {
     require(s.is_finite() && q.is_finite(), "s and q must be finite")?;
-    require(t >= 0.0 && t <= params.horizon(), "t must be in [0, horizon]")?;
+    require((0.0..=params.horizon()).contains(&t), "t must be in [0, horizon]")?;
     Ok(s - q * params.gamma() * params.sigma().powi(2) * (params.horizon() - t))
 }
 
@@ -174,7 +174,7 @@ pub fn reservation_price(params: &ASParams, s: f64, q: f64, t: f64) -> Result<f6
 /// Strictly positive; decreases linearly in `t` to the terminal floor
 /// `(2/gamma)*ln(1 + gamma/k)` at `t = T`.  Requires `0 <= t <= T`.
 pub fn optimal_spread(params: &ASParams, t: f64) -> Result<f64, EtradeError> {
-    require(t >= 0.0 && t <= params.horizon(), "t must be in [0, horizon]")?;
+    require((0.0..=params.horizon()).contains(&t), "t must be in [0, horizon]")?;
     Ok(params.gamma() * params.sigma().powi(2) * (params.horizon() - t)
         + 2.0 / params.gamma() * (params.gamma() / params.k()).ln_1p())
 }
@@ -379,9 +379,7 @@ pub fn simulate(
         "stress_factor must be > 0",
     )?;
     require(
-        config.stress_time_frac.is_finite()
-            && config.stress_time_frac >= 0.0
-            && config.stress_time_frac <= 1.0,
+        (0.0..=1.0).contains(&config.stress_time_frac),
         "stress_time_frac must be in [0, 1]",
     )?;
     let fixed_spread = config.fixed_spread.unwrap_or_else(|| average_as_spread(params));
@@ -454,7 +452,7 @@ pub fn simulate(
                 cap_violated = true; // must never happen by construction
             }
             sum_abs_q += abs_q as f64;
-            sum_q2 += (q * q) as f64;
+            sum_q2 += (q as f64) * (q as f64);
             max_abs_q = max_abs_q.max(abs_q);
             // 4. mid move (stressed vol only affects the realised path)
             let z: f64 = rng.sample(StandardNormal);

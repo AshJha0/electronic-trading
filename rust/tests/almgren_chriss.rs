@@ -189,7 +189,7 @@ fn error_paths_are_reported_not_panicked() {
 }
 
 // ---------------------------------------------------------------------------
-// Robustness / literature tests (review findings MAJ-1..MAJ-5, MIN-3/4/5)
+// Robustness and literature tests: overflow-free trajectory, log1p kappa, POV size bounds, liquidation checks, paper closed forms
 // ---------------------------------------------------------------------------
 
 /// FX-like parameter set from data/params_fx.json.

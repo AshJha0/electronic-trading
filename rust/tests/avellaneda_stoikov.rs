@@ -202,7 +202,7 @@ fn error_paths_are_reported_not_panicked() {
 }
 
 // ---------------------------------------------------------------------------
-// Robustness tests (review findings CRIT-1, MAJ-8, MIN-16, T-8, T-11, T-14)
+// Robustness tests: per-side fill counting, finite inputs, stress edges, step and path bounds
 // ---------------------------------------------------------------------------
 
 #[test]

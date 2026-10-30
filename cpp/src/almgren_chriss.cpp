@@ -65,7 +65,7 @@ double ac_kappa(const ACParams& params) {
     const double kt2 = params.lambda_ra * params.sigma * params.sigma /
                        params.eta_tilde();
     if (kt2 == 0.0) return 0.0;
-    // arccosh(1 + x) = log1p(x + sqrt(x*(2 + x))): exact to 1 ulp for small x
+    // arccosh(1 + x) = log1p(x + sqrt(x*(2 + x))): free of cancellation for small x
     // where acosh(1 + x) cancels (pinned evaluation form, API_SPEC 1.4).
     const double x = 0.5 * kt2 * params.tau * params.tau;
     return std::log1p(x + std::sqrt(x * (2.0 + x))) / params.tau;

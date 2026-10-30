@@ -202,7 +202,7 @@ TEST(ACValidation, RejectsNonLiquidatingAndDegenerateSchedules) {
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// Robustness / literature tests (review findings MAJ-1..MAJ-5, MIN-3/4/5)
+// Robustness and literature tests: overflow-free trajectory, log1p kappa, POV size bounds, liquidation checks, paper closed forms
 // ---------------------------------------------------------------------------
 
 namespace {

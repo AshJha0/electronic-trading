@@ -129,7 +129,7 @@ fn error_paths_are_reported_not_panicked() {
 }
 
 // ---------------------------------------------------------------------------
-// Robustness tests (T-9, T-13)
+// Robustness tests: price-shift invariance, empty fills, participation above 1
 // ---------------------------------------------------------------------------
 
 #[test]

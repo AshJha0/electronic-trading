@@ -33,8 +33,8 @@ def test_trajectory_boundary_monotone_and_sum(p_liq: et.ACParams) -> None:
 
 def test_kappa_solves_discrete_equation(p_liq: et.ACParams) -> None:
     kappa = et.ac_kappa(p_liq)
-    kt2 = p_liq.lambda_ra * p_liq.sigma ** 2 / p_liq.eta_tilde
-    lhs = 2.0 / p_liq.tau ** 2 * (math.cosh(kappa * p_liq.tau) - 1.0)
+    kt2 = p_liq.lambda_ra * p_liq.sigma**2 / p_liq.eta_tilde
+    lhs = 2.0 / p_liq.tau**2 * (math.cosh(kappa * p_liq.tau) - 1.0)
     assert lhs == pytest.approx(kt2, rel=1e-12)
 
 
@@ -70,8 +70,8 @@ def test_kappa_limit_continuity_near_threshold(p_liq: et.ACParams) -> None:
     limit branch to high accuracy (branch continuity)."""
     # choose lambda so that kappa*T is a hair above the 1e-6 threshold
     target_kappa = 2e-6 / p_liq.horizon
-    kt2 = 2.0 / p_liq.tau ** 2 * (math.cosh(target_kappa * p_liq.tau) - 1.0)
-    lam = kt2 * p_liq.eta_tilde / p_liq.sigma ** 2
+    kt2 = 2.0 / p_liq.tau**2 * (math.cosh(target_kappa * p_liq.tau) - 1.0)
+    lam = kt2 * p_liq.eta_tilde / p_liq.sigma**2
     p = p_liq.with_lambda(lam)
     assert et.ac_kappa(p) * p.horizon > et.KAPPA_T_LIMIT  # sinh branch active
     twap = et.twap_holdings(p.total_shares, p.n_intervals)
@@ -95,28 +95,39 @@ def test_single_clip_n1() -> None:
 
 
 def test_zero_shares_empty_trajectory(p_liq: et.ACParams) -> None:
-    p = et.ACParams(0.0, p_liq.n_intervals, p_liq.tau, p_liq.sigma,
-                    p_liq.eta, p_liq.gamma_p, p_liq.lambda_ra)
+    p = et.ACParams(
+        0.0, p_liq.n_intervals, p_liq.tau, p_liq.sigma, p_liq.eta, p_liq.gamma_p, p_liq.lambda_ra
+    )
     assert np.all(et.ac_trajectory(p) == 0.0)
     assert et.expected_cost(p) == 0.0
     assert et.variance_cost(p) == 0.0
 
 
-@pytest.mark.parametrize("kwargs", [
-    dict(total_shares=-1.0),
-    dict(n_intervals=0),
-    dict(tau=0.0),
-    dict(tau=-1.0),
-    dict(sigma=-0.1),
-    dict(eta=0.0),
-    dict(eta=-1e-6),
-    dict(gamma_p=-1e-8),
-    dict(lambda_ra=-1e-6),
-    dict(total_shares=float("nan")),
-])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"total_shares": -1.0},
+        {"n_intervals": 0},
+        {"tau": 0.0},
+        {"tau": -1.0},
+        {"sigma": -0.1},
+        {"eta": 0.0},
+        {"eta": -1e-6},
+        {"gamma_p": -1e-8},
+        {"lambda_ra": -1e-6},
+        {"total_shares": float("nan")},
+    ],
+)
 def test_invalid_params_raise(kwargs: dict) -> None:
-    base = dict(total_shares=1e6, n_intervals=5, tau=1.0, sigma=0.95,
-                eta=2.5e-6, gamma_p=2.5e-7, lambda_ra=1e-6)
+    base = {
+        "total_shares": 1e6,
+        "n_intervals": 5,
+        "tau": 1.0,
+        "sigma": 0.95,
+        "eta": 2.5e-6,
+        "gamma_p": 2.5e-7,
+        "lambda_ra": 1e-6,
+    }
     base.update(kwargs)
     with pytest.raises(ValueError):
         et.ACParams(**base)
@@ -133,9 +144,8 @@ def test_model_validity_gamma_p_tau() -> None:
 def test_twap_closed_formulas(p_liq: et.ACParams) -> None:
     x0, n_int, tau = p_liq.total_shares, p_liq.n_intervals, p_liq.tau
     twap = et.twap_holdings(x0, n_int)
-    e_expect = 0.5 * p_liq.gamma_p * x0 ** 2 + p_liq.eta_tilde * x0 ** 2 / (n_int * tau)
-    v_expect = (p_liq.sigma ** 2 * tau * x0 ** 2
-                * (n_int - 1) * (2 * n_int - 1) / (6 * n_int))
+    e_expect = 0.5 * p_liq.gamma_p * x0**2 + p_liq.eta_tilde * x0**2 / (n_int * tau)
+    v_expect = p_liq.sigma**2 * tau * x0**2 * (n_int - 1) * (2 * n_int - 1) / (6 * n_int)
     assert et.expected_cost(p_liq, twap) == pytest.approx(e_expect, rel=1e-12)
     assert et.variance_cost(p_liq, twap) == pytest.approx(v_expect, rel=1e-12)
 
@@ -159,8 +169,9 @@ def test_instantaneous_liquidation(p_liq: et.ACParams) -> None:
     e, v = et.instantaneous_cost(p_liq)
     x0 = p_liq.total_shares
     assert v == 0.0
-    assert e == pytest.approx(0.5 * p_liq.gamma_p * x0 ** 2
-                              + p_liq.eta_tilde * x0 ** 2 / p_liq.tau, rel=1e-12)
+    assert e == pytest.approx(
+        0.5 * p_liq.gamma_p * x0**2 + p_liq.eta_tilde * x0**2 / p_liq.tau, rel=1e-12
+    )
     # instantaneous cost dominates any optimal E for these params
     assert e > et.expected_cost(p_liq)
 
@@ -191,33 +202,42 @@ def test_illiquid_set_also_valid() -> None:
 
 
 # ----------------------------------------------------------------------------
-# Robustness / literature tests (review findings MAJ-1..MAJ-5, MIN-3/4/5/15)
+# Robustness and literature tests: overflow-free trajectory, log1p kappa,
+# POV size bounds and boundaries, liquidation checks, paper closed forms
 # ----------------------------------------------------------------------------
 
 FX = load_json("params_fx.json")
 
 
-@pytest.mark.parametrize("cfg,n_int,tau,lam", [
-    (LIQ, 1000, 1.0, 2e-6),       # kappa*T ~ 846  (sinh overflows at ~710)
-    (FX, 20000, None, None),      # kappa*T ~ 2683
-])
+@pytest.mark.parametrize(
+    "cfg,n_int,tau,lam",
+    [
+        (LIQ, 1000, 1.0, 2e-6),  # kappa*T ~ 846  (sinh overflows at ~710)
+        (FX, 20000, None, None),  # kappa*T ~ 2683
+    ],
+)
 def test_trajectory_finite_for_large_kappa_t(cfg: dict, n_int: int, tau, lam) -> None:
     """The exp/expm1 ratio form never overflows: every x_j finite,
     non-increasing (strictly decreasing while > 0), trades sum to X and the
     first ratio x_1/X equals exp(-kappa*tau) (sinh(k(T-tau))/sinh(kT) ->
     exp(-k tau) for kappa*T >> 1)."""
-    p = et.ACParams(cfg["ac_total_shares"], n_int,
-                    cfg["ac_tau"] if tau is None else tau, cfg["ac_sigma"],
-                    cfg["ac_eta"], cfg["ac_gamma_p"],
-                    cfg["ac_lambda_ra"] if lam is None else lam)
+    p = et.ACParams(
+        cfg["ac_total_shares"],
+        n_int,
+        cfg["ac_tau"] if tau is None else tau,
+        cfg["ac_sigma"],
+        cfg["ac_eta"],
+        cfg["ac_gamma_p"],
+        cfg["ac_lambda_ra"] if lam is None else lam,
+    )
     kappa = et.ac_kappa(p)
-    assert kappa * p.horizon > 710.0            # would overflow math.sinh
+    assert kappa * p.horizon > 710.0  # would overflow math.sinh
     x = et.ac_trajectory(p)
     assert x.size == n_int + 1
     assert bool(np.all(np.isfinite(x)))
     assert x[0] == p.total_shares and x[-1] == 0.0
     assert bool(np.all(np.diff(x) <= 0.0))
-    pos = x > np.finfo(float).tiny * x[0]        # normal-range entries
+    pos = x > np.finfo(float).tiny * x[0]  # normal-range entries
     assert pos.sum() >= 800
     assert bool(np.all(np.diff(x[pos]) < 0.0))  # strictly decreasing while normal
     assert float(np.sum(et.ac_trade_list(p))) == pytest.approx(p.total_shares, rel=1e-12)
@@ -235,13 +255,16 @@ def test_paper_closed_forms_match_discrete_sums(cfg: dict) -> None:
     p = ac_from_cfg(cfg)
     k, big_t, tau, x0 = et.ac_kappa(p), p.horizon, p.tau, p.total_shares
     sh_kt = math.sinh(k * big_t)
-    e_paper = (0.5 * p.gamma_p * x0 ** 2
-               + p.eta_tilde * x0 ** 2 * math.tanh(0.5 * k * tau)
-               * (tau * math.sinh(2 * k * big_t) + 2 * big_t * math.sinh(k * tau))
-               / (2 * tau ** 2 * sh_kt ** 2))
-    v_paper = (0.5 * p.sigma ** 2 * x0 ** 2
-               * (tau * sh_kt * math.cosh(k * (big_t - tau)) - big_t * math.sinh(k * tau))
-               / (sh_kt ** 2 * math.sinh(k * tau)))
+    e_paper = 0.5 * p.gamma_p * x0**2 + p.eta_tilde * x0**2 * math.tanh(0.5 * k * tau) * (
+        tau * math.sinh(2 * k * big_t) + 2 * big_t * math.sinh(k * tau)
+    ) / (2 * tau**2 * sh_kt**2)
+    v_paper = (
+        0.5
+        * p.sigma**2
+        * x0**2
+        * (tau * sh_kt * math.cosh(k * (big_t - tau)) - big_t * math.sinh(k * tau))
+        / (sh_kt**2 * math.sinh(k * tau))
+    )
     assert et.expected_cost(p) == pytest.approx(e_paper, rel=1e-12)
     assert et.variance_cost(p) == pytest.approx(v_paper, rel=1e-12)
 
@@ -250,10 +273,11 @@ def test_paper_closed_forms_match_discrete_sums(cfg: dict) -> None:
 def test_kappa_small_tau_accuracy(lam: float) -> None:
     """kappa = kappa_tilde*(1 - kappa_tilde^2 tau^2/24 + O(tau^4)); the log1p
     form reproduces the series to 1e-9 where acosh(1+x) loses 4-5 digits."""
-    p = et.ACParams(LIQ["ac_total_shares"], 5000, 1e-3, LIQ["ac_sigma"],
-                    LIQ["ac_eta"], LIQ["ac_gamma_p"], lam)
-    kt2 = lam * p.sigma ** 2 / p.eta_tilde
-    series = math.sqrt(kt2) * (1.0 - kt2 * p.tau ** 2 / 24.0)
+    p = et.ACParams(
+        LIQ["ac_total_shares"], 5000, 1e-3, LIQ["ac_sigma"], LIQ["ac_eta"], LIQ["ac_gamma_p"], lam
+    )
+    kt2 = lam * p.sigma**2 / p.eta_tilde
+    series = math.sqrt(kt2) * (1.0 - kt2 * p.tau**2 / 24.0)
     assert et.ac_kappa(p) == pytest.approx(series, rel=1e-9)
     assert et.half_life(p) == pytest.approx(1.0 / series, rel=1e-9)
     assert et.characteristic_time(p) == et.half_life(p)
@@ -261,7 +285,7 @@ def test_kappa_small_tau_accuracy(lam: float) -> None:
 
 def test_pov_clip_too_small_is_input_error() -> None:
     with pytest.raises(ValueError, match="POV clip too small"):
-        et.pov_holdings(1e6, 1.0, 1.0, 1e-9)          # would need 1e15 intervals
+        et.pov_holdings(1e6, 1.0, 1.0, 1e-9)  # would need 1e15 intervals
     # exactly at the bound: 1e7 intervals of clip 1 for 1e7 shares is allowed
     # in principle; one share more is rejected without allocating.
     with pytest.raises(ValueError, match="POV clip too small"):
@@ -269,7 +293,7 @@ def test_pov_clip_too_small_is_input_error() -> None:
 
 
 def test_pov_boundary_interval_counts() -> None:
-    clip = 0.15 * 2.5e6 * 1.0                          # 375,000
+    clip = 0.15 * 2.5e6 * 1.0  # 375,000
     x2 = et.pov_holdings(750_000.0, 1.0, 2.5e6, 0.15)  # X/clip = 2 exactly
     assert x2.size - 1 == 2
     assert x2.tolist() == [750_000.0, 375_000.0, 0.0]
@@ -277,7 +301,7 @@ def test_pov_boundary_interval_counts() -> None:
     assert x3.size - 1 == 3
     n3 = et.trades_from_holdings(x3)
     assert n3[0] == n3[1] == clip
-    assert n3[2] == pytest.approx(0.001, abs=1e-6)     # last clip partial
+    assert n3[2] == pytest.approx(0.001, abs=1e-6)  # last clip partial
     assert x3[-1] == 0.0
 
 
@@ -357,18 +381,19 @@ def test_size_bounds_are_input_errors(p_liq: et.ACParams) -> None:
 
 def test_cost_functions_validate_holdings(p_liq: et.ACParams) -> None:
     with pytest.raises(ValueError):
-        et.variance_cost(p_liq, [1e6])              # length < 2
+        et.variance_cost(p_liq, [1e6])  # length < 2
     with pytest.raises(ValueError):
         et.variance_cost(p_liq, [1e6, float("inf"), 0.0])
     with pytest.raises(ValueError):
         et.expected_cost(p_liq, [1e6, float("nan"), 0.0])
     with pytest.raises(ValueError):
-        et.trades_from_holdings([[1e6, 0.0]])        # not 1-D
+        et.trades_from_holdings([[1e6, 0.0]])  # not 1-D
     # X is taken from the schedule (x_0), not from params (pinned)
     half = et.twap_holdings(5e5, 5)
     e_half = et.expected_cost(p_liq, half)
-    assert e_half == pytest.approx(0.5 * p_liq.gamma_p * 5e5 ** 2
-                                   + p_liq.eta_tilde * 5e5 ** 2 / 5.0, rel=1e-12)
+    assert e_half == pytest.approx(
+        0.5 * p_liq.gamma_p * 5e5**2 + p_liq.eta_tilde * 5e5**2 / 5.0, rel=1e-12
+    )
 
 
 def test_trajectory_x0_exact_and_sinh_identity_moderate(p_liq: et.ACParams) -> None:

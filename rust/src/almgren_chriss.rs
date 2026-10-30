@@ -253,8 +253,9 @@ pub fn ac_trajectory(params: &ACParams) -> Vec<f64> {
 
 /// Optimal trade list `n_1..n_N` (shares sold per interval; sums to `X`).
 pub fn ac_trade_list(params: &ACParams) -> Vec<f64> {
-    // The trajectory always has length >= 2 (N >= 1), so this cannot fail.
-    trades_from_holdings(&ac_trajectory(params)).expect("trajectory has length >= 2")
+    // The trajectory always has length N + 1 >= 2, so the differences are
+    // taken directly (no validation path, no panic path).
+    ac_trajectory(params).windows(2).map(|w| w[0] - w[1]).collect()
 }
 
 /// Validate a user-supplied holdings path: length `>= 2`, all finite.

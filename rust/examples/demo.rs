@@ -6,7 +6,7 @@
 //! (A-S vs fixed-spread agent, liquid and FX parameter sets), and an
 //! implementation-shortfall decomposition with a market-impact regression.
 //!
-//! Run: `cd rust && cargo run --bin demo`
+//! Run: `cd rust && cargo run --release --example demo`
 
 use std::error::Error;
 use std::fs;

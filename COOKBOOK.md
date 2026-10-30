@@ -6,7 +6,7 @@ paste; `import etrade as et` is assumed once per session). Every C++, Rust
 and Java snippet below has been compiled and run against the shipped
 library (C++17 with `-I cpp/include` linking `libetrade.a`; Rust as a
 `main()` body returning `Result<(), Box<dyn std::error::Error>>` so `?`
-works; Java inside a class in package `com.quant.etrade` or with the
+works; Java inside a class in package `io.github.ashjha0.etrade` or with the
 imports shown). The Rust snippets assume
 
 ```rust
@@ -16,11 +16,11 @@ use etrade::{ACParams, ASParams, Agent, SimConfig, Side};
 once per file, and the Java ones
 
 ```java
-import com.quant.etrade.*;
-import com.quant.etrade.AlmgrenChriss.FrontierPoint;
-import com.quant.etrade.AlmgrenChriss.ISSimResult;
-import com.quant.etrade.Analytics.ISDecomposition;
-import com.quant.etrade.Analytics.OLSResult;
+import io.github.ashjha0.etrade.*;
+import io.github.ashjha0.etrade.AlmgrenChriss.FrontierPoint;
+import io.github.ashjha0.etrade.AlmgrenChriss.ISSimResult;
+import io.github.ashjha0.etrade.Analytics.ISDecomposition;
+import io.github.ashjha0.etrade.Analytics.OLSResult;
 ```
 
 Sample simulation numbers in comments are the Python demo's 2,000-path
@@ -77,8 +77,8 @@ let n: Vec<f64> = etrade::ac_trade_list(&p);   // len N, sums to X
 **Java**
 
 ```java
-import com.quant.etrade.ACParams;
-import com.quant.etrade.AlmgrenChriss;
+import io.github.ashjha0.etrade.ACParams;
+import io.github.ashjha0.etrade.AlmgrenChriss;
 
 ACParams p = new ACParams(1_000_000.0, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6);
 double kappa = AlmgrenChriss.kappa(p);         // 0.8462971345012562

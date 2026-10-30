@@ -1,16 +1,6 @@
-#!/bin/bash
-# Build the etrade Java library, demo and tests (no Maven; plain javac).
+#!/usr/bin/env bash
+# Build the etrade Java library and tests with Maven (any OS with JDK 17+).
 set -euo pipefail
 cd "$(dirname "$0")"
-
-JUNIT=/usr/share/java/junit4.jar
-HAMCREST=/usr/share/java/hamcrest.jar
-
-rm -rf out
-mkdir -p out/main out/test
-
-javac -Xlint:all -d out/main $(find src/main/java -name '*.java')
-javac -Xlint:all -cp "out/main:$JUNIT:$HAMCREST" -d out/test \
-    $(find src/test/java -name '*.java')
-
-echo "build OK"
+mvn -q -B -DskipTests package
+echo "build OK: target/etrade-*.jar"
