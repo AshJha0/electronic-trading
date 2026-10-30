@@ -1,6 +1,7 @@
 package io.github.ashjha0.etrade;
 
 import static io.github.ashjha0.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.requireNonNull;
 
 import java.util.Arrays;
 
@@ -103,10 +104,10 @@ public final class Impact {
             }
             double[] e = new double[nIntervals];
             for (int j = 0; j < nIntervals; j++) {
-                e[j] = eta * Math.pow(w[j], -alpha);
+                e[j] = eta * StrictMath.pow(w[j], -alpha);
             }
             if (totalShares > 0.0) {
-                double xPow = Math.pow(totalShares, alpha - 1.0);
+                double xPow = StrictMath.pow(totalShares, alpha - 1.0);
                 for (double etaJ : e) {
                     require(alpha * (1.0 + alpha) * etaJ * xPow > gammaP,
                             "model invalid: temporary impact not convex enough against "
@@ -225,12 +226,14 @@ public final class Impact {
      * @return expected implementation shortfall
      */
     public static double expectedCost(Params p, double[] x) {
+        requireNonNull(p, "p");
+        requireNonNull(x, "x");
         checkHoldings(p, x);
         double a1 = 1.0 + p.alpha;
         double temp = 0.0;
         for (int j = 1; j < x.length; j++) {
             double n = Math.max(x[j - 1] - x[j], 0.0);
-            temp += p.etas[j - 1] * Math.pow(n, a1) - 0.5 * p.gammaP * n * n;
+            temp += p.etas[j - 1] * StrictMath.pow(n, a1) - 0.5 * p.gammaP * n * n;
         }
         double hold = 0.0;
         for (int k = 1; k < x.length - 1; k++) {
@@ -247,6 +250,8 @@ public final class Impact {
      * @return variance of implementation shortfall
      */
     public static double varianceCost(Params p, double[] x) {
+        requireNonNull(p, "p");
+        requireNonNull(x, "x");
         checkHoldings(p, x);
         double sq = 0.0;
         for (int k = 1; k < x.length; k++) {
@@ -307,7 +312,7 @@ public final class Impact {
         double a1 = 1.0 + p.alpha;
         for (int j = 1; j < x.length; j++) {
             double n = x[j - 1] - x[j];
-            total += p.etas[j - 1] * Math.pow(n, a1) - 0.5 * p.gammaP * n * n;
+            total += p.etas[j - 1] * StrictMath.pow(n, a1) - 0.5 * p.gammaP * n * n;
         }
         double hold = 0.0;
         for (int k = 1; k < x.length - 1; k++) {
@@ -347,8 +352,8 @@ public final class Impact {
                 n[j] = x[j] - x[j + 1];
             }
             for (int j = 0; j < m; j++) {
-                c1[j] = a1 * p.etas[j] * Math.pow(n[j], a) - g2 * n[j];
-                c2[j] = a * a1 * p.etas[j] * Math.pow(n[j], a - 1.0) - g2;
+                c1[j] = a1 * p.etas[j] * StrictMath.pow(n[j], a) - g2 * n[j];
+                c2[j] = a * a1 * p.etas[j] * StrictMath.pow(n[j], a - 1.0) - g2;
             }
             for (int k = 1; k < m; k++) {
                 grad[k - 1] = c1[k] - c1[k - 1] + v2 * x[k] + dt;
@@ -404,6 +409,7 @@ public final class Impact {
      * @throws IllegalStateException if the solver fails to find a certified optimum
      */
     public static ScheduleResult optimalSchedule(Params p) {
+        requireNonNull(p, "p");
         int nInt = p.nIntervals;
         double[] holdings = new double[nInt + 1];
         if (p.totalShares == 0.0) {
@@ -434,7 +440,7 @@ public final class Impact {
         iters += best.iterations();
         double[] xm = best.holdings();
         double nLast = xm[lo - 1] - xm[lo];
-        double marginal = (1.0 + p.alpha) * p.etas[lo - 1] * Math.pow(nLast, p.alpha)
+        double marginal = (1.0 + p.alpha) * p.etas[lo - 1] * StrictMath.pow(nLast, p.alpha)
                 - p.gammaP * nLast;
         if (!(marginal <= p.drift * p.tau * (1.0 + 1e-9) + 1e-12)) {
             throw new IllegalStateException(
@@ -459,6 +465,6 @@ public final class Impact {
         require(Double.isFinite(orderShares) && orderShares >= 0.0, "order_shares must be >= 0");
         require(Double.isFinite(adv) && adv > 0.0, "adv must be finite and > 0");
         require(Double.isFinite(y) && y > 0.0, "y must be finite and > 0");
-        return 1e4 * y * dailyVol * Math.sqrt(orderShares / adv);
+        return 1e4 * y * dailyVol * StrictMath.sqrt(orderShares / adv);
     }
 }

@@ -124,7 +124,7 @@ public final class Demo {
     private static void analyticsSection() {
         hdr("Implementation-shortfall decomposition (sell parent order)");
         // mirrors data/parent_order.json
-        Analytics.ISDecomposition d = Analytics.decomposeShortfall("sell", 100.0, 99.5,
+        Analytics.ISDecomposition d = Analytics.decomposeShortfall(Side.SELL, 100.0, 99.5,
                 98.8, 1000.0, new double[] {300.0, 400.0, 200.0},
                 new double[] {99.4, 99.2, 99.1});
         System.out.printf(Locale.ROOT,

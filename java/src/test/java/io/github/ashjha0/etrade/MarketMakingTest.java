@@ -1,30 +1,35 @@
 package io.github.ashjha0.etrade;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static io.github.ashjha0.etrade.Rejects.assertRejects;
+import static io.github.ashjha0.etrade.Rejects.bad;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.ashjha0.etrade.Market.ASMarket;
 import io.github.ashjha0.etrade.MarketMaking.Agent;
 import io.github.ashjha0.etrade.MarketMaking.Config;
 import io.github.ashjha0.etrade.MarketMaking.Result;
 import io.github.ashjha0.etrade.MarketMaking.Stat;
-import io.github.ashjha0.etrade.Market.ASMarket;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Market making with frictions (API_SPEC Section 9): every case of
  * {@code mm_golden.json}, the attribution identity on every path, determinism and
  * validation.
  */
-public final class MarketMakingTest {
+final class MarketMakingTest {
 
     private static final Map<String, Object> GOLDEN = load();
 
@@ -37,8 +42,7 @@ public final class MarketMakingTest {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> load() {
         try {
-            return (Map<String, Object>) Json.parse(
-                    Files.readString(Path.of("../data/golden/mm_golden.json")));
+            return (Map<String, Object>) TestData.load("golden/mm_golden.json");
         } catch (IOException e) {
             throw new IllegalStateException("cannot load mm_golden.json", e);
         }
@@ -77,8 +81,7 @@ public final class MarketMakingTest {
         double[] liq = r.path(Stat.LIQUIDATION);
         for (int i = 0; i < pnl.length; i++) {
             double recon = sp[i] + fe[i] + inv[i] - liq[i];
-            assertTrue("identity on path " + i,
-                    Math.abs(recon - pnl[i]) <= 1e-9 * Math.max(1.0, Math.abs(pnl[i])));
+            assertTrue(Math.abs(recon - pnl[i]) <= 1e-9 * Math.max(1.0, Math.abs(pnl[i])), "identity on path " + i);
         }
         assertTrue(r.maxIdentityError() <= 1e-9);
     }
@@ -86,10 +89,10 @@ public final class MarketMakingTest {
     private static void exactCase(String name, Map<String, Object> c, Map<String, Double> act) {
         Map<String, Object> exp = obj(c, "expect");
         double tol = num(c, "tol");
-        assertEquals(name + " keys", exp.keySet(), act.keySet());
+        assertEquals(exp.keySet(), act.keySet(), name + " keys");
         for (String key : exp.keySet()) {
             double e = num(exp, key);
-            assertEquals(name + "." + key, e, act.get(key), tol * Math.max(1.0, Math.abs(e)));
+            assertEquals(e, act.get(key), tol * Math.max(1.0, Math.abs(e)), name + "." + key);
         }
     }
 
@@ -115,15 +118,14 @@ public final class MarketMakingTest {
             double seRef = num(exp, key + "_se");
             double seOwn = r.se(st);
             double diff = Math.abs(r.mean(st) - ref);
-            assertTrue(name + "." + key + ": " + r.mean(st) + " vs " + ref,
-                    diff <= mult * Math.sqrt(seRef * seRef + seOwn * seOwn));
+            assertTrue(diff <= mult * Math.sqrt(seRef * seRef + seOwn * seOwn), name + "." + key + ": " + r.mean(st) + " vs " + ref);
             checked += 2;
         }
-        assertEquals(name + " every key", exp.size(), checked);
+        assertEquals(exp.size(), checked, name + " every key");
     }
 
     @Test
-    public void everyGoldenCase() {
+    void everyGoldenCase() {
         List<Map<String, Object>> cs = cases();
         assertEquals(14, cs.size());
         for (Map<String, Object> c : cs) {
@@ -181,7 +183,7 @@ public final class MarketMakingTest {
     }
 
     @Test
-    public void identityHoldsForEveryAgentAndFriction() {
+    void identityHoldsForEveryAgentAndFriction() {
         Config base = Config.defaults().withTick(0.01).withMakerFee(-0.001)
                 .withLatencySteps(2).withInformedProb(0.2).withSignalAccuracy(0.7);
         for (Agent a : Agent.values()) {
@@ -195,7 +197,7 @@ public final class MarketMakingTest {
     }
 
     @Test
-    public void deterministicPerSeed() {
+    void deterministicPerSeed() {
         Config cfg = Config.defaults().withTick(0.01).withInformedProb(0.1);
         Result a = MarketMaking.simulate(LARGE, 20, 42, cfg);
         Result b = MarketMaking.simulate(LARGE, 20, 42, cfg);
@@ -210,7 +212,7 @@ public final class MarketMakingTest {
     }
 
     @Test
-    public void helpersAndFrictionsBehave() {
+    void helpersAndFrictionsBehave() {
         // tick 0 is the identity; rounding is away from fair value
         AvellanedaStoikov.Quotes q = MarketMaking.roundToTick(99.995, 100.005, 0.01);
         assertTrue(q.bid() <= 99.995 && q.ask() >= 100.005);
@@ -226,46 +228,53 @@ public final class MarketMakingTest {
         assertTrue(r.se(Stat.FILLS) > 0.0);
     }
 
-    @Test
-    public void invalidInputsThrow() {
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("invalidInputsThrowCases")
+    void invalidInputsThrow(String fragment, Executable call) {
+        assertRejects(fragment, call);
+    }
+
+    static List<Arguments> invalidInputsThrowCases() {
+        List<Arguments> c = new ArrayList<>();
         Config d = Config.defaults();
-        assertThrows(IllegalArgumentException.class, () -> d.withTick(-0.01));
-        assertThrows(IllegalArgumentException.class, () -> d.withTick(Double.NaN));
-        assertThrows(IllegalArgumentException.class, () -> d.withMakerFee(Double.NaN));
-        assertThrows(IllegalArgumentException.class, () -> d.withLatencySteps(-1));
-        assertThrows(IllegalArgumentException.class, () -> d.withInformedProb(1.5));
-        assertThrows(IllegalArgumentException.class, () -> d.withSignalAccuracy(0.4));
-        assertThrows(IllegalArgumentException.class, () -> d.withFixedSpread(0.0));
-        assertThrows(IllegalArgumentException.class, () -> d.withAgent(null));
-        assertThrows(IllegalArgumentException.class,
-                () -> MarketMaking.simulate(LARGE, 1, 0, d));
-        assertThrows(IllegalArgumentException.class,
-                () -> MarketMaking.simulate(LARGE, 10, 0, null));
-        assertThrows(IllegalArgumentException.class,
+        c.add(bad("tick", () -> d.withTick(-0.01)));
+        c.add(bad("tick", () -> d.withTick(Double.NaN)));
+        c.add(bad("maker_fee", () -> d.withMakerFee(Double.NaN)));
+        c.add(bad("latency_steps", () -> d.withLatencySteps(-1)));
+        c.add(bad("informed_prob", () -> d.withInformedProb(1.5)));
+        c.add(bad("signal_accuracy", () -> d.withSignalAccuracy(0.4)));
+        c.add(bad("fixed_spread", () -> d.withFixedSpread(0.0)));
+        c.add(bad("agent", () -> d.withAgent(null)));
+        c.add(bad("nPaths",
+                () -> MarketMaking.simulate(LARGE, 1, 0, d)));
+        c.add(bad("config",
+                () -> MarketMaking.simulate(LARGE, 10, 0, null)));
+        c.add(bad("latency_steps",
                 () -> MarketMaking.simulate(LARGE, 10, 0,
-                        d.withLatencySteps(LARGE.nSteps() + 1)));
-        assertThrows(IllegalArgumentException.class,
-                () -> MarketMaking.roundToTick(Double.NaN, 1.0, 0.01));
-        assertThrows(IllegalArgumentException.class,
-                () -> MarketMaking.roundToTick(1.0, 2.0, -1.0));
-        assertThrows(IllegalArgumentException.class,
-                () -> MarketMaking.glftHalfSpreads(LARGE, Double.NaN));
-        assertThrows(IllegalArgumentException.class,
-                () -> MarketMaking.weightedMid(100.0, 99.0, 1.0, 1.0));
-        assertThrows(IllegalArgumentException.class,
-                () -> MarketMaking.weightedMid(99.0, 100.0, 0.0, 0.0));
-        assertThrows(IllegalArgumentException.class,
-                () -> MarketMaking.weightedMid(99.0, 100.0, -1.0, 2.0));
+                        d.withLatencySteps(LARGE.nSteps() + 1))));
+        c.add(bad("bid and ask",
+                () -> MarketMaking.roundToTick(Double.NaN, 1.0, 0.01)));
+        c.add(bad("tick",
+                () -> MarketMaking.roundToTick(1.0, 2.0, -1.0)));
+        c.add(bad("q must",
+                () -> MarketMaking.glftHalfSpreads(LARGE, Double.NaN)));
+        c.add(bad("ask must",
+                () -> MarketMaking.weightedMid(100.0, 99.0, 1.0, 1.0)));
+        c.add(bad("bid_size + ask_size",
+                () -> MarketMaking.weightedMid(99.0, 100.0, 0.0, 0.0)));
+        c.add(bad("sizes",
+                () -> MarketMaking.weightedMid(99.0, 100.0, -1.0, 2.0)));
         double[] two = {1.0, 1.0};
-        assertThrows(IllegalArgumentException.class,
+        c.add(bad("book states",
                 () -> MarketMaking.orderFlowImbalance(new double[] {1.0}, new double[] {1.0},
-                        new double[] {1.0}, new double[] {1.0}));
-        assertThrows(IllegalArgumentException.class,
-                () -> MarketMaking.orderFlowImbalance(two, two, two, new double[] {1.0}));
-        assertThrows(IllegalArgumentException.class,
-                () -> MarketMaking.orderFlowImbalance(two, new double[] {1.0, -1.0}, two, two));
-        assertThrows(IllegalArgumentException.class,
+                        new double[] {1.0}, new double[] {1.0})));
+        c.add(bad("book series",
+                () -> MarketMaking.orderFlowImbalance(two, two, two, new double[] {1.0})));
+        c.add(bad("sizes",
+                () -> MarketMaking.orderFlowImbalance(two, new double[] {1.0, -1.0}, two, two)));
+        c.add(bad("book series",
                 () -> MarketMaking.orderFlowImbalance(two, two, new double[] {1.0, Double.NaN},
-                        two));
+                        two)));
+        return c;
     }
 }

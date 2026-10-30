@@ -349,7 +349,7 @@ values.  The generators are pinned per language:
 | Python | `numpy.random.default_rng(seed)` (PCG64) | bit-stable across NumPy releases (PCG64 stream is versioned) |
 | C++ | `std::mt19937_64(seed)` + `std::uniform_real_distribution` / `std::normal_distribution` | bit-stable within one standard library; the distribution algorithms are implementation-defined, so libstdc++ / libc++ / MSVC differ for the same seed |
 | Rust | `rand_chacha::ChaCha12Rng::seed_from_u64(seed)` + `rand_distr::StandardNormal` | pinned explicitly (not `StdRng`, which `rand` documents as free to change between releases); bit-stable across `rand` 0.8.x |
-| Java | `java.util.SplittableRandom(seed)` (`nextDouble`, `nextGaussian`) | bit-stable within one JVM build and platform; `nextDouble` is specified, but `nextGaussian` is a `RandomGenerator` default and `Math.*` may differ by 1 ulp across platforms, so cross-JDK bit-stability is not guaranteed |
+| Java | `java.util.SplittableRandom(seed).nextDouble()` uniforms; normals by the Marsaglia polar method on those uniforms (`u, v = 2U - 1` until `0 < s = u^2 + v^2 < 1`, return `u*sqrt(-2 ln s / s)` then the cached `v*sqrt(-2 ln s / s)`), not `nextGaussian` | bit-identical across JVMs, JDK versions (25+) and platforms: `SplittableRandom.nextDouble` is specified, the normal generator is pinned in the library (`NormalRng`), and every transcendental call (`exp`, `expm1`, `log`, `log1p`, `pow`, `sqrt`, `sin`) uses `StrictMath` (fdlibm). Not guaranteed: equality with the Python/C++/Rust streams (statistical agreement only, checked by the 4-SE goldens) |
 
 Therefore:
 

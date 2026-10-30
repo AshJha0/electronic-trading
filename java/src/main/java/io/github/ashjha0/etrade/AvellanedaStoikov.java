@@ -1,8 +1,8 @@
 package io.github.ashjha0.etrade;
 
 import static io.github.ashjha0.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.requireNonNull;
 
-import java.util.SplittableRandom;
 
 /**
  * Avellaneda-Stoikov market making (2008 paper, finite horizon).
@@ -72,6 +72,7 @@ public final class AvellanedaStoikov {
      * @return the reservation price
      */
     public static double reservationPrice(ASParams params, double s, double q, double t) {
+        requireNonNull(params, "params");
         require(Double.isFinite(s) && Double.isFinite(q), "s and q must be finite");
         require(t >= 0.0 && t <= params.horizon(), "t must be in [0, horizon]");
         return s - q * params.gamma() * params.sigma() * params.sigma()
@@ -88,9 +89,10 @@ public final class AvellanedaStoikov {
      * @return the total quoted spread
      */
     public static double optimalSpread(ASParams params, double t) {
+        requireNonNull(params, "params");
         require(t >= 0.0 && t <= params.horizon(), "t must be in [0, horizon]");
         return params.gamma() * params.sigma() * params.sigma() * (params.horizon() - t)
-                + 2.0 / params.gamma() * Math.log1p(params.gamma() / params.k());
+                + 2.0 / params.gamma() * StrictMath.log1p(params.gamma() / params.k());
     }
 
     /**
@@ -103,6 +105,7 @@ public final class AvellanedaStoikov {
      * @return the two-sided quote
      */
     public static Quotes quotes(ASParams params, double s, double q, double t) {
+        requireNonNull(params, "params");
         double r = reservationPrice(params, s, q, t);
         double half = 0.5 * optimalSpread(params, t);
         return new Quotes(r - half, r + half);
@@ -116,8 +119,9 @@ public final class AvellanedaStoikov {
      * @return the Poisson arrival intensity
      */
     public static double intensity(ASParams params, double delta) {
+        requireNonNull(params, "params");
         require(Double.isFinite(delta), "delta must be finite");
-        return params.aRate() * Math.exp(-params.k() * delta);
+        return params.aRate() * StrictMath.exp(-params.k() * delta);
     }
 
     /**
@@ -128,7 +132,8 @@ public final class AvellanedaStoikov {
      * @return the thinned-Poisson fill probability
      */
     public static double fillProbability(ASParams params, double delta) {
-        return -Math.expm1(-intensity(params, delta) * params.dt());
+        requireNonNull(params, "params");
+        return -StrictMath.expm1(-intensity(params, delta) * params.dt());
     }
 
     /**
@@ -139,8 +144,9 @@ public final class AvellanedaStoikov {
      * @return the average spread
      */
     public static double averageAsSpread(ASParams params) {
+        requireNonNull(params, "params");
         return 0.5 * params.gamma() * params.sigma() * params.sigma() * params.horizon()
-                + 2.0 / params.gamma() * Math.log1p(params.gamma() / params.k());
+                + 2.0 / params.gamma() * StrictMath.log1p(params.gamma() / params.k());
     }
 
     /**
@@ -152,6 +158,7 @@ public final class AvellanedaStoikov {
      * @return the simulation result
      */
     public static ASSimResult simulate(ASParams params, int nPaths, long seed) {
+        requireNonNull(params, "params");
         return simulate(params, nPaths, seed, Agent.AS, averageAsSpread(params), 1.0, 0.5);
     }
 
@@ -165,13 +172,15 @@ public final class AvellanedaStoikov {
      * @return the simulation result
      */
     public static ASSimResult simulate(ASParams params, int nPaths, long seed, Agent agent) {
+        requireNonNull(params, "params");
+        requireNonNull(agent, "agent");
         return simulate(params, nPaths, seed, agent, averageAsSpread(params), 1.0, 0.5);
     }
 
     /**
      * Simulates the market maker over {@code nPaths} seeded paths (loop order
      * pinned; see the class javadoc).  Deterministic per (seed, agent, nPaths);
-     * uses {@link SplittableRandom} (Java's own stream), so sample values differ
+     * uses {@code SplittableRandom} uniforms with Marsaglia polar normals (Java's own stream), so sample values differ
      * from the Python reference while agreeing statistically.
      *
      * @param agent          {@link Agent#AS} quotes the reservation price +/- half the
@@ -193,8 +202,9 @@ public final class AvellanedaStoikov {
                                        double fixedSpread, double stressFactor,
                                        double stressTimeFrac) {
         require(nPaths >= 2 && nPaths <= MAX_AS_PATHS,
-                "nPaths must be an integer in [2, 10000000]");
-        require(agent != null, "agent must be 'as' or 'fixed'");
+                "nPaths must be an integer in [2, " + MAX_AS_PATHS + "]");
+        require(params != null, "params must not be null");
+        require(agent != null, "agent must not be null");
         require(Double.isFinite(stressFactor) && stressFactor > 0.0,
                 "stressFactor must be > 0");
         require(Double.isFinite(stressTimeFrac) && stressTimeFrac >= 0.0
@@ -203,14 +213,14 @@ public final class AvellanedaStoikov {
         require(Double.isFinite(fixedSpread) && fixedSpread > 0.0,
                 "fixedSpread must be finite and > 0");
 
-        SplittableRandom rng = new SplittableRandom(seed);
+        NormalRng rng = new NormalRng(seed);
         int nSteps = params.nSteps();
         double g = params.gamma();
         double sig2 = params.sigma() * params.sigma();
         double bigT = params.horizon();
         double dt = params.dt();
-        double markup = 2.0 / g * Math.log1p(g / params.k());
-        double sqdt = Math.sqrt(dt);
+        double markup = 2.0 / g * StrictMath.log1p(g / params.k());
+        double sqdt = StrictMath.sqrt(dt);
         double stressStart = stressTimeFrac * bigT;
 
         double[] pnl = new double[nPaths];
@@ -248,10 +258,10 @@ public final class AvellanedaStoikov {
                 // 2. fill draws (u_ask first, then u_bid; both always drawn)
                 double uAsk = rng.nextDouble();
                 double uBid = rng.nextDouble();
-                double pAsk = -Math.expm1(-params.aRate()
-                        * Math.exp(-params.k() * (ask - s)) * dt);
-                double pBid = -Math.expm1(-params.aRate()
-                        * Math.exp(-params.k() * (s - bid)) * dt);
+                double pAsk = -StrictMath.expm1(-params.aRate()
+                        * StrictMath.exp(-params.k() * (ask - s)) * dt);
+                double pBid = -StrictMath.expm1(-params.aRate()
+                        * StrictMath.exp(-params.k() * (s - bid)) * dt);
                 boolean fillAsk = quoteAsk && uAsk < pAsk;
                 boolean fillBid = quoteBid && uBid < pBid;
                 // 3. inventory / cash update (unit fill size; both sides may fill,
@@ -275,12 +285,12 @@ public final class AvellanedaStoikov {
                 maxAbsQ = Math.max(maxAbsQ, absQ);
                 // 4. mid move (stressed vol only affects the realised path)
                 double sigT = params.sigma() * (t >= stressStart ? stressFactor : 1.0);
-                s += sigT * sqdt * rng.nextGaussian();
+                s += sigT * sqdt * rng.nextNormal();
             }
             pnl[p] = cash + q * s - params.etaLiq() * Math.abs(q);
             meanAbsQPath[p] = sumAbsQ / nSteps;
             maxAbsQPath[p] = maxAbsQ;
-            rmsQPath[p] = Math.sqrt(sumQ2 / nSteps);
+            rmsQPath[p] = StrictMath.sqrt(sumQ2 / nSteps);
             fillsPath[p] = fills;
             overallMaxAbsQ = Math.max(overallMaxAbsQ, maxAbsQ);
         }

@@ -1,22 +1,30 @@
 package io.github.ashjha0.etrade;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static io.github.ashjha0.etrade.Rejects.assertRejects;
+import static io.github.ashjha0.etrade.Rejects.bad;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.junit.Test;
+import java.util.ArrayList;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /** Unit tests for the execution-analytics module. */
-public final class AnalyticsTest {
+final class AnalyticsTest {
 
     @Test
-    public void decompositionIdentityHoldsForBothSides() {
+    void decompositionIdentityHoldsForBothSides() {
         double[] qtys = {300.0, 400.0, 200.0};
         // property-style: both sides x several price scenarios
         double[][] scenarios = {
             {100.0, 99.5, 98.8}, {100.0, 100.4, 101.3}, {50.0, 50.0, 50.0},
         };
-        for (String side : new String[] {"sell", "buy"}) {
+        for (Side side : new Side[] {Side.SELL, Side.BUY}) {
             for (double[] sc : scenarios) {
                 double[] prices = {sc[1] - 0.1, sc[1] + 0.2, sc[1]};
                 Analytics.ISDecomposition d = Analytics.decomposeShortfall(side,
@@ -24,7 +32,7 @@ public final class AnalyticsTest {
                 // exact identity: total == delay + trading + opportunity
                 assertEquals(d.total(), d.delay() + d.trading() + d.opportunity(), 0.0);
                 // alternative closed form sign*(X*Pd - sum n*p - R*PT)
-                double sign = "sell".equals(side) ? 1.0 : -1.0;
+                double sign = side == Side.SELL ? 1.0 : -1.0;
                 double sumNp = 0.0;
                 for (int j = 0; j < qtys.length; j++) {
                     sumNp += qtys[j] * prices[j];
@@ -38,8 +46,8 @@ public final class AnalyticsTest {
     }
 
     @Test
-    public void sellDecompositionComponents() {
-        Analytics.ISDecomposition d = Analytics.decomposeShortfall("sell", 100.0, 99.5,
+    void sellDecompositionComponents() {
+        Analytics.ISDecomposition d = Analytics.decomposeShortfall(Side.SELL, 100.0, 99.5,
                 98.8, 1000.0, new double[] {300.0, 400.0, 200.0},
                 new double[] {99.4, 99.2, 99.1});
         assertEquals(450.0, d.delay(), 1e-10);       // 900 * (100 - 99.5)
@@ -49,8 +57,8 @@ public final class AnalyticsTest {
     }
 
     @Test
-    public void fullyExecutedOrderHasNoOpportunityCost() {
-        Analytics.ISDecomposition d = Analytics.decomposeShortfall("buy", 10.0, 10.0,
+    void fullyExecutedOrderHasNoOpportunityCost() {
+        Analytics.ISDecomposition d = Analytics.decomposeShortfall(Side.BUY, 10.0, 10.0,
                 12.0, 500.0, new double[] {500.0}, new double[] {10.5});
         assertEquals(0.0, d.opportunity(), 0.0);
         assertEquals(0.0, d.remainingQty(), 0.0);
@@ -58,13 +66,13 @@ public final class AnalyticsTest {
     }
 
     @Test
-    public void participationRateBasics() {
+    void participationRateBasics() {
         assertEquals(0.08, Analytics.participationRate(120_000.0, 1_500_000.0), 1e-15);
         assertEquals(0.0, Analytics.participationRate(0.0, 1.0), 0.0);
     }
 
     @Test
-    public void olsRecoversExactLine() {
+    void olsRecoversExactLine() {
         double[] x = {0.0, 1.0, 2.0, 3.0, 4.0};
         double[] y = new double[x.length];
         for (int i = 0; i < x.length; i++) {
@@ -78,7 +86,7 @@ public final class AnalyticsTest {
     }
 
     @Test
-    public void olsConstantYHasRSquaredOne() {
+    void olsConstantYHasRSquaredOne() {
         // SST = 0 and the fit is exact -> R^2 defined as 1
         Analytics.OLSResult r = Analytics.ols(new double[] {1.0, 2.0, 3.0},
                 new double[] {4.0, 4.0, 4.0});
@@ -88,7 +96,7 @@ public final class AnalyticsTest {
     }
 
     @Test
-    public void syntheticFillsPinnedConstruction() {
+    void syntheticFillsPinnedConstruction() {
         double[][] f = Analytics.syntheticImpactFills(25, 0.5, 8.0, 0.05);
         assertEquals(25, f[0].length);
         assertEquals(0.02, f[0][0], 1e-15);
@@ -100,35 +108,43 @@ public final class AnalyticsTest {
         assertTrue(r.rSquared() > 0.98);
     }
 
-    @Test
-    public void invalidInputsThrow() {
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("invalidInputsThrowCases")
+    void invalidInputsThrow(String fragment, Executable call) {
+        assertRejects(fragment, call);
+    }
+
+    @SuppressWarnings("deprecation")   // also checks the deprecated String overload
+    static List<Arguments> invalidInputsThrowCases() {
+        List<Arguments> c = new ArrayList<>();
         double[] q = {100.0};
         double[] p = {10.0};
-        assertThrows(IllegalArgumentException.class,       // bad side
-                () -> Analytics.decomposeShortfall("short", 10, 10, 10, 100, q, p));
-        assertThrows(IllegalArgumentException.class,       // mismatched fill arrays
-                () -> Analytics.decomposeShortfall("sell", 10, 10, 10, 100, q,
-                        new double[] {10.0, 11.0}));
-        assertThrows(IllegalArgumentException.class,       // over-execution
-                () -> Analytics.decomposeShortfall("sell", 10, 10, 10, 50, q, p));
-        assertThrows(IllegalArgumentException.class,       // negative fill qty
-                () -> Analytics.decomposeShortfall("sell", 10, 10, 10, 100,
-                        new double[] {-1.0}, p));
-        assertThrows(IllegalArgumentException.class,       // non-finite price
-                () -> Analytics.decomposeShortfall("sell", Double.NaN, 10, 10, 100, q, p));
-        assertThrows(IllegalArgumentException.class,       // negative executed volume
-                () -> Analytics.participationRate(-1.0, 100.0));
-        assertThrows(IllegalArgumentException.class,       // zero market volume
-                () -> Analytics.participationRate(1.0, 0.0));
-        assertThrows(IllegalArgumentException.class,       // n < 2
-                () -> Analytics.ols(new double[] {1.0}, new double[] {1.0}));
-        assertThrows(IllegalArgumentException.class,       // degenerate x
-                () -> Analytics.ols(new double[] {2.0, 2.0}, new double[] {1.0, 2.0}));
-        assertThrows(IllegalArgumentException.class,       // non-finite y
+        c.add(bad("side",       // bad side
+                () -> Analytics.decomposeShortfall("short", 10, 10, 10, 100, q, p)));
+        c.add(bad("fillQtys and fillPrices",       // mismatched fill arrays
+                () -> Analytics.decomposeShortfall(Side.SELL, 10, 10, 10, 100, q,
+                        new double[] {10.0, 11.0})));
+        c.add(bad("totalQty",       // over-execution
+                () -> Analytics.decomposeShortfall(Side.SELL, 10, 10, 10, 50, q, p)));
+        c.add(bad("fillQtys",       // negative fill qty
+                () -> Analytics.decomposeShortfall(Side.SELL, 10, 10, 10, 100,
+                        new double[] {-1.0}, p)));
+        c.add(bad("decisionPrice",       // non-finite price
+                () -> Analytics.decomposeShortfall(Side.SELL, Double.NaN, 10, 10, 100, q, p)));
+        c.add(bad("executedVolume",       // negative executed volume
+                () -> Analytics.participationRate(-1.0, 100.0)));
+        c.add(bad("marketVolume",       // zero market volume
+                () -> Analytics.participationRate(1.0, 0.0)));
+        c.add(bad("x and y",       // n < 2
+                () -> Analytics.ols(new double[] {1.0}, new double[] {1.0})));
+        c.add(bad("x is",       // degenerate x
+                () -> Analytics.ols(new double[] {2.0, 2.0}, new double[] {1.0, 2.0})));
+        c.add(bad("y values",       // non-finite y
                 () -> Analytics.ols(new double[] {1.0, 2.0},
-                        new double[] {1.0, Double.POSITIVE_INFINITY}));
-        assertThrows(IllegalArgumentException.class,       // nObs < 2
-                () -> Analytics.syntheticImpactFills(1, 0.5, 8.0, 0.05));
+                        new double[] {1.0, Double.POSITIVE_INFINITY})));
+        c.add(bad("nObs",       // nObs < 2
+                () -> Analytics.syntheticImpactFills(1, 0.5, 8.0, 0.05)));
+        return c;
     }
 
     // -----------------------------------------------------------------------
@@ -136,13 +152,13 @@ public final class AnalyticsTest {
     // -----------------------------------------------------------------------
 
     @Test
-    public void decompositionPriceShiftInvariance() {
+    void decompositionPriceShiftInvariance() {
         // Adding c to every price leaves every component unchanged (Q + R = X).
         double c = 37.5;
         double[] qty = {300.0, 400.0, 200.0};
         double[] px = {99.4, 99.2, 99.1};
         double[] pxC = {99.4 + c, 99.2 + c, 99.1 + c};
-        for (String side : new String[] {"sell", "buy"}) {
+        for (Side side : new Side[] {Side.SELL, Side.BUY}) {
             Analytics.ISDecomposition d0 = Analytics.decomposeShortfall(side, 100.0, 99.5,
                     98.8, 1000.0, qty, px);
             Analytics.ISDecomposition d1 = Analytics.decomposeShortfall(side, 100.0 + c,
@@ -155,8 +171,8 @@ public final class AnalyticsTest {
     }
 
     @Test
-    public void decompositionEmptyFills() {
-        Analytics.ISDecomposition d = Analytics.decomposeShortfall("sell", 100.0, 99.0, 98.0,
+    void decompositionEmptyFills() {
+        Analytics.ISDecomposition d = Analytics.decomposeShortfall(Side.SELL, 100.0, 99.0, 98.0,
                 500.0, new double[0], new double[0]);
         assertEquals(0.0, d.delay(), 0.0);
         assertEquals(0.0, d.trading(), 0.0);
@@ -164,13 +180,13 @@ public final class AnalyticsTest {
         assertEquals(1000.0, d.total(), 1e-12);
         assertEquals(0.0, d.executedQty(), 0.0);
         assertEquals(500.0, d.remainingQty(), 0.0);
-        Analytics.ISDecomposition b = Analytics.decomposeShortfall("buy", 100.0, 99.0, 98.0,
+        Analytics.ISDecomposition b = Analytics.decomposeShortfall(Side.BUY, 100.0, 99.0, 98.0,
                 500.0, new double[0], new double[0]);
         assertEquals(-1000.0, b.opportunity(), 1e-12);  // price fell: a gain for a buyer
     }
 
     @Test
-    public void participationRateAboveOneIsError() {
+    void participationRateAboveOneIsError() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> Analytics.participationRate(2e6, 1.5e6));
         assertTrue(e.getMessage().contains("exceeds market volume"));

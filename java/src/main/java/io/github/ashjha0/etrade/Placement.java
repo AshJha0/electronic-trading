@@ -1,8 +1,8 @@
 package io.github.ashjha0.etrade;
 
 import static io.github.ashjha0.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.requireNonNull;
 
-import java.util.SplittableRandom;
 
 /**
  * Limit-order placement for execution: queue-position fill probability, the
@@ -83,7 +83,7 @@ public final class Placement {
             return 0.0;
         }
         double mD = Math.floor(bigL);
-        double half = Math.ceil(10.0 * Math.sqrt(bigL) + 10.0);
+        double half = Math.ceil(10.0 * StrictMath.sqrt(bigL) + 10.0);
         require(mD + half <= MAX_UNIFORMISATION_STEPS,
                 "horizon too long: (mu + theta*q_ahead)*horizon needs more than "
                         + MAX_UNIFORMISATION_STEPS + " uniformisation steps");
@@ -173,7 +173,7 @@ public final class Placement {
                 "alpha must be in (0, 1]");
         require(Double.isFinite(weight) && weight > 0.0, "weight must be finite and > 0");
         double hs = 0.5 * spread;
-        double impact = eta * Math.pow(weight, -alpha) * Math.pow(size, alpha);
+        double impact = eta * StrictMath.pow(weight, -alpha) * StrictMath.pow(size, alpha);
         double aggressive = hs + impact;
         double passive = fillProb * (impact - hs)
                 + (1.0 - fillProb) * (adverseMove + hs + impact);
@@ -242,6 +242,7 @@ public final class Placement {
      * @return the policy
      */
     public static LiquidationPolicy liquidationPolicy(LiquidationParams p) {
+        requireNonNull(p, "p");
         int nPer = p.nPeriods();
         int bigQ = p.totalUnits();
         double hs = 0.5 * p.spread();
@@ -258,7 +259,7 @@ public final class Placement {
                 double cLess = cost[j + 1][q - 1];
                 double g = hs + (cHold - cLess);
                 double d = Math.max(0.0, invK - g);
-                double gain = p.pTouch() * Math.exp(-p.kappa() * d) * (d + g);
+                double gain = p.pTouch() * StrictMath.exp(-p.kappa() * d) * (d + g);
                 double post = cHold - gain;
                 double mkt = hs + p.beta() + cLess;
                 double base;
@@ -300,6 +301,7 @@ public final class Placement {
      * @return the deterministic cost
      */
     public static double aggressiveCost(LiquidationParams p) {
+        requireNonNull(p, "p");
         double hs = 0.5 * p.spread();
         double total = 0.0;
         for (int n : aggressiveSchedule(p.totalUnits(), p.nPeriods())) {
@@ -348,7 +350,7 @@ public final class Placement {
         for (double x : v) {
             ss += (x - mean) * (x - mean);
         }
-        return new double[] {mean, Math.sqrt(ss / (v.length - 1))};
+        return new double[] {mean, StrictMath.sqrt(ss / (v.length - 1))};
     }
 
     /**
@@ -356,7 +358,7 @@ public final class Placement {
      * (API_SPEC 13.3). Per period: draw {@code u ~ U(0,1)} then {@code z ~ N(0,1)} (shared by
      * the three strategies); trade at the current mid; then {@code S += sigma sqrt(dt) z};
      * sweep the remainder at the end. Paths are the outer loop and periods the inner loop;
-     * draws come from {@link SplittableRandom} (statistically, not bitwise, equal to the
+     * draws come from {@code SplittableRandom} uniforms with Marsaglia polar normals (statistically, not bitwise, equal to the
      * reference).
      *
      * @param p parameters
@@ -367,21 +369,22 @@ public final class Placement {
      */
     public static LiquidationSimResult simulateLiquidation(LiquidationParams p, int nPaths,
                                                            long seed) {
+        requireNonNull(p, "p");
         require(nPaths >= 2 && nPaths <= AlmgrenChriss.MAX_PATHS,
                 "n_paths must be an integer in [2, " + AlmgrenChriss.MAX_PATHS + "]");
         LiquidationPolicy pol = liquidationPolicy(p);
         int[] sched = aggressiveSchedule(p.totalUnits(), p.nPeriods());
         double hs = 0.5 * p.spread();
-        double srt = p.sigma() * Math.sqrt(p.dt());
+        double srt = p.sigma() * StrictMath.sqrt(p.dt());
         int nPer = p.nPeriods();
         int bigQ = p.totalUnits();
         double[][] fillAt = new double[nPer][bigQ + 1];
         for (int j = 0; j < nPer; j++) {
             for (int q = 0; q <= bigQ; q++) {
-                fillAt[j][q] = p.pTouch() * Math.exp(-p.kappa() * pol.depth()[j][q]);
+                fillAt[j][q] = p.pTouch() * StrictMath.exp(-p.kappa() * pol.depth()[j][q]);
             }
         }
-        SplittableRandom rng = new SplittableRandom(seed);
+        NormalRng rng = new NormalRng(seed);
         double[] isOpt = new double[nPaths];
         double[] isAgg = new double[nPaths];
         double[] isPas = new double[nPaths];
@@ -396,7 +399,7 @@ public final class Placement {
             double prPas = 0.0;
             for (int j = 0; j < nPer; j++) {
                 double u = rng.nextDouble();
-                double z = rng.nextGaussian();
+                double z = rng.nextNormal();
                 if (qOpt > 0) {
                     if (pol.market()[j][qOpt]) {
                         prOpt += s - hs - p.beta();
@@ -424,7 +427,7 @@ public final class Placement {
             savA[i] = isAgg[i] - isOpt[i];
             savP[i] = isPas[i] - isOpt[i];
         }
-        double root = Math.sqrt(nPaths);
+        double root = StrictMath.sqrt(nPaths);
         double[] so = meanStd(isOpt);
         double[] sa = meanStd(isAgg);
         double[] sp = meanStd(isPas);

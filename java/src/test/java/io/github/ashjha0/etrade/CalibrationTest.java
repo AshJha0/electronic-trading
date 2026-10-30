@@ -1,36 +1,39 @@
 package io.github.ashjha0.etrade;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static io.github.ashjha0.etrade.Rejects.assertRejects;
+import static io.github.ashjha0.etrade.Rejects.bad;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ashjha0.etrade.Calibration.FillIntensity;
 import io.github.ashjha0.etrade.Calibration.SpreadStats;
 import io.github.ashjha0.etrade.Calibration.VolatilityCurve;
 import io.github.ashjha0.etrade.Market.ASMarket;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.junit.Test;
-import org.junit.function.ThrowingRunnable;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Calibration estimators (API_SPEC Section 11): every case of {@code calibration_golden.json},
  * defining properties, the round trip into the market-unit layer, and validation.
  */
-public final class CalibrationTest {
+final class CalibrationTest {
 
     private static final Map<String, Object> GOLDEN = load("golden/calibration_golden.json");
 
     @SuppressWarnings("unchecked")
     private static Map<String, Object> load(String rel) {
         try {
-            return (Map<String, Object>) Json.parse(Files.readString(Path.of("../data", rel)));
+            return (Map<String, Object>) TestData.load(rel);
         } catch (IOException e) {
             throw new IllegalStateException("cannot load " + rel, e);
         }
@@ -120,14 +123,14 @@ public final class CalibrationTest {
     }
 
     @Test
-    public void everyGoldenCaseEveryKey() {
+    void everyGoldenCaseEveryKey() {
         List<String> failures = new ArrayList<>();
         assertEquals(9, cases().size());
         for (Map<String, Object> c : cases()) {
             String name = (String) c.get("name");
             Map<String, Object> expect = obj(c, "expect");
             Map<String, Double> got = actual(c);
-            assertEquals(name + ": every expect key asserted", expect.keySet(), got.keySet());
+            assertEquals(expect.keySet(), got.keySet(), name + ": every expect key asserted");
             double tol = num(c, "tol");
             for (Map.Entry<String, Double> e : got.entrySet()) {
                 double want = num(expect, e.getKey());
@@ -137,11 +140,11 @@ public final class CalibrationTest {
                 }
             }
         }
-        assertTrue(String.join("\n", failures), failures.isEmpty());
+        assertTrue(failures.isEmpty(), String.join("\n", failures));
     }
 
     @Test
-    public void fittedCurveSumsToOneAndIsImmutable() {
+    void fittedCurveSumsToOneAndIsImmutable() {
         double[] w = Calibration.fittedVolumeCurve13();
         assertEquals(13, w.length);
         double sum = 0.0;
@@ -159,14 +162,14 @@ public final class CalibrationTest {
     }
 
     @Test
-    public void volumeCurveIsADistribution() {
+    void volumeCurveIsADistribution() {
         double[] w = Calibration.volumeCurve(new double[] {1.0, 2.0, 3.0, 7.0},
                 new double[] {10.0, 20.0, 30.0, 40.0}, 0.0, 8.0, 2);
         assertArrayEquals(new double[] {0.6, 0.4}, w, 1e-15);
     }
 
     @Test
-    public void volatilityOfAConstantReturn() {
+    void volatilityOfAConstantReturn() {
         double r = 0.001;
         double[] t = new double[11];
         double[] mids = new double[11];
@@ -192,7 +195,7 @@ public final class CalibrationTest {
     }
 
     @Test
-    public void fillIntensityRecoversAnExactExponential() {
+    void fillIntensityRecoversAnExactExponential() {
         double tick = 0.01;
         FillIntensity f = Calibration.fillIntensity(exponentialDistances(tick), tick, 5);
         assertEquals(1.0, f.k() / (-Math.log(0.5) / tick), 1e-12);
@@ -202,7 +205,7 @@ public final class CalibrationTest {
     }
 
     @Test
-    public void fillIntensityRoundTripsThroughTheMarketLayer() {
+    void fillIntensityRoundTripsThroughTheMarketLayer() {
         Map<String, Object> in = null;
         for (Map<String, Object> c : cases()) {
             if ("cal_fill_intensity".equals(c.get("kind"))) {
@@ -220,50 +223,52 @@ public final class CalibrationTest {
         assertEquals(1.0, a.aRate() / f.aRate(), 1e-12);
     }
 
-    private static void expectError(String msg, ThrowingRunnable call) {
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, call);
-        assertTrue(msg + ": " + e.getMessage(), e.getMessage().contains(msg));
-    }
-
     private static double[] a(double... v) {
         return v;
     }
 
-    @Test
-    public void validationMessages() {
-        expectError("session_end must be finite and > session_start",
-                () -> Calibration.volumeCurve(a(0.0), a(1.0), 0.0, 0.0, 1));
-        expectError("n_bins must be an integer",
-                () -> Calibration.volumeCurve(a(0.0), a(1.0), 0.0, 1.0, 0));
-        expectError("times and sizes must have the same length",
-                () -> Calibration.volumeCurve(a(0.0), a(1.0, 2.0), 0.0, 1.0, 1));
-        expectError("sizes must be finite and >= 0",
-                () -> Calibration.volumeCurve(a(0.0), a(-1.0), 0.0, 1.0, 1));
-        expectError("no volume inside the session",
-                () -> Calibration.volumeCurve(a(5.0), a(1.0), 0.0, 1.0, 1));
-        expectError("mids must be finite and > 0",
-                () -> Calibration.volatilityCurve(a(0.0, 1.0), a(1.0, 0.0), 0.0, 1.0, 1));
-        expectError("times must be non-decreasing",
-                () -> Calibration.volatilityCurve(a(1.0, 0.0), a(1.0, 1.0), 0.0, 1.0, 1));
-        expectError("no return inside the session",
-                () -> Calibration.volatilityCurve(a(0.0), a(1.0), 0.0, 1.0, 1));
-        expectError("spreads must not be empty",
-                () -> Calibration.spreadStats(a(), a(), 0.01));
-        expectError("tick must be finite and > 0",
-                () -> Calibration.spreadStats(a(0.01), a(100.0), 0.0));
-        expectError("spreads must be finite and >= 0",
-                () -> Calibration.spreadStats(a(-0.01), a(100.0), 0.01));
-        expectError("n_levels must be an integer",
-                () -> Calibration.fillIntensity(a(0.005), 0.01, 1));
-        expectError("days must be finite and > 0",
-                () -> Calibration.fillIntensity(a(0.005), 0.01, 3, 0.0, 2.0));
-        expectError("sides must be finite and > 0",
-                () -> Calibration.fillIntensity(a(0.005), 0.01, 3, 1.0, 0.0));
-        expectError("distances must be finite and >= 0",
-                () -> Calibration.fillIntensity(a(-1.0), 0.01, 3));
-        expectError("fewer than two distance buckets have fills",
-                () -> Calibration.fillIntensity(a(0.005), 0.01, 3));
-        expectError("fitted fill intensity does not decay with distance",
-                () -> Calibration.fillIntensity(a(0.015, 0.015), 0.01, 3));
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("validationMessagesCases")
+    void validationMessages(String fragment, Executable call) {
+        assertRejects(fragment, call);
+    }
+
+    static List<Arguments> validationMessagesCases() {
+        List<Arguments> c = new ArrayList<>();
+        c.add(bad("session_end must be finite and > session_start",
+                () -> Calibration.volumeCurve(a(0.0), a(1.0), 0.0, 0.0, 1)));
+        c.add(bad("n_bins must be an integer",
+                () -> Calibration.volumeCurve(a(0.0), a(1.0), 0.0, 1.0, 0)));
+        c.add(bad("times and sizes must have the same length",
+                () -> Calibration.volumeCurve(a(0.0), a(1.0, 2.0), 0.0, 1.0, 1)));
+        c.add(bad("sizes must be finite and >= 0",
+                () -> Calibration.volumeCurve(a(0.0), a(-1.0), 0.0, 1.0, 1)));
+        c.add(bad("no volume inside the session",
+                () -> Calibration.volumeCurve(a(5.0), a(1.0), 0.0, 1.0, 1)));
+        c.add(bad("mids must be finite and > 0",
+                () -> Calibration.volatilityCurve(a(0.0, 1.0), a(1.0, 0.0), 0.0, 1.0, 1)));
+        c.add(bad("times must be non-decreasing",
+                () -> Calibration.volatilityCurve(a(1.0, 0.0), a(1.0, 1.0), 0.0, 1.0, 1)));
+        c.add(bad("no return inside the session",
+                () -> Calibration.volatilityCurve(a(0.0), a(1.0), 0.0, 1.0, 1)));
+        c.add(bad("spreads must not be empty",
+                () -> Calibration.spreadStats(a(), a(), 0.01)));
+        c.add(bad("tick must be finite and > 0",
+                () -> Calibration.spreadStats(a(0.01), a(100.0), 0.0)));
+        c.add(bad("spreads must be finite and >= 0",
+                () -> Calibration.spreadStats(a(-0.01), a(100.0), 0.01)));
+        c.add(bad("n_levels must be an integer",
+                () -> Calibration.fillIntensity(a(0.005), 0.01, 1)));
+        c.add(bad("days must be finite and > 0",
+                () -> Calibration.fillIntensity(a(0.005), 0.01, 3, 0.0, 2.0)));
+        c.add(bad("sides must be finite and > 0",
+                () -> Calibration.fillIntensity(a(0.005), 0.01, 3, 1.0, 0.0)));
+        c.add(bad("distances must be finite and >= 0",
+                () -> Calibration.fillIntensity(a(-1.0), 0.01, 3)));
+        c.add(bad("fewer than two distance buckets have fills",
+                () -> Calibration.fillIntensity(a(0.005), 0.01, 3)));
+        c.add(bad("fitted fill intensity does not decay with distance",
+                () -> Calibration.fillIntensity(a(0.015, 0.015), 0.01, 3)));
+        return c;
     }
 }

@@ -1,17 +1,15 @@
 package io.github.ashjha0.etrade;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Golden-value suite: every case in ../data/golden/golden.json is recomputed
@@ -22,7 +20,7 @@ import org.junit.Test;
  * suite re-simulates with Java's own RNG (&gt;= 2000 paths, own SEs) and asserts
  * |actual - ref| &lt;= tol * sqrt(se_ref^2 + se_own^2), tol = 4.
  */
-public final class GoldenTest {
+final class GoldenTest {
 
     private static final int N_PATHS_TEST = 2000;
     private static final int AC_MC_PATHS_TEST = 5000;
@@ -32,8 +30,7 @@ public final class GoldenTest {
     @SuppressWarnings("unchecked")
     private static Map<String, Map<String, Object>> loadCases() {
         try {
-            String text = Files.readString(Path.of("../data/golden/golden.json"));
-            Map<String, Object> root = (Map<String, Object>) Json.parse(text);
+            Map<String, Object> root = (Map<String, Object>) TestData.load("golden/golden.json");
             Map<String, Map<String, Object>> byName = new LinkedHashMap<>();
             for (Object c : (List<Object>) root.get("cases")) {
                 Map<String, Object> m = (Map<String, Object>) c;
@@ -80,12 +77,11 @@ public final class GoldenTest {
         double t = tol(name);
         for (Map.Entry<String, Object> e : expect(name).entrySet()) {
             String key = e.getKey();
-            assertTrue(name + ": missing key " + key, actual.containsKey(key));
+            assertTrue(actual.containsKey(key), name + ": missing key " + key);
             double expected = (Double) e.getValue();
             double err = Math.abs(actual.get(key) - expected);
-            assertTrue(name + "." + key + ": got " + actual.get(key) + ", want "
-                            + expected + ", err " + err,
-                    err <= t * Math.max(1.0, Math.abs(expected)));
+            assertTrue(err <= t * Math.max(1.0, Math.abs(expected)), name + "." + key + ": got " + actual.get(key) + ", want "
+                            + expected + ", err " + err);
         }
     }
 
@@ -104,8 +100,8 @@ public final class GoldenTest {
             double band = mult * Math.sqrt(seRef * seRef
                     + actualSe.get(key) * actualSe.get(key));
             double err = Math.abs(actual.get(key) - ref);
-            assertTrue(name + "." + key + ": got " + actual.get(key) + ", ref " + ref
-                    + ", err " + err + " > band " + band, err <= band);
+            assertTrue(err <= band, name + "." + key + ": got " + actual.get(key) + ", ref " + ref
+                    + ", err " + err + " > band " + band);
         }
     }
 
@@ -124,17 +120,17 @@ public final class GoldenTest {
     }
 
     @Test
-    public void acLiquidSolution() {
+    void acLiquidSolution() {
         checkExact("ac_liquid_solution", acSolutionActual(inputs("ac_liquid_solution")));
     }
 
     @Test
-    public void acIlliquidSolution() {
+    void acIlliquidSolution() {
         checkExact("ac_illiquid_solution", acSolutionActual(inputs("ac_illiquid_solution")));
     }
 
     @Test
-    public void acTwap() {
+    void acTwap() {
         ACParams p = acFromCfg(inputs("ac_twap_liquid"));
         double[] twap = AlmgrenChriss.twapHoldings(p.totalShares(), p.nIntervals());
         checkExact("ac_twap_liquid", Map.of(
@@ -143,7 +139,7 @@ public final class GoldenTest {
     }
 
     @Test
-    public void acPov() {
+    void acPov() {
         Map<String, Object> in = inputs("ac_pov_liquid");
         ACParams p = acFromCfg(in);
         double[] pov = AlmgrenChriss.povHoldings(p.totalShares(), p.tau(),
@@ -155,7 +151,7 @@ public final class GoldenTest {
     }
 
     @Test
-    public void acFrontierPoint() {
+    void acFrontierPoint() {
         ACParams p = acFromCfg(inputs("ac_frontier_point_liquid"));
         AlmgrenChriss.FrontierPoint fp =
                 AlmgrenChriss.efficientFrontier(p, new double[] {p.lambdaRa()})[0];
@@ -164,7 +160,7 @@ public final class GoldenTest {
     }
 
     @Test
-    public void acKappaSmallTau() {
+    void acKappaSmallTau() {
         // kappa_tilde^2*tau^2/2 ~ 2e-9: the log1p form matches; acosh(1+x)
         // would miss by ~1e-8 relative.
         ACParams p = acFromCfg(inputs("ac_kappa_small_tau"));
@@ -176,7 +172,7 @@ public final class GoldenTest {
     }
 
     @Test
-    public void acLambdaZeroLimit() {
+    void acLambdaZeroLimit() {
         ACParams p = acFromCfg(inputs("ac_lambda_zero_limit_liquid"));
         assertEquals(0.0, p.lambdaRa(), 0.0);
         double[] twap = AlmgrenChriss.twapHoldings(p.totalShares(), p.nIntervals());
@@ -189,7 +185,7 @@ public final class GoldenTest {
     }
 
     @Test
-    public void acInstantLiquidation() {
+    void acInstantLiquidation() {
         AlmgrenChriss.CostMoments cm =
                 AlmgrenChriss.instantaneousCost(acFromCfg(inputs("ac_instant_liquidation_liquid")));
         checkExact("ac_instant_liquidation_liquid",
@@ -197,7 +193,7 @@ public final class GoldenTest {
     }
 
     @Test
-    public void acMcStatistical() {
+    void acMcStatistical() {
         Map<String, Object> in = inputs("ac_mc_liquid");
         ACParams p = acFromCfg(in);
         AlmgrenChriss.ISSimResult mc = AlmgrenChriss.simulateIS(p, AC_MC_PATHS_TEST,
@@ -208,7 +204,7 @@ public final class GoldenTest {
     }
 
     @Test
-    public void asReservation() {
+    void asReservation() {
         Map<String, Object> in = inputs("as_reservation_liquid");
         ASParams ap = asFromCfg(in);
         checkExact("as_reservation_liquid", Map.of("reservation_price",
@@ -216,7 +212,7 @@ public final class GoldenTest {
     }
 
     @Test
-    public void asSpread() {
+    void asSpread() {
         Map<String, Object> in = inputs("as_spread_liquid");
         ASParams ap = asFromCfg(in);
         checkExact("as_spread_liquid", Map.of(
@@ -225,7 +221,7 @@ public final class GoldenTest {
     }
 
     @Test
-    public void asFillProb() {
+    void asFillProb() {
         Map<String, Object> in = inputs("as_fill_prob_liquid");
         ASParams ap = asFromCfg(in);
         double delta = d(in, "delta");
@@ -238,7 +234,7 @@ public final class GoldenTest {
         Map<String, Object> in = inputs(name);
         ASParams ap = asFromCfg(in);
         ASSimResult res = AvellanedaStoikov.simulate(ap, N_PATHS_TEST, (long) d(in, "seed"));
-        assertTrue(name + ": inventory cap violated", !res.capViolated());
+        assertTrue(!res.capViolated(), name + ": inventory cap violated");
         Map<String, Double> vals = new LinkedHashMap<>();
         vals.put("mean_pnl", res.meanPnl());
         vals.put("std_pnl", res.stdPnl());
@@ -249,24 +245,24 @@ public final class GoldenTest {
         Map<String, Double> se = new LinkedHashMap<>();
         for (String k : keys) {
             actual.put(k, vals.get(k));
-            se.put(k, res.se(k));
+            se.put(k, res.se(ASSimResult.Stat.fromWireName(k)));
         }
         checkStatistical(name, actual, se);
     }
 
     @Test
-    public void asSimLiquid() {
+    void asSimLiquid() {
         asSimCase("as_sim_liquid", new String[] {"mean_pnl", "std_pnl", "mean_abs_q",
             "mean_max_abs_q", "mean_fills"});
     }
 
     @Test
-    public void asSimFx() {
+    void asSimFx() {
         asSimCase("as_sim_fx", new String[] {"mean_pnl", "std_pnl", "mean_abs_q"});
     }
 
     @Test
-    public void asFixedComparisonStatistical() {
+    void asFixedComparisonStatistical() {
         Map<String, Object> in = inputs("as_fixed_comparison_liquid");
         ASParams ap = asFromCfg(in);
         long seed = (long) d(in, "seed");
@@ -276,14 +272,14 @@ public final class GoldenTest {
                 AvellanedaStoikov.Agent.FIXED, d(in, "fixed_spread"), 1.0, 0.5);
         checkStatistical("as_fixed_comparison_liquid",
                 Map.of("as_rms_q", resAs.rmsQ(), "fixed_rms_q", resFx.rmsQ()),
-                Map.of("as_rms_q", resAs.se("rms_q"), "fixed_rms_q", resFx.se("rms_q")));
+                Map.of("as_rms_q", resAs.se(ASSimResult.Stat.RMS_Q), "fixed_rms_q", resFx.se(ASSimResult.Stat.RMS_Q)));
         // the qualitative claim itself
         assertTrue(resAs.rmsQ() < resFx.rmsQ());
     }
 
     private void isDecompositionCase(String name, String side) {
         Map<String, Object> in = inputs(name);
-        Analytics.ISDecomposition dec = Analytics.decomposeShortfall(side,
+        Analytics.ISDecomposition dec = Analytics.decomposeShortfall(Side.parse(side),
                 d(in, "decision_price"), d(in, "arrival_price"), d(in, "close_price"),
                 d(in, "total_qty"),
                 new double[] {d(in, "q1"), d(in, "q2"), d(in, "q3")},
@@ -293,17 +289,17 @@ public final class GoldenTest {
     }
 
     @Test
-    public void isDecompositionSell() {
+    void isDecompositionSell() {
         isDecompositionCase("is_decomposition_sell", "sell");
     }
 
     @Test
-    public void isDecompositionBuy() {
+    void isDecompositionBuy() {
         isDecompositionCase("is_decomposition_buy", "buy");
     }
 
     @Test
-    public void participationRateGolden() {
+    void participationRateGolden() {
         Map<String, Object> in = inputs("participation_rate");
         checkExact("participation_rate", Map.of("participation",
                 Analytics.participationRate(d(in, "executed_volume"),
@@ -311,7 +307,7 @@ public final class GoldenTest {
     }
 
     @Test
-    public void impactRegressionGolden() {
+    void impactRegressionGolden() {
         Map<String, Object> in = inputs("impact_regression");
         double[][] fills = Analytics.syntheticImpactFills((int) d(in, "n_obs"),
                 d(in, "true_intercept"), d(in, "true_slope"), d(in, "noise_amp"));
@@ -321,7 +317,7 @@ public final class GoldenTest {
     }
 
     @Test
-    public void allCasesCovered() {
+    void allCasesCovered() {
         Set<String> covered = new HashSet<>(Set.of(
                 "ac_liquid_solution", "ac_illiquid_solution", "ac_twap_liquid",
                 "ac_pov_liquid", "ac_frontier_point_liquid",
