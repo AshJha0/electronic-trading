@@ -104,15 +104,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install lcov
-        run: sudo apt-get update -q && sudo apt-get install -y -q lcov
+        run: sudo apt-get update -q && sudo apt-get install -y -q lcov g++-14
       - name: Coverage build
+        env:
+          CC: gcc-14
+          CXX: g++-14
         run: |
           cmake -S cpp -B build-cov -DCMAKE_BUILD_TYPE=Debug -DETRADE_COVERAGE=ON
           cmake --build build-cov --parallel
           ctest --test-dir build-cov --output-on-failure
       - name: lcov
         run: |
-          lcov --capture --directory build-cov --output-file lcov.info \
+          lcov --capture --directory build-cov --gcov-tool gcov-14 --output-file lcov.info \
                --ignore-errors mismatch,inconsistent
           lcov --extract lcov.info "$PWD/cpp/src/*" "$PWD/cpp/include/*" \
                --output-file lcov.info --ignore-errors unused
