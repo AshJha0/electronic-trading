@@ -110,10 +110,10 @@ fn actual(case: &Value) -> (Named, Named) {
         out.push(("internal_cost".to_string(), r.internal_cost));
         out.push(("saved_cost".to_string(), r.saved_cost));
         out.push(("saved_bps".to_string(), r.saved_bps));
-        for (i, v) in r.buy_saved_bps.iter().enumerate() {
+        for (i, v) in r.buy_saved_bps().iter().enumerate() {
             out.push((format!("buy{i}_saved_bps"), *v));
         }
-        for (i, v) in r.sell_saved_bps.iter().enumerate() {
+        for (i, v) in r.sell_saved_bps().iter().enumerate() {
             out.push((format!("sell{i}_saved_bps"), *v));
         }
         return (out, Vec::new());
@@ -513,9 +513,9 @@ fn crossing_never_increases_total_cost() {
         assert!(r.internal_cost <= r.baseline_cost);
         assert!(r.saved_cost >= 0.0);
         assert!(r
-            .buy_saved_bps
+            .buy_saved_bps()
             .iter()
-            .chain(&r.sell_saved_bps)
+            .chain(r.sell_saved_bps())
             .all(|v| *v >= 0.0));
     }
 }
@@ -528,9 +528,9 @@ fn internalisation_accounting() {
     assert_eq!(r.residual_side, "buy");
     let q = [3e5, 1e5, 2.5e5];
     let total: f64 = r
-        .buy_saved_bps
+        .buy_saved_bps()
         .iter()
-        .chain(&r.sell_saved_bps)
+        .chain(r.sell_saved_bps())
         .zip(q)
         .map(|(b, qi)| b * qi * 100.0 / 1e4)
         .sum();
@@ -551,6 +551,7 @@ fn err_msg<T: std::fmt::Debug>(r: Result<T, EtradeError>) -> String {
         EtradeError::InvalidInput(m)
         | EtradeError::ModelInvalid(m)
         | EtradeError::SolverFailed(m) => m,
+        other => panic!("unexpected error variant: {other:?}"),
     }
 }
 

@@ -43,7 +43,7 @@ pub mod tca;
 pub use almgren_chriss::{
     ac_kappa, ac_trade_list, ac_trajectory, characteristic_time, efficient_frontier, expected_cost,
     half_life, instantaneous_cost, pov_holdings, simulate_is, trades_from_holdings, twap_holdings,
-    variance_cost, ACParams, FrontierPoint, ISSimResult, KAPPA_T_LIMIT, MAX_AC_INTERVALS,
+    variance_cost, ACParams, ACSpec, FrontierPoint, ISSimResult, KAPPA_T_LIMIT, MAX_AC_INTERVALS,
     MAX_PATHS, MAX_POV_INTERVALS,
 };
 pub use analytics::{
@@ -52,6 +52,6 @@ pub use analytics::{
 };
 pub use avellaneda_stoikov::{
     average_as_spread, fill_probability, intensity, optimal_spread, quotes, reservation_price,
-    simulate, ASParams, ASSimResult, ASStat, Agent, SimConfig, MAX_AS_PATHS, MAX_AS_STEPS,
+    simulate, ASParams, ASSimResult, ASSpec, ASStat, Agent, SimConfig, MAX_AS_PATHS, MAX_AS_STEPS,
 };
 pub use error::EtradeError;

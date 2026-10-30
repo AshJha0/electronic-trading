@@ -130,6 +130,26 @@ fn positive(name: &str, v: f64) -> Result<(), EtradeError> {
 /// `sigma = price*daily_vol`, `eta = spread/(temp_frac*adv)`,
 /// `gamma_p = spread/(perm_frac*adv)`; the result is validated as any
 /// [`ACParams`].
+///
+/// ```
+/// use etrade::market::{ac_params_from_market, ACMarket};
+///
+/// let m = ACMarket {
+///     price: 50.0,
+///     spread: 0.05,
+///     adv: 1e6,
+///     daily_vol: 0.02,
+///     total_shares: 1e5,
+///     n_intervals: 10,
+///     tau: 0.1,
+///     lambda_ra: 1e-6,
+///     ..ACMarket::default()
+/// };
+/// let p = ac_params_from_market(&m)?;
+/// assert_eq!(p.n_intervals(), 10);
+/// assert!(p.sigma() > 0.0 && p.eta() > 0.0);
+/// # Ok::<(), etrade::EtradeError>(())
+/// ```
 pub fn ac_params_from_market(m: &ACMarket) -> Result<ACParams, EtradeError> {
     positive("price", m.price)?;
     positive("spread", m.spread)?;
@@ -315,11 +335,38 @@ pub struct PretradeReport {
     /// Half-spread cost in bps.
     pub half_spread_bps: f64,
     /// TWAP, VWAP, then optimal per lambda.
-    pub rows: Vec<PretradeRow>,
+    rows: Vec<PretradeRow>,
+}
+
+impl PretradeReport {
+    /// TWAP, VWAP, then optimal per lambda.
+    pub fn rows(&self) -> &[PretradeRow] {
+        &self.rows
+    }
 }
 
 /// TWAP, VWAP and the optimal schedule per lambda, costed on the power-law
 /// model; `m.lambda_ra` is ignored (API_SPEC 8.4).
+///
+/// ```
+/// use etrade::market::{pretrade_report, ImpactMarket};
+///
+/// let m = ImpactMarket {
+///     price: 100.0,
+///     spread: 0.01,
+///     adv: 5e6,
+///     daily_vol: 0.015,
+///     total_shares: 250_000.0,
+///     n_intervals: 13,
+///     tau: 1.0 / 13.0,
+///     ..ImpactMarket::default()
+/// };
+/// let rep = pretrade_report(&m, &[0.0, 1e-6])?;
+/// let labels: Vec<_> = rep.rows().iter().map(|r| r.label).collect();
+/// assert_eq!(labels, ["twap", "vwap", "optimal", "optimal"]);
+/// assert!(rep.sqrt_law_bps > 0.0 && rep.half_spread_bps > 0.0);
+/// # Ok::<(), etrade::EtradeError>(())
+/// ```
 pub fn pretrade_report(m: &ImpactMarket, lambdas: &[f64]) -> Result<PretradeReport, EtradeError> {
     require(!lambdas.is_empty(), "lambdas must be non-empty")?;
     let p0 = impact_params_from_market(&ImpactMarket {
@@ -372,7 +419,7 @@ pub fn pretrade_report(m: &ImpactMarket, lambdas: &[f64]) -> Result<PretradeRepo
             ..m.clone()
         })?;
         let s = optimal_schedule(&p)?;
-        rows.push(row("optimal", lam, &s.holdings, s.horizon, &p)?);
+        rows.push(row("optimal", lam, s.holdings(), s.horizon, &p)?);
     }
     Ok(PretradeReport {
         sqrt_law_bps: sqrt_law_cost_bps(m.daily_vol, m.total_shares, m.adv, m.y)?,

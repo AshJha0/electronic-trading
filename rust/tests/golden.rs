@@ -1,391 +1,430 @@
 //! Golden-value suite: loads `../data/golden/golden.json` (relative to the
-//! rust/ directory) and asserts every case within its tolerance.
+//! rust/ directory) and asserts every case within its tolerance, one test
+//! per case.
 //!
 //! Exact cases: `|actual - expected| <= tol * max(1, |expected|)` (relative
 //! for large magnitudes, absolute near zero).  Statistical cases: this port
 //! runs its own seeded RNG with `M >= 2000` paths and asserts
 //! `|stat - ref| <= 4*sqrt(se_ref^2 + se_own^2)` per API_SPEC.md Section 4.
+//!
+//! Every input and every expected key of a case must be read: a key the
+//! port does not check (or a typo in one) fails the case instead of being
+//! skipped silently.
 
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
-use std::str::FromStr;
 
-use serde_json::Value;
+use serde::Deserialize;
 
-use etrade::{ASStat, Agent, SimConfig};
+use etrade::{ACSpec, ASSpec, ASStat, Agent, SimConfig};
 
-fn load_golden() -> Value {
+/// `golden.json`: the pinned case list.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Golden {
+    cases: Vec<Case>,
+}
+
+/// One golden case; every input and expected value is a number.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Case {
+    name: String,
+    kind: Kind,
+    tol: f64,
+    inputs: BTreeMap<String, f64>,
+    expect: BTreeMap<String, f64>,
+}
+
+/// How a case is compared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Kind {
+    /// Deterministic: relative tolerance `tol`.
+    Exact,
+    /// Monte Carlo: 4-SE band.
+    Statistical,
+}
+
+fn load_golden() -> Golden {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/golden/golden.json");
     let text =
         fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-    serde_json::from_str(&text).expect("golden.json must be valid JSON")
+    serde_json::from_str(&text).expect("golden.json must match the typed schema")
 }
 
-/// Fetch a numeric field from a JSON object.
-fn f(obj: &Value, key: &str) -> f64 {
-    obj.get(key)
-        .and_then(Value::as_f64)
-        .unwrap_or_else(|| panic!("missing/non-numeric key '{key}'"))
+/// Reads a case and records which keys were used, so [`Checker::finish`]
+/// can fail on any input or expected value nobody looked at.
+struct Checker<'a> {
+    case: &'a Case,
+    used_inputs: RefCell<BTreeSet<&'a str>>,
+    used_expect: RefCell<BTreeSet<&'a str>>,
 }
 
-/// Exact-case check with the pinned relative-tolerance semantics.
-fn check_exact(case: &str, key: &str, actual: f64, expected: f64, tol: f64) {
-    let bound = tol * expected.abs().max(1.0);
-    assert!(
-        (actual - expected).abs() <= bound,
-        "{case}.{key}: actual={actual:.15e} expected={expected:.15e} \
-         |diff|={:.3e} > bound={bound:.3e}",
-        (actual - expected).abs()
-    );
-}
+impl<'a> Checker<'a> {
+    fn new(case: &'a Case) -> Self {
+        Self {
+            case,
+            used_inputs: RefCell::default(),
+            used_expect: RefCell::default(),
+        }
+    }
 
-/// Statistical-case check: 4-SE band combining reference and own SE.
-fn check_stat(case: &str, key: &str, actual: f64, reference: f64, se_ref: f64, se_own: f64) {
-    let band = 4.0 * (se_ref * se_ref + se_own * se_own).sqrt();
-    assert!(
-        (actual - reference).abs() <= band,
-        "{case}.{key}: actual={actual} ref={reference} |diff|={} > 4SE band={band}",
-        (actual - reference).abs()
-    );
-}
+    fn name(&self) -> &str {
+        &self.case.name
+    }
 
-fn ac_params(inp: &Value) -> etrade::ACParams {
-    etrade::ACParams::new(
-        f(inp, "ac_total_shares"),
-        f(inp, "ac_n_intervals") as usize,
-        f(inp, "ac_tau"),
-        f(inp, "ac_sigma"),
-        f(inp, "ac_eta"),
-        f(inp, "ac_gamma_p"),
-        f(inp, "ac_lambda_ra"),
-    )
-    .expect("golden AC params must be valid")
-}
+    fn get(
+        map: &'a BTreeMap<String, f64>,
+        used: &RefCell<BTreeSet<&'a str>>,
+        what: &str,
+        key: &str,
+    ) -> f64 {
+        let (k, v) = map
+            .get_key_value(key)
+            .unwrap_or_else(|| panic!("missing {what} key '{key}'"));
+        used.borrow_mut().insert(k.as_str());
+        *v
+    }
 
-fn as_params(inp: &Value) -> etrade::ASParams {
-    etrade::ASParams::new(
-        f(inp, "as_s0"),
-        f(inp, "as_sigma"),
-        f(inp, "as_horizon"),
-        f(inp, "as_dt"),
-        f(inp, "as_gamma"),
-        f(inp, "as_k"),
-        f(inp, "as_a_rate"),
-        f(inp, "as_q_max") as u32,
-        f(inp, "as_eta_liq"),
-    )
-    .expect("golden AS params must be valid")
+    /// Numeric input.
+    fn inp(&self, key: &str) -> f64 {
+        Self::get(&self.case.inputs, &self.used_inputs, "input", key)
+    }
+
+    /// Integer input (must be a non-negative whole number).
+    fn inp_int(&self, key: &str) -> u64 {
+        let v = self.inp(key);
+        assert!(
+            v >= 0.0 && v.fract() == 0.0,
+            "input '{key}' = {v} is not a count"
+        );
+        v as u64
+    }
+
+    fn exp(&self, key: &str) -> f64 {
+        Self::get(&self.case.expect, &self.used_expect, "expect", key)
+    }
+
+    /// Exact-case check with the pinned relative-tolerance semantics.
+    fn exact(&self, key: &str, actual: f64) {
+        assert_eq!(
+            self.case.kind,
+            Kind::Exact,
+            "{}: not an exact case",
+            self.name()
+        );
+        let expected = self.exp(key);
+        let bound = self.case.tol * expected.abs().max(1.0);
+        assert!(
+            (actual - expected).abs() <= bound,
+            "{}.{key}: actual={actual:.15e} expected={expected:.15e} \
+             |diff|={:.3e} > bound={bound:.3e}",
+            self.name(),
+            (actual - expected).abs()
+        );
+    }
+
+    /// Statistical-case check: 4-SE band combining reference and own SE;
+    /// the reference SE is read from `{key}_se`.
+    fn stat(&self, key: &str, actual: f64, se_own: f64) {
+        assert_eq!(
+            self.case.kind,
+            Kind::Statistical,
+            "{}: not a statistical case",
+            self.name()
+        );
+        let reference = self.exp(key);
+        let se_ref = self.exp(&format!("{key}_se"));
+        let band = 4.0 * (se_ref * se_ref + se_own * se_own).sqrt();
+        assert!(
+            (actual - reference).abs() <= band,
+            "{}.{key}: actual={actual} ref={reference} |diff|={} > 4SE band={band}",
+            self.name(),
+            (actual - reference).abs()
+        );
+    }
+
+    /// Statistical check only when the case pins `key` (the AS simulation
+    /// cases pin different subsets of the same statistics).
+    fn stat_if_present(&self, key: &str, actual: f64, se_own: f64) {
+        if self.case.expect.contains_key(key) {
+            self.stat(key, actual, se_own);
+        }
+    }
+
+    /// Fail unless every input and expected key was read.
+    fn finish(self) {
+        let unused = |map: &BTreeMap<String, f64>, used: &BTreeSet<&str>| -> Vec<String> {
+            map.keys()
+                .filter(|k| !used.contains(k.as_str()))
+                .cloned()
+                .collect()
+        };
+        let inputs = unused(&self.case.inputs, &self.used_inputs.borrow());
+        let expect = unused(&self.case.expect, &self.used_expect.borrow());
+        assert!(
+            inputs.is_empty() && expect.is_empty(),
+            "{}: unchecked inputs {inputs:?}, unchecked expect keys {expect:?}",
+            self.name()
+        );
+    }
+
+    fn ac_params(&self) -> etrade::ACParams {
+        ACSpec {
+            total_shares: self.inp("ac_total_shares"),
+            n_intervals: self.inp_int("ac_n_intervals") as usize,
+            tau: self.inp("ac_tau"),
+            sigma: self.inp("ac_sigma"),
+            eta: self.inp("ac_eta"),
+            gamma_p: self.inp("ac_gamma_p"),
+            lambda_ra: self.inp("ac_lambda_ra"),
+        }
+        .build()
+        .expect("golden AC params must be valid")
+    }
+
+    fn as_params(&self) -> etrade::ASParams {
+        ASSpec {
+            s0: self.inp("as_s0"),
+            sigma: self.inp("as_sigma"),
+            horizon: self.inp("as_horizon"),
+            dt: self.inp("as_dt"),
+            gamma: self.inp("as_gamma"),
+            k: self.inp("as_k"),
+            a_rate: self.inp("as_a_rate"),
+            q_max: self.inp_int("as_q_max") as u32,
+            eta_liq: self.inp("as_eta_liq"),
+        }
+        .build()
+        .expect("golden AS params must be valid")
+    }
 }
 
 /// Number of paths this port uses for AS statistical cases (>= 2000 required).
 const AS_PATHS: usize = 4000;
 
-#[test]
-fn golden_cases_all_pass() {
+fn check_case(name: &str) {
     let golden = load_golden();
-    let cases = golden["cases"].as_array().expect("cases array");
-    assert_eq!(cases.len(), 19, "expected the pinned 19 golden cases");
+    let case = golden
+        .cases
+        .iter()
+        .find(|c| c.name == name)
+        .unwrap_or_else(|| panic!("golden case '{name}' not found"));
+    let c = Checker::new(case);
+    run(&c);
+    c.finish();
+}
 
-    for case in cases {
-        let name = case["name"].as_str().expect("case name");
-        let inp = &case["inputs"];
-        let exp = &case["expect"];
-        let tol = f(case, "tol");
-
-        match name {
-            "ac_liquid_solution" | "ac_illiquid_solution" => {
-                let p = ac_params(inp);
-                let x = etrade::ac_trajectory(&p);
-                let n = etrade::ac_trade_list(&p);
-                let j = f(inp, "x_index") as usize;
-                check_exact(name, "kappa", etrade::ac_kappa(&p), f(exp, "kappa"), tol);
-                check_exact(
-                    name,
-                    "half_life",
-                    etrade::half_life(&p),
-                    f(exp, "half_life"),
-                    tol,
-                );
-                check_exact(name, "x_j", x[j], f(exp, "x_j"), tol);
-                check_exact(name, "n_1", n[0], f(exp, "n_1"), tol);
-                check_exact(
-                    name,
-                    "e_cost",
-                    etrade::expected_cost(&p, None).unwrap(),
-                    f(exp, "e_cost"),
-                    tol,
-                );
-                check_exact(
-                    name,
-                    "var_cost",
-                    etrade::variance_cost(&p, None).unwrap(),
-                    f(exp, "var_cost"),
-                    tol,
-                );
-            }
-            "ac_twap_liquid" => {
-                let p = ac_params(inp);
-                let twap = etrade::twap_holdings(p.total_shares(), p.n_intervals()).unwrap();
-                check_exact(
-                    name,
-                    "e_cost",
-                    etrade::expected_cost(&p, Some(&twap)).unwrap(),
-                    f(exp, "e_cost"),
-                    tol,
-                );
-                check_exact(
-                    name,
-                    "var_cost",
-                    etrade::variance_cost(&p, Some(&twap)).unwrap(),
-                    f(exp, "var_cost"),
-                    tol,
-                );
-            }
-            "ac_pov_liquid" => {
-                let p = ac_params(inp);
-                let pov = etrade::pov_holdings(
-                    p.total_shares(),
-                    p.tau(),
-                    f(inp, "pov_market_volume_rate"),
-                    f(inp, "pov_participation"),
-                )
-                .unwrap();
-                check_exact(
-                    name,
-                    "e_cost",
-                    etrade::expected_cost(&p, Some(&pov)).unwrap(),
-                    f(exp, "e_cost"),
-                    tol,
-                );
-                check_exact(
-                    name,
-                    "var_cost",
-                    etrade::variance_cost(&p, Some(&pov)).unwrap(),
-                    f(exp, "var_cost"),
-                    tol,
-                );
-                check_exact(
-                    name,
-                    "n_intervals_used",
-                    (pov.len() - 1) as f64,
-                    f(exp, "n_intervals_used"),
-                    tol,
-                );
-            }
-            "ac_frontier_point_liquid" => {
-                let p = ac_params(inp);
-                let frontier = etrade::efficient_frontier(&p, &[f(inp, "ac_lambda_ra")]).unwrap();
-                let fp = &frontier[0];
-                check_exact(name, "e_cost", fp.e_cost, f(exp, "e_cost"), tol);
-                check_exact(name, "std_cost", fp.std_cost, f(exp, "std_cost"), tol);
-                check_exact(name, "kappa", fp.kappa, f(exp, "kappa"), tol);
-            }
-            "ac_kappa_small_tau" => {
-                // kappa_tilde^2*tau^2/2 ~ 2e-9: the ln_1p form matches; the
-                // acosh(1+x) form would miss by ~1e-8 relative.
-                let p = ac_params(inp);
-                assert_eq!(p.n_intervals(), 5000);
-                check_exact(name, "kappa", etrade::ac_kappa(&p), f(exp, "kappa"), tol);
-                check_exact(
-                    name,
-                    "half_life",
-                    etrade::half_life(&p),
-                    f(exp, "half_life"),
-                    tol,
-                );
-                check_exact(
-                    name,
-                    "x_1",
-                    etrade::ac_trajectory(&p)[1],
-                    f(exp, "x_1"),
-                    tol,
-                );
-            }
-            "ac_lambda_zero_limit_liquid" => {
-                let p = ac_params(inp);
-                let x = etrade::ac_trajectory(&p);
-                let twap = etrade::twap_holdings(p.total_shares(), p.n_intervals()).unwrap();
-                let max_diff = x
-                    .iter()
-                    .zip(&twap)
-                    .map(|(a, b)| (a - b).abs())
-                    .fold(0.0_f64, f64::max);
-                check_exact(name, "max_abs_diff_vs_twap", max_diff, 0.0, tol);
-            }
-            "ac_instant_liquidation_liquid" => {
-                let p = ac_params(inp);
-                let (e, v) = etrade::instantaneous_cost(&p);
-                check_exact(name, "e_cost", e, f(exp, "e_cost"), tol);
-                check_exact(name, "var_cost", v, f(exp, "var_cost"), tol);
-            }
-            "ac_mc_liquid" => {
-                let p = ac_params(inp);
-                let n_paths = f(inp, "n_paths_ref") as usize;
-                let mc = etrade::simulate_is(&p, None, n_paths, f(inp, "seed") as u64).unwrap();
-                check_stat(
-                    name,
-                    "mean_cost",
-                    mc.mean,
-                    f(exp, "mean_cost"),
-                    f(exp, "mean_cost_se"),
-                    mc.se_mean,
-                );
-                check_stat(
-                    name,
-                    "var_cost",
-                    mc.var,
-                    f(exp, "var_cost"),
-                    f(exp, "var_cost_se"),
-                    mc.se_var,
-                );
-            }
-            "as_reservation_liquid" => {
-                let p = as_params(inp);
-                let r =
-                    etrade::reservation_price(&p, f(inp, "s"), f(inp, "q"), f(inp, "t")).unwrap();
-                check_exact(
-                    name,
-                    "reservation_price",
-                    r,
-                    f(exp, "reservation_price"),
-                    tol,
-                );
-            }
-            "as_spread_liquid" => {
-                let p = as_params(inp);
-                check_exact(
-                    name,
-                    "spread",
-                    etrade::optimal_spread(&p, f(inp, "t")).unwrap(),
-                    f(exp, "spread"),
-                    tol,
-                );
-                check_exact(
-                    name,
-                    "spread_terminal",
-                    etrade::optimal_spread(&p, p.horizon()).unwrap(),
-                    f(exp, "spread_terminal"),
-                    tol,
-                );
-            }
-            "as_fill_prob_liquid" => {
-                let p = as_params(inp);
-                let delta = f(inp, "delta");
-                check_exact(
-                    name,
-                    "intensity",
-                    etrade::intensity(&p, delta).unwrap(),
-                    f(exp, "intensity"),
-                    tol,
-                );
-                check_exact(
-                    name,
-                    "fill_probability",
-                    etrade::fill_probability(&p, delta).unwrap(),
-                    f(exp, "fill_probability"),
-                    tol,
-                );
-            }
-            "as_sim_liquid" | "as_sim_fx" => {
-                let p = as_params(inp);
-                let res =
-                    etrade::simulate(&p, AS_PATHS, f(inp, "seed") as u64, &SimConfig::default())
-                        .unwrap();
-                assert!(!res.cap_violated, "{name}: inventory cap violated");
-                let stats: &[(&str, f64, ASStat)] = &[
-                    ("mean_pnl", res.mean_pnl(), ASStat::MeanPnl),
-                    ("std_pnl", res.std_pnl(), ASStat::StdPnl),
-                    ("mean_abs_q", res.mean_abs_q(), ASStat::MeanAbsQ),
-                    ("mean_max_abs_q", res.mean_max_abs_q(), ASStat::MeanMaxAbsQ),
-                    ("mean_fills", res.mean_fills(), ASStat::MeanFills),
-                ];
-                for (key, actual, stat) in stats {
-                    if exp.get(*key).is_some() {
-                        check_stat(
-                            name,
-                            key,
-                            *actual,
-                            f(exp, key),
-                            f(exp, &format!("{key}_se")),
-                            res.se(*stat),
-                        );
-                    }
-                }
-            }
-            "as_fixed_comparison_liquid" => {
-                let p = as_params(inp);
-                let seed = f(inp, "seed") as u64;
-                let res_as = etrade::simulate(&p, AS_PATHS, seed, &SimConfig::default()).unwrap();
-                let cfg_fixed = SimConfig {
-                    agent: Agent::Fixed,
-                    fixed_spread: Some(f(inp, "fixed_spread")),
-                    ..SimConfig::default()
-                };
-                let res_fx = etrade::simulate(&p, AS_PATHS, seed, &cfg_fixed).unwrap();
-                check_stat(
-                    name,
-                    "as_rms_q",
-                    res_as.rms_q(),
-                    f(exp, "as_rms_q"),
-                    f(exp, "as_rms_q_se"),
-                    res_as.se(ASStat::RmsQ),
-                );
-                check_stat(
-                    name,
-                    "fixed_rms_q",
-                    res_fx.rms_q(),
-                    f(exp, "fixed_rms_q"),
-                    f(exp, "fixed_rms_q_se"),
-                    res_fx.se(ASStat::RmsQ),
-                );
-            }
-            "is_decomposition_sell" | "is_decomposition_buy" => {
-                let side = if name.ends_with("sell") {
-                    "sell"
-                } else {
-                    "buy"
-                };
-                let d = etrade::decompose_shortfall(
-                    etrade::Side::from_str(side).unwrap(),
-                    f(inp, "decision_price"),
-                    f(inp, "arrival_price"),
-                    f(inp, "close_price"),
-                    f(inp, "total_qty"),
-                    &[f(inp, "q1"), f(inp, "q2"), f(inp, "q3")],
-                    &[f(inp, "p1"), f(inp, "p2"), f(inp, "p3")],
-                )
-                .unwrap();
-                check_exact(name, "total", d.total, f(exp, "total"), tol);
-                check_exact(name, "delay", d.delay, f(exp, "delay"), tol);
-                check_exact(name, "trading", d.trading, f(exp, "trading"), tol);
-                check_exact(
-                    name,
-                    "opportunity",
-                    d.opportunity,
-                    f(exp, "opportunity"),
-                    tol,
-                );
-            }
-            "participation_rate" => {
-                let part =
-                    etrade::participation_rate(f(inp, "executed_volume"), f(inp, "market_volume"))
-                        .unwrap();
-                check_exact(name, "participation", part, f(exp, "participation"), tol);
-            }
-            "impact_regression" => {
-                let (part, cost) = etrade::synthetic_impact_fills(
-                    f(inp, "n_obs") as usize,
-                    f(inp, "true_intercept"),
-                    f(inp, "true_slope"),
-                    f(inp, "noise_amp"),
-                )
-                .unwrap();
-                let reg = etrade::estimate_impact(&part, &cost).unwrap();
-                check_exact(name, "slope", reg.slope, f(exp, "slope"), tol);
-                check_exact(name, "intercept", reg.intercept, f(exp, "intercept"), tol);
-                check_exact(name, "r_squared", reg.r_squared, f(exp, "r_squared"), tol);
-            }
-            other => panic!("unhandled golden case '{other}' — port must cover every case"),
+fn run(c: &Checker) {
+    match c.name() {
+        "ac_liquid_solution" | "ac_illiquid_solution" => {
+            let p = c.ac_params();
+            let x = etrade::ac_trajectory(&p);
+            let n = etrade::ac_trade_list(&p);
+            let j = c.inp_int("x_index") as usize;
+            c.exact("kappa", etrade::ac_kappa(&p));
+            c.exact("half_life", etrade::half_life(&p));
+            c.exact("x_j", x[j]);
+            c.exact("n_1", n[0]);
+            c.exact("e_cost", etrade::expected_cost(&p, None).unwrap());
+            c.exact("var_cost", etrade::variance_cost(&p, None).unwrap());
         }
+        "ac_twap_liquid" => {
+            let p = c.ac_params();
+            let twap = etrade::twap_holdings(p.total_shares(), p.n_intervals()).unwrap();
+            c.exact("e_cost", etrade::expected_cost(&p, Some(&twap)).unwrap());
+            c.exact("var_cost", etrade::variance_cost(&p, Some(&twap)).unwrap());
+        }
+        "ac_pov_liquid" => {
+            let p = c.ac_params();
+            let pov = etrade::pov_holdings(
+                p.total_shares(),
+                p.tau(),
+                c.inp("pov_market_volume_rate"),
+                c.inp("pov_participation"),
+            )
+            .unwrap();
+            c.exact("e_cost", etrade::expected_cost(&p, Some(&pov)).unwrap());
+            c.exact("var_cost", etrade::variance_cost(&p, Some(&pov)).unwrap());
+            c.exact("n_intervals_used", (pov.len() - 1) as f64);
+        }
+        "ac_frontier_point_liquid" => {
+            let p = c.ac_params();
+            let frontier = etrade::efficient_frontier(&p, &[p.lambda_ra()]).unwrap();
+            let fp = &frontier[0];
+            c.exact("e_cost", fp.e_cost);
+            c.exact("std_cost", fp.std_cost);
+            c.exact("kappa", fp.kappa);
+        }
+        "ac_kappa_small_tau" => {
+            // kappa_tilde^2*tau^2/2 ~ 2e-9: the ln_1p form matches; the
+            // acosh(1+x) form would miss by ~1e-8 relative.
+            let p = c.ac_params();
+            assert_eq!(p.n_intervals(), 5000);
+            c.exact("kappa", etrade::ac_kappa(&p));
+            c.exact("half_life", etrade::half_life(&p));
+            c.exact("x_1", etrade::ac_trajectory(&p)[1]);
+        }
+        "ac_lambda_zero_limit_liquid" => {
+            let p = c.ac_params();
+            let x = etrade::ac_trajectory(&p);
+            let twap = etrade::twap_holdings(p.total_shares(), p.n_intervals()).unwrap();
+            let max_diff = x
+                .iter()
+                .zip(&twap)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0_f64, f64::max);
+            c.exact("max_abs_diff_vs_twap", max_diff);
+        }
+        "ac_instant_liquidation_liquid" => {
+            let p = c.ac_params();
+            let (e, v) = etrade::instantaneous_cost(&p);
+            c.exact("e_cost", e);
+            c.exact("var_cost", v);
+        }
+        "ac_mc_liquid" => {
+            let p = c.ac_params();
+            let n_paths = c.inp_int("n_paths_ref") as usize;
+            let mc = etrade::simulate_is(&p, None, n_paths, c.inp_int("seed")).unwrap();
+            c.stat("mean_cost", mc.mean, mc.se_mean);
+            c.stat("var_cost", mc.var, mc.se_var);
+        }
+        "as_reservation_liquid" => {
+            let p = c.as_params();
+            let r = etrade::reservation_price(&p, c.inp("s"), c.inp("q"), c.inp("t")).unwrap();
+            c.exact("reservation_price", r);
+        }
+        "as_spread_liquid" => {
+            let p = c.as_params();
+            c.exact("spread", etrade::optimal_spread(&p, c.inp("t")).unwrap());
+            c.exact(
+                "spread_terminal",
+                etrade::optimal_spread(&p, p.horizon()).unwrap(),
+            );
+        }
+        "as_fill_prob_liquid" => {
+            let p = c.as_params();
+            let delta = c.inp("delta");
+            c.exact("intensity", etrade::intensity(&p, delta).unwrap());
+            c.exact(
+                "fill_probability",
+                etrade::fill_probability(&p, delta).unwrap(),
+            );
+        }
+        "as_sim_liquid" | "as_sim_fx" => {
+            let p = c.as_params();
+            // The reference path count documents the Python run; this port
+            // uses its own AS_PATHS (>= 2000) and its own SE.
+            assert!(c.inp_int("n_paths_ref") >= 2000);
+            let res =
+                etrade::simulate(&p, AS_PATHS, c.inp_int("seed"), &SimConfig::default()).unwrap();
+            assert!(!res.cap_violated, "{}: inventory cap violated", c.name());
+            c.stat_if_present("mean_pnl", res.mean_pnl(), res.se(ASStat::MeanPnl));
+            c.stat_if_present("std_pnl", res.std_pnl(), res.se(ASStat::StdPnl));
+            c.stat_if_present("mean_abs_q", res.mean_abs_q(), res.se(ASStat::MeanAbsQ));
+            c.stat_if_present(
+                "mean_max_abs_q",
+                res.mean_max_abs_q(),
+                res.se(ASStat::MeanMaxAbsQ),
+            );
+            c.stat_if_present("mean_fills", res.mean_fills(), res.se(ASStat::MeanFills));
+        }
+        "as_fixed_comparison_liquid" => {
+            let p = c.as_params();
+            assert!(c.inp_int("n_paths_ref") >= 2000);
+            let seed = c.inp_int("seed");
+            let res_as = etrade::simulate(&p, AS_PATHS, seed, &SimConfig::default()).unwrap();
+            let cfg_fixed = SimConfig {
+                agent: Agent::Fixed,
+                fixed_spread: Some(c.inp("fixed_spread")),
+                ..SimConfig::default()
+            };
+            let res_fx = etrade::simulate(&p, AS_PATHS, seed, &cfg_fixed).unwrap();
+            c.stat("as_rms_q", res_as.rms_q(), res_as.se(ASStat::RmsQ));
+            c.stat("fixed_rms_q", res_fx.rms_q(), res_fx.se(ASStat::RmsQ));
+        }
+        "is_decomposition_sell" | "is_decomposition_buy" => {
+            let side = if c.name().ends_with("sell") {
+                "sell"
+            } else {
+                "buy"
+            };
+            let d = etrade::decompose_shortfall(
+                side.parse().unwrap(),
+                c.inp("decision_price"),
+                c.inp("arrival_price"),
+                c.inp("close_price"),
+                c.inp("total_qty"),
+                &[c.inp("q1"), c.inp("q2"), c.inp("q3")],
+                &[c.inp("p1"), c.inp("p2"), c.inp("p3")],
+            )
+            .unwrap();
+            c.exact("total", d.total);
+            c.exact("delay", d.delay);
+            c.exact("trading", d.trading);
+            c.exact("opportunity", d.opportunity);
+        }
+        "participation_rate" => {
+            let part = etrade::participation_rate(c.inp("executed_volume"), c.inp("market_volume"))
+                .unwrap();
+            c.exact("participation", part);
+        }
+        "impact_regression" => {
+            let (part, cost) = etrade::synthetic_impact_fills(
+                c.inp_int("n_obs") as usize,
+                c.inp("true_intercept"),
+                c.inp("true_slope"),
+                c.inp("noise_amp"),
+            )
+            .unwrap();
+            let reg = etrade::estimate_impact(&part, &cost).unwrap();
+            c.exact("slope", reg.slope);
+            c.exact("intercept", reg.intercept);
+            c.exact("r_squared", reg.r_squared);
+        }
+        other => panic!("unhandled golden case '{other}' — port must cover every case"),
     }
+}
+
+macro_rules! golden_case {
+    ($($test:ident => $name:literal),* $(,)?) => {
+        $(#[test] fn $test() { check_case($name); })*
+
+        /// Every case in the file has a test above, and the count is pinned.
+        #[test]
+        fn golden_count() {
+            let names: Vec<String> = load_golden().cases.into_iter().map(|c| c.name).collect();
+            assert_eq!(names.len(), 19, "expected the pinned 19 golden cases");
+            let covered: BTreeSet<&str> = [$($name),*].into_iter().collect();
+            assert_eq!(covered.len(), names.len(), "duplicate case in golden_case!");
+            for n in &names {
+                assert!(covered.contains(n.as_str()), "golden case '{n}' has no test");
+            }
+        }
+    };
+}
+
+golden_case! {
+    golden_ac_liquid_solution => "ac_liquid_solution",
+    golden_ac_illiquid_solution => "ac_illiquid_solution",
+    golden_ac_twap_liquid => "ac_twap_liquid",
+    golden_ac_pov_liquid => "ac_pov_liquid",
+    golden_ac_frontier_point_liquid => "ac_frontier_point_liquid",
+    golden_ac_kappa_small_tau => "ac_kappa_small_tau",
+    golden_ac_lambda_zero_limit_liquid => "ac_lambda_zero_limit_liquid",
+    golden_ac_instant_liquidation_liquid => "ac_instant_liquidation_liquid",
+    golden_ac_mc_liquid => "ac_mc_liquid",
+    golden_as_reservation_liquid => "as_reservation_liquid",
+    golden_as_spread_liquid => "as_spread_liquid",
+    golden_as_fill_prob_liquid => "as_fill_prob_liquid",
+    golden_as_sim_liquid => "as_sim_liquid",
+    golden_as_sim_fx => "as_sim_fx",
+    golden_as_fixed_comparison_liquid => "as_fixed_comparison_liquid",
+    golden_is_decomposition_sell => "is_decomposition_sell",
+    golden_is_decomposition_buy => "is_decomposition_buy",
+    golden_participation_rate => "participation_rate",
+    golden_impact_regression => "impact_regression",
 }

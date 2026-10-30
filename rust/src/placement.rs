@@ -355,6 +355,96 @@ impl LiquidationParams {
     }
 }
 
+/// Named-field form of [`LiquidationParams::new`]: the same arguments, labelled, so a
+/// call site cannot silently swap two numbers of the same type.
+///
+/// [`LiquidationSpec::build`] (or `LiquidationParams::try_from(spec)`) runs exactly the validation of
+/// [`LiquidationParams::new`] and returns the same errors.
+///
+/// ```
+/// use etrade::placement::{liquidation_policy, LiquidationSpec};
+///
+/// let p = LiquidationSpec {
+///     total_units: 10,
+///     n_periods: 50,
+///     dt: 0.02,
+///     sigma: 0.5,
+///     spread: 0.02,
+///     kappa: 30.0,
+///     p_touch: 0.3,
+///     beta: 0.005,
+///     phi: 0.0,
+/// }
+/// .build()?;
+/// let pol = liquidation_policy(&p);
+/// assert_eq!(pol.depth().len(), 50);
+/// assert!(pol.expected_cost().is_finite());
+/// # Ok::<(), etrade::EtradeError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LiquidationSpec {
+    /// Units to sell `Q`, in `[1, MAX_LIQ_UNITS]`.
+    pub total_units: usize,
+    /// Periods `N`, in `[1, MAX_LIQ_PERIODS]`.
+    pub n_periods: usize,
+    /// Period length, `> 0`.
+    pub dt: f64,
+    /// Mid volatility, `>= 0`.
+    pub sigma: f64,
+    /// Quoted spread, `>= 0`.
+    pub spread: f64,
+    /// Fill-probability decay with depth, `> 0`.
+    pub kappa: f64,
+    /// Per-period fill probability at the touch, `(0, 1]`.
+    pub p_touch: f64,
+    /// Temporary impact of a market order, `>= 0`.
+    pub beta: f64,
+    /// Running inventory penalty, `>= 0`.
+    pub phi: f64,
+}
+
+impl LiquidationSpec {
+    /// Validate and build the [`LiquidationParams`] (same checks as [`LiquidationParams::new`]).
+    pub fn build(self) -> Result<LiquidationParams, EtradeError> {
+        LiquidationParams::try_from(self)
+    }
+}
+
+impl TryFrom<LiquidationSpec> for LiquidationParams {
+    type Error = EtradeError;
+
+    fn try_from(s: LiquidationSpec) -> Result<Self, Self::Error> {
+        LiquidationParams::new(
+            s.total_units,
+            s.n_periods,
+            s.dt,
+            s.sigma,
+            s.spread,
+            s.kappa,
+            s.p_touch,
+            s.beta,
+            s.phi,
+        )
+    }
+}
+
+impl From<LiquidationParams> for LiquidationSpec {
+    /// The spec a validated parameter set was built from.
+    fn from(p: LiquidationParams) -> Self {
+        Self {
+            total_units: p.total_units,
+            n_periods: p.n_periods,
+            dt: p.dt,
+            sigma: p.sigma,
+            spread: p.spread,
+            kappa: p.kappa,
+            p_touch: p.p_touch,
+            beta: p.beta,
+            phi: p.phi,
+        }
+    }
+}
+
 /// Backward-induction policy (API_SPEC 13.3).
 ///
 /// `cost[j][q]` (`(N + 1) x (Q + 1)`) is the optimal expected cost to go
@@ -363,11 +453,26 @@ impl LiquidationParams {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiquidationPolicy {
     /// Cost to go.
-    pub cost: Vec<Vec<f64>>,
+    cost: Vec<Vec<f64>>,
     /// Posting depth beyond the touch.
-    pub depth: Vec<Vec<f64>>,
+    depth: Vec<Vec<f64>>,
     /// True where a market order is sent.
-    pub market: Vec<Vec<bool>>,
+    market: Vec<Vec<bool>>,
+}
+
+impl LiquidationPolicy {
+    /// Cost to go.
+    pub fn cost(&self) -> &[Vec<f64>] {
+        &self.cost
+    }
+    /// Posting depth beyond the touch.
+    pub fn depth(&self) -> &[Vec<f64>] {
+        &self.depth
+    }
+    /// True where a market order is sent.
+    pub fn market(&self) -> &[Vec<bool>] {
+        &self.market
+    }
 }
 
 impl LiquidationPolicy {

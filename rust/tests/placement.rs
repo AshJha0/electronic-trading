@@ -87,13 +87,13 @@ fn actual(case: &Value) -> (Named, Named) {
     if kind == "liquidation_policy" {
         let pol = liquidation_policy(&p);
         let n_market: usize = pol
-            .market
+            .market()
             .iter()
             .map(|row| row.iter().skip(1).filter(|&&m| m).count())
             .sum();
         out.push(("dp_cost".to_string(), pol.expected_cost()));
-        out.push(("depth_first".to_string(), pol.depth[0][p.total_units()]));
-        out.push(("depth_last".to_string(), pol.depth[p.n_periods() - 1][1]));
+        out.push(("depth_first".to_string(), pol.depth()[0][p.total_units()]));
+        out.push(("depth_last".to_string(), pol.depth()[p.n_periods() - 1][1]));
         out.push(("n_market".to_string(), n_market as f64));
         out.push(("aggressive_cost".to_string(), aggressive_cost(&p)));
         return (out, Vec::new());
@@ -307,16 +307,16 @@ fn policy_closed_form_one_period() {
     let pol = liquidation_policy(&patient(0.5, 1, 1));
     let g = 0.01 + 0.015;
     let d = 1.0 / 30.0 - g;
-    assert!((pol.depth[0][1] - d).abs() <= 1e-15);
+    assert!((pol.depth()[0][1] - d).abs() <= 1e-15);
     let want = 0.015 - 0.3 * (-30.0 * d).exp() / 30.0;
     assert!((pol.expected_cost() - want).abs() <= 1e-15);
-    assert!(!pol.market[0][1]);
+    assert!(!pol.market()[0][1]);
 }
 
 #[test]
 fn depth_falls_with_inventory() {
     let pol = liquidation_policy(&patient(0.5, 10, 50));
-    for (drow, mrow) in pol.depth.iter().zip(&pol.market) {
+    for (drow, mrow) in pol.depth().iter().zip(pol.market()) {
         let posted: Vec<f64> = (1..drow.len())
             .filter(|&q| !mrow[q])
             .map(|q| drow[q])
