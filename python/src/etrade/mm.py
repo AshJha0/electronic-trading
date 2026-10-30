@@ -137,7 +137,9 @@ def order_flow_imbalance(
     arrs = [np.asarray(v, dtype=float) for v in (bid_px, bid_sz, ask_px, ask_sz)]
     n = arrs[0].size
     _require(n >= 2, "need at least 2 book states")
-    _require(all(a.ndim == 1 and a.size == n for a in arrs), "book series must be 1-D and equal length")
+    _require(
+        all(a.ndim == 1 and a.size == n for a in arrs), "book series must be 1-D and equal length"
+    )
     _require(all(bool(np.all(np.isfinite(a))) for a in arrs), "book series must be finite")
     pb, qb, pa, qa = arrs
     _require(bool(np.all(qb >= 0.0)) and bool(np.all(qa >= 0.0)), "sizes must be >= 0")
@@ -145,7 +147,8 @@ def order_flow_imbalance(
     dn_b = (pb[1:] <= pb[:-1]).astype(float)
     dn_a = (pa[1:] <= pa[:-1]).astype(float)
     up_a = (pa[1:] >= pa[:-1]).astype(float)
-    return up_b * qb[1:] - dn_b * qb[:-1] - dn_a * qa[1:] + up_a * qa[:-1]
+    out: npt.NDArray[np.float64] = up_b * qb[1:] - dn_b * qb[:-1] - dn_a * qa[1:] + up_a * qa[:-1]
+    return out
 
 
 # ------------------------------------------------------------ simulation
@@ -225,7 +228,9 @@ class MMResult:
         return float(np.std(self.paths[stat], ddof=1)) / math.sqrt(self.n_paths)
 
 
-def simulate_mm(params: ASParams, n_paths: int, seed: int, config: MMConfig | None = None) -> MMResult:
+def simulate_mm(
+    params: ASParams, n_paths: int, seed: int, config: MMConfig | None = None
+) -> MMResult:
     """Simulate the market maker with frictions (API_SPEC 9.4); deterministic per seed."""
     cfg = MMConfig() if config is None else config
     _require(

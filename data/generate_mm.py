@@ -53,7 +53,7 @@ SIMS = [
 def config_inputs(cfg: dict) -> dict:
     full = {
         "agent_code": AGENTS[cfg.get("agent", "as")],
-        "tick": float(cfg.get("tick", 0.0)),
+        "quote_tick": float(cfg.get("tick", 0.0)),
         "maker_fee": float(cfg.get("maker_fee", 0.0)),
         "latency_steps": float(cfg.get("latency_steps", 0)),
         "informed_prob": float(cfg.get("informed_prob", 0.0)),
@@ -131,7 +131,15 @@ def exact_cases() -> list[dict]:
         inputs[f"ask_px_{i}"], inputs[f"ask_sz_{i}"] = pa[i], qa[i]
     expect = {f"e_{i + 1}": float(e[i]) for i in range(4)}
     expect["ofi"] = float(e.sum())
-    cases.append({"name": "mm_ofi_five_states", "kind": "mm_ofi", "inputs": inputs, "expect": expect, "tol": EXACT_TOL})
+    cases.append(
+        {
+            "name": "mm_ofi_five_states",
+            "kind": "mm_ofi",
+            "inputs": inputs,
+            "expect": expect,
+            "tol": EXACT_TOL,
+        }
+    )
     return cases
 
 

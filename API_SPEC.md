@@ -756,7 +756,8 @@ Exact kinds (`tol 1e-12`): `mm_tick` (`bid`, `ask`), `mm_glft` (inputs: the
 ask_px_i, ask_sz_i` for `i = 0..4`; expect `e_1..e_4`, `ofi` = sum).
 Statistical kind `mm_sim` (`tol = 4.0`, Section 4 rule): inputs are the
 `us_large_cap` A-S preset in market units (build `ASParams` with Section 7.2)
-plus `agent_code` (0 `as`, 1 `glft`, 2 `fixed`), `tick`, `maker_fee`,
+plus `agent_code` (0 `as`, 1 `glft`, 2 `fixed`), `quote_tick` (the
+config `tick`; the preset's own `tick` builds `ASParams`), `maker_fee`,
 `latency_steps`, `informed_prob`, `signal_accuracy`, `seed`, `n_paths_ref`
 (20000); expect `pnl, spread, fees, inventory, markout, fills,
 informed_fills`, each with a `_se`. Ports run their own RNG (Section 4) with
