@@ -347,14 +347,14 @@ pub fn ac_trajectory(params: &ACParams) -> Vec<f64> {
         return x;
     }
     let big_t = params.horizon();
-    let linear = kappa * big_t < KAPPA_T_LIMIT;
-    // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT)
+    let linear = kappa == 0.0 || kappa * big_t < KAPPA_T_LIMIT; // kappa = 0 even if T overflows
+                                                                // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT)
     let denom = (-2.0 * kappa * big_t).exp_m1();
     let mut x: Vec<f64> = (0..=n)
         .map(|j| {
             if linear {
                 // Exact TWAP limit — no 0/0 from the sinh ratio.
-                x0 * (n - j) as f64 / n as f64
+                x0 * ((n - j) as f64 / n as f64)
             } else {
                 let t_j = j as f64 * params.tau();
                 // ratio formed first so that x_0 == X exactly
@@ -409,7 +409,7 @@ pub fn twap_holdings(total_shares: f64, n_intervals: usize) -> Result<Vec<f64>, 
         "n_intervals must be in [1, 10000000]",
     )?;
     Ok((0..=n_intervals)
-        .map(|j| total_shares * (n_intervals - j) as f64 / n_intervals as f64)
+        .map(|j| total_shares * ((n_intervals - j) as f64 / n_intervals as f64))
         .collect())
 }
 

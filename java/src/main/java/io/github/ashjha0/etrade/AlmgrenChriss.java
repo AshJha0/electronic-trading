@@ -174,9 +174,9 @@ public final class AlmgrenChriss {
             return x;
         }
         double bigT = params.horizon();
-        if (k * bigT < KAPPA_T_LIMIT) {
+        if (k == 0.0 || k * bigT < KAPPA_T_LIMIT) { // kappa = 0 even if T overflows
             for (int j = 0; j <= n; j++) {
-                x[j] = x0 * (n - j) / n;    // exact TWAP limit, no 0/0
+                x[j] = x0 * ((double) (n - j) / n); // exact TWAP limit; fraction first: no overflow
             }
         } else {
             // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT):
@@ -248,7 +248,7 @@ public final class AlmgrenChriss {
                 "nIntervals must be an integer in [1, " + AlmgrenChriss.MAX_AC_INTERVALS + "]");
         double[] x = new double[nIntervals + 1];
         for (int j = 0; j <= nIntervals; j++) {
-            x[j] = totalShares * (nIntervals - j) / nIntervals;
+            x[j] = totalShares * ((double) (nIntervals - j) / nIntervals);
         }
         return x;
     }

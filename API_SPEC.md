@@ -173,7 +173,9 @@ exact linear TWAP limit
 x_j = X * (N - j) / N
 ```
 
-with no evaluation of the sinh ratio (no 0/0).  The sinh branch is continuous
+with no evaluation of the sinh ratio (no 0/0). `kappa = 0` always takes this
+branch, even when the horizon `N*tau` overflows to infinity (`0 * inf` is
+NaN, so the product test alone would miss it).  The sinh branch is continuous
 at the threshold to well below golden tolerance.
 
 **Infinite-urgency limit (pinned):** if `kappa` is not finite (the

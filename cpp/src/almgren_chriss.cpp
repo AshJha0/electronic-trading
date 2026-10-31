@@ -90,9 +90,9 @@ std::vector<double> ac_trajectory(const ACParams& params) {
         return x;
     }
     const double big_t = params.horizon();
-    if (kappa * big_t < kKappaTLimit) {
+    if (kappa == 0.0 || kappa * big_t < kKappaTLimit) {  // kappa = 0 even if T overflows
         // Exact linear TWAP limit — no 0/0 from the sinh ratio.
-        for (int j = 0; j <= n; ++j) x[j] = x0 * (n - j) / n;
+        for (int j = 0; j <= n; ++j) x[j] = x0 * (static_cast<double>(n - j) / n);  // fraction first: no overflow
     } else {
         // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT):
         // overflow-free for any kappa*T; ratio formed first so x_0 == X exactly.
@@ -127,7 +127,7 @@ std::vector<double> twap_holdings(double total_shares, int n_intervals) {
             "n_intervals must be an integer in [1, 10000000]");
     std::vector<double> x(static_cast<std::size_t>(n_intervals) + 1);
     for (int j = 0; j <= n_intervals; ++j) {
-        x[j] = total_shares * (n_intervals - j) / n_intervals;
+        x[j] = total_shares * (static_cast<double>(n_intervals - j) / n_intervals);
     }
     return x;
 }

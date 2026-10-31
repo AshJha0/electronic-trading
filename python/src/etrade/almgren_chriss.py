@@ -271,8 +271,8 @@ def ac_trajectory(params: ACParams) -> np.ndarray:
         return x
     t_j = j * params.tau
     big_t = params.horizon
-    if kappa * big_t < KAPPA_T_LIMIT:
-        x = x0 * (n - j) / n  # exact TWAP limit, no 0/0
+    if kappa == 0.0 or kappa * big_t < KAPPA_T_LIMIT:  # kappa = 0 even if T overflows
+        x = x0 * ((n - j) / n)  # exact TWAP limit, no 0/0; fraction first so huge X cannot overflow
     else:
         # sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT);
         # the ratio is formed first so that x_0 == X exactly (1 * 1 * X).
@@ -316,7 +316,7 @@ def twap_holdings(total_shares: float, n_intervals: int) -> np.ndarray:
         f"n_intervals must be an integer in [1, {MAX_AC_INTERVALS}]",
     )
     j = np.arange(n_intervals + 1, dtype=float)
-    return total_shares * (n_intervals - j) / n_intervals
+    return total_shares * ((n_intervals - j) / n_intervals)  # fraction first: no overflow
 
 
 def pov_holdings(
