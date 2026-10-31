@@ -6,6 +6,18 @@ All notable changes to this project. Dates are UTC.
 
 Nothing yet.
 
+## 2.0.1 — 2026-10-31
+
+Maintenance release. No API or numerical changes; every golden case and
+seeded output is unchanged.
+
+- Java test dependencies: Jackson `jackson-databind` 2.18.2 to 2.22.4 and
+  JUnit 5.13.4 to 6.1.3 (the JUnit BOM). Test code only; the library jar has
+  no runtime dependencies.
+- Java tests: `TestData` reads JSON objects with `JsonNode.properties()`
+  because `fields()` is deprecated in Jackson 2.22 and the build treats
+  warnings as errors.
+
 ## 2.0.0 — 2026-10-31
 
 Version 2 turns the reference library into an execution and market-making
