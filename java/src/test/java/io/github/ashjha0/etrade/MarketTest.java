@@ -1,14 +1,12 @@
 package io.github.ashjha0.etrade;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ashjha0.etrade.Market.ACMarket;
 import io.github.ashjha0.etrade.Market.ASMarket;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -16,13 +14,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.UnaryOperator;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Market-unit layer (API_SPEC Section 7): every case of {@code market_golden.json}, the
  * paper identity, the defining properties of the A-S conversion, and validation.
  */
-public final class MarketTest {
+final class MarketTest {
 
     private static final Map<String, Object> GOLDEN = load("golden/market_golden.json");
     private static final Map<String, Object> PRESETS = load("presets.json");
@@ -30,7 +28,7 @@ public final class MarketTest {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> load(String rel) {
         try {
-            return (Map<String, Object>) Json.parse(Files.readString(Path.of("../data", rel)));
+            return (Map<String, Object>) TestData.load(rel);
         } catch (IOException e) {
             throw new IllegalStateException("cannot load " + rel, e);
         }
@@ -110,14 +108,14 @@ public final class MarketTest {
     }
 
     @Test
-    public void everyGoldenCaseEveryKey() {
+    void everyGoldenCaseEveryKey() {
         List<String> failures = new ArrayList<>();
         assertEquals(15, cases().size());
         for (Map<String, Object> c : cases()) {
             String name = (String) c.get("name");
             Map<String, Object> expect = obj(c, "expect");
             Map<String, Double> got = actual(c);
-            assertEquals(name + ": every expect key asserted", expect.keySet(), got.keySet());
+            assertEquals(expect.keySet(), got.keySet(), name + ": every expect key asserted");
             double tol = num(c, "tol");
             for (Map.Entry<String, Double> e : got.entrySet()) {
                 double want = num(expect, e.getKey());
@@ -127,11 +125,11 @@ public final class MarketTest {
                 }
             }
         }
-        assertTrue(String.join("\n", failures), failures.isEmpty());
+        assertTrue(failures.isEmpty(), String.join("\n", failures));
     }
 
     @Test
-    public void presetsCovered() {
+    void presetsCovered() {
         Set<String> names = new HashSet<>();
         for (Map<String, Object> c : cases()) {
             names.add((String) c.get("name"));
@@ -140,14 +138,14 @@ public final class MarketTest {
             Map<String, Object> body = obj(PRESETS, preset);
             for (String side : new String[] {"ac", "as"}) {
                 if (body.containsKey(side)) {
-                    assertTrue(preset, names.contains("market_" + side + "_" + preset));
+                    assertTrue(names.contains("market_" + side + "_" + preset), preset);
                 }
             }
         }
     }
 
     @Test
-    public void paperCalibrationReproducesLiquidSet() {
+    void paperCalibrationReproducesLiquidSet() {
         ACParams p = Market.acParamsFromMarket(
                 acFrom(obj(obj(PRESETS, "paper_almgren_chriss_2000"), "ac")));
         assertEquals(2.5e-6, p.eta(), 1e-21);
@@ -156,7 +154,7 @@ public final class MarketTest {
     }
 
     @Test
-    public void asConversionDefiningProperties() {
+    void asConversionDefiningProperties() {
         ASMarket m = asFrom(obj(obj(PRESETS, "us_large_cap"), "as"));
         ASParams a = Market.asParamsFromMarket(m);
         double d0 = m.tick() / 2.0;
@@ -170,7 +168,7 @@ public final class MarketTest {
     }
 
     @Test
-    public void reportingHelpers() {
+    void reportingHelpers() {
         assertEquals(5.0, Market.bps(5.0, 1e4), 0.0);
         assertEquals(5.0, Market.halfSpreadCost(0.01, 1000.0), 1e-15);
         assertThrows(IllegalArgumentException.class, () -> Market.bps(1.0, 0.0));
@@ -182,18 +180,18 @@ public final class MarketTest {
         ACMarket base = acFrom(obj(obj(PRESETS, "us_large_cap"), "ac"));
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> Market.acParamsFromMarket(mutate.apply(base)));
-        assertTrue(field + ": " + e.getMessage(), e.getMessage().contains(field));
+        assertTrue(e.getMessage().contains(field), field + ": " + e.getMessage());
     }
 
     private static void expectAsError(String field, UnaryOperator<ASMarket> mutate) {
         ASMarket base = asFrom(obj(obj(PRESETS, "us_large_cap"), "as"));
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> Market.asParamsFromMarket(mutate.apply(base)));
-        assertTrue(field + ": " + e.getMessage(), e.getMessage().contains(field));
+        assertTrue(e.getMessage().contains(field), field + ": " + e.getMessage());
     }
 
     @Test
-    public void acValidationNamesTheField() {
+    void acValidationNamesTheField() {
         expectAcError("price", b -> new ACMarket(0.0, b.spread(), b.adv(), b.dailyVol(),
                 b.totalShares(), b.nIntervals(), b.tau(), b.lambdaRa(), b.tempFrac(),
                 b.permFrac()));
@@ -215,7 +213,7 @@ public final class MarketTest {
     }
 
     @Test
-    public void asValidationNamesTheField() {
+    void asValidationNamesTheField() {
         expectAsError("tick", b -> new ASMarket(b.price(), 0.0, b.dailyVol(),
                 b.touchFillsPerDay(), b.halvingTicks(), b.skewTicks(), b.qMax(), b.liqTicks(),
                 b.dtSeconds(), b.sessionSeconds(), b.horizonDays()));

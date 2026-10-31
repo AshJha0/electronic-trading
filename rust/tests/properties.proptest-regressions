@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b0c6c6eb6790fc3d26d1cbdbb8c452603058215f7c07984dc0cb0ba8609f0930 # shrinks to a = 2.2250738585072014e-308, b = 2.2250738585072014e-308, c = 1e308, d = 2.2250738585072014e-308, e = 0.0, f = 2.2250738585072014e-308, g = NaN, h = NaN, n = 1, q = 0, fq = [], fp = []
+cc ea154ac60179d35eb6af81e530f0f148c74f1980ceef518911cf6f239575bd5f # horizon N*tau overflows to inf with kappa = 0
+cc 7a165c62b93200f4b1fd851e0e5a941d6972603bdd16973e74771ae773ec7461 # shrinks to a = 1e308, b = 2.2250738585072014e-308, c = 0.0, d = 2.2250738585072014e-308, e = 2.2250738585072014e-308, f = 0.0, g = NaN, h = NaN, n = 2, q = 0, fq = [], fp = []

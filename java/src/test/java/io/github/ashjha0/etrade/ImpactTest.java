@@ -1,34 +1,37 @@
 package io.github.ashjha0.etrade;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static io.github.ashjha0.etrade.Rejects.assertRejects;
+import static io.github.ashjha0.etrade.Rejects.bad;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ashjha0.etrade.Market.ImpactMarket;
 import io.github.ashjha0.etrade.Market.PretradeReport;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Power-law impact execution (API_SPEC Section 8): every case of
  * {@code impact_golden.json}, reduction to Almgren-Chriss, the square-root law, drift and
  * early finish, VWAP, the report and validation.
  */
-public final class ImpactTest {
+final class ImpactTest {
 
     private static final Map<String, Object> GOLDEN = load();
 
     @SuppressWarnings("unchecked")
     private static Map<String, Object> load() {
         try {
-            return (Map<String, Object>) Json.parse(
-                    Files.readString(Path.of("../data/golden/impact_golden.json")));
+            return (Map<String, Object>) TestData.load("golden/impact_golden.json");
         } catch (IOException e) {
             throw new IllegalStateException("cannot load impact_golden.json", e);
         }
@@ -115,14 +118,14 @@ public final class ImpactTest {
     }
 
     @Test
-    public void everyGoldenCaseEveryKey() {
+    void everyGoldenCaseEveryKey() {
         assertEquals(8, cases().size());
         List<String> failures = new ArrayList<>();
         for (Map<String, Object> c : cases()) {
             String name = (String) c.get("name");
             Map<String, Object> expect = obj(c, "expect");
             Map<String, Double> got = actual(c);
-            assertEquals(name + ": every expect key asserted", expect.keySet(), got.keySet());
+            assertEquals(expect.keySet(), got.keySet(), name + ": every expect key asserted");
             double tol = num(c, "tol");
             for (Map.Entry<String, Double> e : got.entrySet()) {
                 double want = num(expect, e.getKey());
@@ -132,11 +135,11 @@ public final class ImpactTest {
                 }
             }
         }
-        assertTrue(String.join("\n", failures), failures.isEmpty());
+        assertTrue(failures.isEmpty(), String.join("\n", failures));
     }
 
     @Test
-    public void alphaOneReproducesAlmgrenChriss() {
+    void alphaOneReproducesAlmgrenChriss() {
         ACParams ac = new ACParams(1e6, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6);
         Impact.Params ip = new Impact.Params(1e6, 5, 1.0, 0.95, 2.5e-6, 1.0, 2.5e-7, 2e-6, 0.0,
                 null);
@@ -151,7 +154,7 @@ public final class ImpactTest {
     }
 
     @Test
-    public void oneDayTwapIsTheSquareRootLaw() {
+    void oneDayTwapIsTheSquareRootLaw() {
         ImpactMarket m = largeCap();
         Impact.Params p = Market.impactParamsFromMarket(m);
         double[] x = AlmgrenChriss.twapHoldings(m.totalShares(), m.nIntervals());
@@ -161,7 +164,7 @@ public final class ImpactTest {
     }
 
     @Test
-    public void driftShortensTheHorizon() {
+    void driftShortensTheHorizon() {
         int prev = Integer.MAX_VALUE;
         for (double drift : new double[] {0.0, 50.0, 200.0, 1000.0, 5000.0}) {
             Impact.ScheduleResult r = Impact.optimalSchedule(
@@ -177,7 +180,7 @@ public final class ImpactTest {
     }
 
     @Test
-    public void vwapBeatsTwapUnderTheCurve() {
+    void vwapBeatsTwapUnderTheCurve() {
         double[] xu = Impact.vwapHoldings(1e6, new double[] {1, 1, 1, 1, 1, 1, 1, 1, 1, 1});
         double[] xt = AlmgrenChriss.twapHoldings(1e6, 10);
         for (int j = 0; j < xu.length; j++) {
@@ -190,7 +193,7 @@ public final class ImpactTest {
     }
 
     @Test
-    public void pretradeReportStructure() {
+    void pretradeReportStructure() {
         PretradeReport rep = Market.pretradeReport(largeCap(), new double[] {0.0, 1e-6, 1e-5});
         assertEquals(5, rep.rows().size());
         assertEquals("twap", rep.rows().get(0).label());
@@ -205,40 +208,46 @@ public final class ImpactTest {
                 () -> Market.pretradeReport(largeCap(), new double[0]));
     }
 
-    @Test
-    public void validation() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new Impact.Params(1e5, 13, 1.0 / 13, 1.5, 1e-3, 0.0, 2e-8, 0.0, 0.0, null));
-        assertThrows(IllegalArgumentException.class,
-                () -> new Impact.Params(1e5, 13, 1.0 / 13, 1.5, 1e-3, 1.5, 2e-8, 0.0, 0.0, null));
-        assertThrows(IllegalArgumentException.class,
-                () -> new Impact.Params(1e5, 13, 1.0 / 13, 1.5, 0.0, 0.5, 2e-8, 0.0, 0.0, null));
-        assertThrows(IllegalArgumentException.class,
-                () -> new Impact.Params(1e5, 13, 1.0 / 13, 1.5, 1e-3, 0.5, 2e-8, 0.0, -1.0, null));
-        assertThrows(IllegalArgumentException.class,
-                () -> new Impact.Params(1e5, 10_001, 1e-4, 1.5, 1e-3, 0.5, 2e-8, 0.0, 0.0, null));
-        assertThrows(IllegalArgumentException.class,
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("validationCases")
+    void validation(String fragment, Executable call) {
+        assertRejects(fragment, call);
+    }
+
+    static List<Arguments> validationCases() {
+        List<Arguments> c = new ArrayList<>();
+        c.add(bad("alpha",
+                () -> new Impact.Params(1e5, 13, 1.0 / 13, 1.5, 1e-3, 0.0, 2e-8, 0.0, 0.0, null)));
+        c.add(bad("alpha",
+                () -> new Impact.Params(1e5, 13, 1.0 / 13, 1.5, 1e-3, 1.5, 2e-8, 0.0, 0.0, null)));
+        c.add(bad("eta",
+                () -> new Impact.Params(1e5, 13, 1.0 / 13, 1.5, 0.0, 0.5, 2e-8, 0.0, 0.0, null)));
+        c.add(bad("drift",
+                () -> new Impact.Params(1e5, 13, 1.0 / 13, 1.5, 1e-3, 0.5, 2e-8, 0.0, -1.0, null)));
+        c.add(bad("n_intervals",
+                () -> new Impact.Params(1e5, 10_001, 1e-4, 1.5, 1e-3, 0.5, 2e-8, 0.0, 0.0, null)));
+        c.add(bad("weights",
                 () -> new Impact.Params(1e5, 13, 1.0 / 13, 1.5, 1e-3, 0.5, 2e-8, 0.0, 0.0,
-                        new double[12]));
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> new Impact.Params(1e8, 13, 1.0 / 13, 1.5, 1e-6, 0.5, 1e-3, 0.0, 0.0, null));
-        assertTrue(e.getMessage().contains("convex"));
+                        new double[12])));
+        c.add(bad("convex",
+                () -> new Impact.Params(1e8, 13, 1.0 / 13, 1.5, 1e-6, 0.5, 1e-3, 0.0, 0.0, null)));
         Impact.Params p = Market.impactParamsFromMarket(largeCap());
-        assertThrows(IllegalArgumentException.class,
-                () -> Impact.expectedCost(p, new double[] {1.0, 0.0}));
+        c.add(bad("holdings",
+                () -> Impact.expectedCost(p, new double[] {1.0, 0.0})));
         double[] up = AlmgrenChriss.twapHoldings(250_000.0, 13);
         up[3] = up[1] + 1.0;
-        assertThrows(IllegalArgumentException.class, () -> Impact.expectedCost(p, up));
-        assertThrows(IllegalArgumentException.class,
-                () -> Impact.sqrtLawCostBps(0.0, 1.0, 1.0, 1.0));
-        assertThrows(IllegalArgumentException.class,
-                () -> Impact.vwapHoldings(1.0, new double[0]));
-        assertThrows(IllegalArgumentException.class,
-                () -> Market.impactParamsFromMarket(largeCap().withDriftBpsPerDay(-1.0)));
+        c.add(bad("holdings", () -> Impact.expectedCost(p, up)));
+        c.add(bad("daily_vol",
+                () -> Impact.sqrtLawCostBps(0.0, 1.0, 1.0, 1.0)));
+        c.add(bad("weights",
+                () -> Impact.vwapHoldings(1.0, new double[0])));
+        c.add(bad("drift_bps_per_day",
+                () -> Market.impactParamsFromMarket(largeCap().withDriftBpsPerDay(-1.0))));
+        return c;
     }
 
     @Test
-    public void zeroSharesIsTheZeroSchedule() {
+    void zeroSharesIsTheZeroSchedule() {
         Impact.ScheduleResult r = Impact.optimalSchedule(Market.impactParamsFromMarket(
                 largeCap().withTotalShares(0.0).withLambdaRa(1e-6)));
         for (double v : r.holdings()) {

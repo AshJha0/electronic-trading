@@ -1,4 +1,4 @@
-# etrade — C++17 port of the execution and market-making research library
+# etrade — C++26 port of the execution and market-making research library
 # (Almgren-Chriss optimal execution, Avellaneda-Stoikov market making,
 # execution analytics).
 #
@@ -10,16 +10,23 @@
 #   ETRADE_BUILD_BENCHMARKS  build the Google Benchmark suite (default OFF)
 #   ETRADE_COVERAGE     instrument for gcov/lcov (GCC/Clang only, default OFF)
 # GoogleTest is taken from the system when available, otherwise fetched.
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.25)
 project(etrade VERSION 1.1.0 LANGUAGES CXX)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# C++26.  CMake has no C++26 standard level for MSVC (MSVC has no
+# /std:c++26), so there the newest standard is requested with
+# /std:c++latest for every target, GoogleTest included.
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(MSVC)
+  add_compile_options(/std:c++latest)
+else()
+  set(CMAKE_CXX_STANDARD 26)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ETRADE_BUILD_TESTS "Build the etrade test suite" ${PROJECT_IS_TOP_LEVEL})
@@ -56,12 +63,15 @@ add_library(etrade
   src/placement.cpp
   src/calibration.cpp
   src/tca.cpp
-  src/mm.cpp)
+  src/mm.cpp
+  src/hedging.cpp)
 add_library(etrade::etrade ALIAS etrade)
 target_include_directories(etrade PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
-target_compile_features(etrade PUBLIC cxx_std_17)
+if(NOT MSVC)
+  target_compile_features(etrade PUBLIC cxx_std_26)
+endif()
 target_link_libraries(etrade PRIVATE $<BUILD_INTERFACE:etrade_warnings>)
 
 add_executable(etrade_demo src/demo.cpp)
@@ -98,7 +108,12 @@ if(ETRADE_BUILD_TESTS)
     tests/test_placement.cpp
     tests/test_calibration.cpp
     tests/test_tca.cpp
-    tests/test_mm.cpp)
+    tests/test_mm.cpp
+    tests/test_numerics.cpp
+    tests/test_draw_order.cpp
+    tests/test_trajectory_golden.cpp
+    tests/test_properties.cpp
+    tests/test_hedging.cpp)
   target_include_directories(etrade_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   target_compile_definitions(etrade_tests PRIVATE
     ETRADE_GOLDEN_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../data/golden/golden.json"

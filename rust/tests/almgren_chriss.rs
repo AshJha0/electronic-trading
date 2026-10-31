@@ -416,3 +416,10 @@ fn trajectory_x0_exact_and_sinh_identity_moderate() {
         }
     }
 }
+
+#[test]
+fn pov_overflowing_clip_and_tiny_remainder() {
+    assert!(etrade::pov_holdings(1.0, 1e200, 1e200, 0.5).is_err());
+    let x = etrade::pov_holdings(1e-13, 1.0, 1.0, 0.5).unwrap();
+    assert_eq!(x, vec![1e-13, 0.0]);
+}

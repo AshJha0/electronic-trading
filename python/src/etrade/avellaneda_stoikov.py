@@ -86,6 +86,9 @@ MAX_AS_STEPS: int = 10_000_000
 #: Upper bound on Monte Carlo path counts (pinned, API_SPEC §0).
 MAX_PATHS: int = 10_000_000
 
+#: Upper bound on the total simulation work n_paths * n_steps of `simulate` (pinned, API_SPEC §0).
+MAX_AS_WORK: int = 10_000_000_000
+
 
 def _require(cond: bool, msg: str) -> None:
     if not cond:
@@ -147,6 +150,8 @@ class ASParams:
         _require(_is_int(self.q_max) and self.q_max >= 0, "q_max must be an integer >= 0")
         _require(math.isfinite(self.eta_liq) and self.eta_liq >= 0.0, "eta_liq must be >= 0")
         n = self.horizon / self.dt
+        # A subnormal dt overflows the ratio: reject before round() sees inf.
+        _require(n <= MAX_AS_STEPS, f"horizon/dt must be <= {MAX_AS_STEPS} steps")
         _require(abs(n - round(n)) < 1e-9, "horizon must be an integer multiple of dt")
         _require(n <= MAX_AS_STEPS, f"horizon/dt must be <= {MAX_AS_STEPS} steps")
 
@@ -305,6 +310,10 @@ def simulate(
     _require(
         _is_int(n_paths) and 2 <= n_paths <= MAX_PATHS,
         f"n_paths must be an integer in [2, {MAX_PATHS}]",
+    )
+    _require(
+        n_paths * params.n_steps <= MAX_AS_WORK,
+        f"n_paths * n_steps must be <= {MAX_AS_WORK}",
     )
     _require(math.isfinite(stress_factor) and stress_factor > 0.0, "stress_factor must be > 0")
     _require(

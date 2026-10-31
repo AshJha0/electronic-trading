@@ -182,11 +182,26 @@ pub fn slippage(
 #[derive(Debug, Clone, PartialEq)]
 pub struct MarkoutResult {
     /// Horizons in steps, in input order.
-    pub horizons: Vec<usize>,
+    horizons: Vec<usize>,
     /// Plain mean over fills, currency per share.
-    pub per_fill: Vec<f64>,
+    per_fill: Vec<f64>,
     /// Quantity-weighted mean, currency per share.
-    pub per_share: Vec<f64>,
+    per_share: Vec<f64>,
+}
+
+impl MarkoutResult {
+    /// Horizons in steps, in input order.
+    pub fn horizons(&self) -> &[usize] {
+        &self.horizons
+    }
+    /// Plain mean over fills, currency per share.
+    pub fn per_fill(&self) -> &[f64] {
+        &self.per_fill
+    }
+    /// Quantity-weighted mean, currency per share.
+    pub fn per_share(&self) -> &[f64] {
+        &self.per_share
+    }
 }
 
 /// Markouts `d * (mids[t_j + h] - mids[t_j])`, `d = +1` buy, `-1` sell
@@ -237,9 +252,16 @@ pub fn markouts(
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParticipationResult {
     /// `q_b / V_b` per bin (`0` for a bin with no market volume).
-    pub per_bin: Vec<f64>,
+    per_bin: Vec<f64>,
     /// `Q / sum V`.
     pub overall: f64,
+}
+
+impl ParticipationResult {
+    /// `q_b / V_b` per bin (`0` for a bin with no market volume).
+    pub fn per_bin(&self) -> &[f64] {
+        &self.per_bin
+    }
 }
 
 /// Per-bin and overall participation (API_SPEC 10.3); `q_b <= V_b` required.

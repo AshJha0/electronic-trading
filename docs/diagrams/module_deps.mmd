@@ -7,6 +7,8 @@ flowchart LR
     TC["tca<br/>(Section 10)"]
     CA["calibration<br/>(Section 11)"]
     EX["execution<br/>(Section 12)"]
+    MM["mm<br/>(Section 9)"]
+    PL["placement<br/>(Section 13)"]
 
     MK --> AC
     MK --> AS
@@ -14,4 +16,6 @@ flowchart LR
     EX --> AC
     EX --> IM
     EX --> MK
+    MM --> AS
+    PL -. "MAX_PATHS" .-> AC
     TC -. "Side enum (Rust, C++)" .-> AN

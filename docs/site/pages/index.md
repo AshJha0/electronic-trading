@@ -32,7 +32,7 @@ push and pull request.
 
 | | |
 |---|---|
-| Cross-language parity | Python 371, C++ 127, Rust 151, Java 120 tests, 769 in total; every suite loads the same 70 golden cases: 19 model, 15 market, 8 impact, 11 TCA, 9 calibration and 8 execution |
+| Cross-language parity | Python 575, C++ 191, Rust 290, Java 333 tests, 1,389 in total; every suite loads the same 120 golden cases: 19 model, 7 whole-trajectory, 15 market, 8 impact, 14 market-making, 11 TCA, 9 calibration, 8 execution, 11 placement and 18 hedging |
 | Golden suite | exact cases (AC `kappa` / `x_j` / `n_1` / E / Var on two parameter sets, TWAP/POV costs, A-S closed forms, both IS decompositions, the impact fit) at \|actual − expected\| ≤ tol·max(1, \|expected\|), tol between 1e-10 and 1e-12; market, TCA and calibration cases at 1e-12, power-law impact and execution cases at 1e-9 |
 | Statistical cases | Python 20,000-path Monte Carlo references stored with their standard errors; each port runs M ≥ 2000 paths on its own RNG and must satisfy \|stat − ref\| ≤ 4·sqrt(se_ref² + se_own²) |
 | Literature check | the paper's hyperbolic closed forms for E[IS] and Var[IS] equal the discrete sums to 1e-12 in every suite (measured rel. diff 2e-16 on the liquid set) |
@@ -85,6 +85,26 @@ costs 52.13 bps against 57.31 bps for VWAP. The schedule comes from a pinned
 Newton method with a KKT certificate; at `alpha = 1` it reproduces the
 Almgren-Chriss trajectory (holdings within 1e-10 of `X`, costs within 1e-12
 relative), and the Python suite cross-checks it against SciPy.
+
+## Market making with frictions
+
+US large-cap A-S preset, one-share quotes, 5-second steps, one day
+(`API_SPEC` Section 9). Dollars per day, 20,000-path Python sample printed
+by the demo; the other ports print their own 5,000-path samples. Every path
+satisfies PnL = spread + fees + inventory − liquidation exactly.
+
+| case | PnL (SE) | spread | fees | inventory | markout | fills |
+|---|---|---|---|---|---|---|
+| frictionless | 7.41 (0.01) | 7.44 | 0.00 | 0.01 | 0.01 | 1,076 |
+| 1-cent tick, 0.2-cent rebate | 7.33 (0.01) | 6.20 | 1.16 | −0.01 | 0.00 | 580 |
+| 1-cent tick, 0.2-cent fee | 5.00 (0.01) | 6.20 | −1.16 | −0.00 | −0.01 | 580 |
+| tick, rebate, 15% informed flow | 4.01 (0.01) | 10.25 | 1.86 | −8.07 | −8.06 | 931 |
+| as above, 60%-accurate signal | 5.00 (0.01) | 9.81 | 1.97 | −6.75 | −6.74 | 985 |
+| tick, rebate, quotes 5 s stale | −23.73 (0.02) | −28.33 | 4.65 | 0.00 | 0.00 | 2,327 |
+| GLFT quotes, tick, rebate | 11.00 (0.04) | 9.27 | 1.76 | −0.00 | −0.00 | 880 |
+
+Informed flow raises spread capture and lowers PnL; the markout shows where
+the money went ([Learn, Sections 6.7-6.12](learn.md)).
 
 ## What's inside
 
@@ -171,12 +191,33 @@ relative), and the Python suite cross-checks it against SciPy.
     saving of the time-consistent case asserted; internalisation of
     opposite client orders.
 
+-   **Market making with frictions**
+
+    ---
+
+    The A-S quoting logic with a price grid, maker fees or rebates, stale
+    quotes, informed traders and a fair-value signal of given accuracy,
+    switched on one at a time; GLFT quotes beside A-S; every path's PnL split
+    exactly into spread, fees, inventory and liquidation, with one-step
+    markouts.
+
+-   **Limit-order placement**
+
+    ---
+
+    Fill probability of a resting order from its place in the queue
+    (uniformisation, no cancellation-prone closed form); the choice between
+    posting and crossing for a child order; liquidation with limit and
+    market orders by backward induction, checked against all-market and
+    post-then-sweep on shared paths.
+
 -   **Golden-value testing**
 
     ---
 
-    Six golden files with 70 cases (19 model, 15 market, 8 impact, 11 TCA,
-    9 calibration, 8 execution), loaded by all four suites: deterministic
+    Eight golden files with 95 cases (19 model, 15 market, 8 impact, 11 TCA,
+    9 calibration, 8 execution, 14 market-making, 11 placement), loaded by
+    all four suites: deterministic
     cases under a relative-or-absolute tolerance of 1e-9 to 1e-12, Monte
     Carlo cases as reference values plus standard errors. Sample values
     differ across languages by design; distributions must agree.
@@ -209,10 +250,11 @@ relative), and the Python suite cross-checks it against SciPy.
 
     `tau`, `dt`, `T` in an abstract time unit (bundled sets and the market
     layer use one trading day); `sigma` is arithmetic; prices may go
-    negative; AC shares are fractional, A-S fills are one unit. Not covered
-    yet: adverse selection in market making, limit-order placement, order
-    types, venues, ticks, lots, latency, calendars, and any fit of the
-    impact parameters `eta`, `alpha`, `gamma_p` and `Y` to real parent
+    negative; AC shares are fractional, A-S fills are one unit. Ticks,
+    fees, latency and informed flow are stylised switches in the
+    market-making simulator, not a matching engine. Not covered yet: venues,
+    lots, an order book, hedging and risk limits, calendars, and any fit of
+    the impact parameters `eta`, `alpha`, `gamma_p` and `Y` to real parent
     orders.
 
 -   **Reference papers**
@@ -225,7 +267,9 @@ relative), and the Python suite cross-checks it against SciPy.
     and Fernandez-Tapia (2013) for the inventory-capped variant behind
     `q_max`; Almgren et al. (2005), Tóth et al. (2011) and Bouchaud et al.
     (2018) for the square-root law; Obizhaeva and Wang (2013) for transient
-    impact; Almgren and Lorenz (2007) for adaptive execution; Andersen et
+    impact; Almgren and Lorenz (2007) for adaptive execution; Glosten and
+    Milgrom (1985) for adverse selection; Cont, Stoikov and Talreja (2010)
+    and Cartea and Jaimungal (2015) for queues and liquidation; Andersen et
     al. (2001) for realised variance; Welch (1947) for the A/B test; MiFID II Art. 17/27, Reg NMS Rules
     605/606 and SEC Rule 15c3-5 in the guide's regulatory section.
 
@@ -275,18 +319,18 @@ cd electronic-trading
 # Python (3.11+)
 pip install -e "python[dev]"
 python python/demo.py
-pytest python                                   # 371 tests
+pytest python                                   # 575 tests
 
-# C++ (C++17, CMake >= 3.20; GCC, Clang or MSVC)
+# C++ (C++26, CMake >= 3.25; GCC 14+, recent Clang, MSVC /std:c++latest, LLVM Clang on macOS)
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release               # 127 tests
+ctest --test-dir build -C Release               # 191 tests
 
 # Rust (stable, MSRV 1.78)
-(cd rust && cargo test --release && cargo run --release --example demo)   # 151 tests
+(cd rust && cargo test --release && cargo run --release --example demo)   # 290 tests
 
-# Java (JDK 17+, Maven)
-(cd java && mvn verify && mvn -q exec:java)     # 120 tests
+# Java (JDK 25 LTS, Maven)
+(cd java && mvn verify && mvn -q exec:java)     # 333 tests
 ```
 
 electronic-trading is MIT-licensed and provided without warranty: a

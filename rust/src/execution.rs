@@ -516,9 +516,20 @@ pub struct InternalisationResult {
     /// Saving in bps of the gross notional.
     pub saved_bps: f64,
     /// Saving per buy order in bps of its own notional.
-    pub buy_saved_bps: Vec<f64>,
+    buy_saved_bps: Vec<f64>,
     /// Saving per sell order in bps of its own notional.
-    pub sell_saved_bps: Vec<f64>,
+    sell_saved_bps: Vec<f64>,
+}
+
+impl InternalisationResult {
+    /// Saving per buy order in bps of its own notional.
+    pub fn buy_saved_bps(&self) -> &[f64] {
+        &self.buy_saved_bps
+    }
+    /// Saving per sell order in bps of its own notional.
+    pub fn sell_saved_bps(&self) -> &[f64] {
+        &self.sell_saved_bps
+    }
 }
 
 fn orders(name: &str, q: &[f64]) -> Result<(), EtradeError> {

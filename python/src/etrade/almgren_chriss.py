@@ -128,6 +128,9 @@ MAX_POV_INTERVALS: int = 10_000_000
 #: Upper bound on Monte Carlo path counts (pinned, API_SPEC §0).
 MAX_PATHS: int = 10_000_000
 
+#: Upper bound on the total Monte Carlo work n_paths * N of `simulate_is` (pinned, API_SPEC §0).
+MAX_MC_WORK: int = 1_000_000_000
+
 
 def _require(cond: bool, msg: str) -> None:
     if not cond:
@@ -221,11 +224,14 @@ def ac_kappa(params: ACParams) -> float:
     (identical to ``arccosh(1 + x)/tau`` but free of cancellation for small
     ``x``; pinned in API_SPEC.md Section 1.4).
     """
-    kt2 = params.lambda_ra * params.sigma**2 / params.eta_tilde
+    kt2 = params.lambda_ra * (params.sigma * params.sigma) / params.eta_tilde
     if kt2 == 0.0:
         return 0.0
-    x = 0.5 * kt2 * params.tau**2
-    return math.log1p(x + math.sqrt(x * (2.0 + x))) / params.tau
+    if not math.isfinite(kt2):
+        return math.inf
+    x = 0.5 * kt2 * (params.tau * params.tau)
+    kappa = math.log1p(x + math.sqrt(x * (2.0 + x))) / params.tau
+    return kappa if math.isfinite(kappa) else math.inf
 
 
 def half_life(params: ACParams) -> float:
@@ -257,10 +263,16 @@ def ac_trajectory(params: ACParams) -> np.ndarray:
     if x0 == 0.0:
         return np.zeros(n + 1)
     kappa = ac_kappa(params)
+    if not math.isfinite(kappa):
+        # kappa overflowed (absurd but finite inputs): the infinite-urgency
+        # limit sells everything in the first interval (API_SPEC 1.4).
+        x = np.zeros(n + 1)
+        x[0] = x0
+        return x
     t_j = j * params.tau
     big_t = params.horizon
-    if kappa * big_t < KAPPA_T_LIMIT:
-        x = x0 * (n - j) / n  # exact TWAP limit, no 0/0
+    if kappa == 0.0 or kappa * big_t < KAPPA_T_LIMIT:  # kappa = 0 even if T overflows
+        x = x0 * ((n - j) / n)  # exact TWAP limit, no 0/0; fraction first so huge X cannot overflow
     else:
         # sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT);
         # the ratio is formed first so that x_0 == X exactly (1 * 1 * X).
@@ -304,7 +316,7 @@ def twap_holdings(total_shares: float, n_intervals: int) -> np.ndarray:
         f"n_intervals must be an integer in [1, {MAX_AC_INTERVALS}]",
     )
     j = np.arange(n_intervals + 1, dtype=float)
-    return total_shares * (n_intervals - j) / n_intervals
+    return total_shares * ((n_intervals - j) / n_intervals)  # fraction first: no overflow
 
 
 def pov_holdings(
@@ -331,14 +343,16 @@ def pov_holdings(
         "participation must be in (0, 1)",
     )
     clip = participation * market_volume_rate * tau
+    _require(math.isfinite(clip), "POV clip participation*market_volume_rate*tau must be finite")
     if total_shares == 0.0:
         return np.zeros(2)
-    ratio = total_shares / clip
+    # The clip can underflow to 0 for tiny inputs: that is "too small" too.
+    ratio = total_shares / clip if clip > 0.0 else math.inf
     _require(
         ratio <= MAX_POV_INTERVALS,
         f"POV clip too small: would need > {MAX_POV_INTERVALS} intervals",
     )
-    n_int = math.ceil(ratio - 1e-12)
+    n_int = max(1, math.ceil(ratio - 1e-12))  # at least one interval for X > 0
     x = total_shares - clip * np.arange(n_int + 1, dtype=float)
     x = np.maximum(x, 0.0)
     x[-1] = 0.0
@@ -357,7 +371,7 @@ def expected_cost(params: ACParams, holdings: Holdings | None = None) -> float:
     _require_liquidating(x)
     n = -np.diff(x)
     x0 = float(x[0])
-    return 0.5 * params.gamma_p * x0**2 + params.eta_tilde / params.tau * float(np.sum(n**2))
+    return 0.5 * params.gamma_p * (x0 * x0) + params.eta_tilde / params.tau * float(np.sum(n**2))
 
 
 def variance_cost(params: ACParams, holdings: Holdings | None = None) -> float:
@@ -366,7 +380,10 @@ def variance_cost(params: ACParams, holdings: Holdings | None = None) -> float:
     ``holdings`` (length >= 2, finite) defaults to the optimal trajectory.
     """
     x = ac_trajectory(params) if holdings is None else _holdings_array(holdings)
-    return params.sigma**2 * params.tau * float(np.sum(x[1:] ** 2))
+    sum_x2 = float(np.sum(x[1:] ** 2))
+    if sum_x2 == 0.0:
+        return 0.0  # no residual exposure (avoids inf * 0 for extreme sigma)
+    return (params.sigma * params.sigma) * params.tau * sum_x2
 
 
 def instantaneous_cost(params: ACParams) -> tuple[float, float]:
@@ -375,7 +392,7 @@ def instantaneous_cost(params: ACParams) -> tuple[float, float]:
     E = 0.5*gamma_p*X^2 + eta_tilde*X^2/tau,  Var = 0 (no residual exposure).
     """
     x0 = params.total_shares
-    e = 0.5 * params.gamma_p * x0**2 + params.eta_tilde * x0**2 / params.tau
+    e = 0.5 * params.gamma_p * (x0 * x0) + params.eta_tilde * (x0 * x0) / params.tau
     return e, 0.0
 
 
@@ -437,6 +454,10 @@ def simulate_is(
     )
     x = ac_trajectory(params) if holdings is None else _holdings_array(holdings)
     _require_liquidating(x)
+    _require(
+        n_paths * (x.size - 1) <= MAX_MC_WORK,
+        f"n_paths * n_intervals must be <= {MAX_MC_WORK}",
+    )
     n = -np.diff(x)
     rng = np.random.default_rng(seed)
     n_int = n.size

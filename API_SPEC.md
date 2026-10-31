@@ -38,6 +38,23 @@ Names per language: Python `et.MAX_AC_INTERVALS` etc.; C++
 (Rust) and
 `Impact.MAX_IMPACT_INTERVALS` (Java).
 
+**Product bounds (pinned).** The per-axis bounds above still admit
+`MAX_PATHS * MAX_AC_INTERVALS = 1e14` units of work, so the two Monte Carlo
+entry points also bound the product, checked after the per-axis bounds and
+before any allocation or draw:
+
+| constant | value | applies to |
+|---|---|---|
+| `MAX_MC_WORK` | 1,000,000,000 | `simulate_is`: `n_paths * N` (`N` = intervals of the schedule simulated) |
+| `MAX_AS_WORK` | 10,000,000,000 | `simulate` (Section 2): `n_paths * n_steps` |
+
+Violation is the input error `"n_paths * n_intervals must be <= 1000000000"`
+or `"n_paths * n_steps must be <= 10000000000"`. The product is formed in
+64-bit integer (or exact double) arithmetic, so it cannot overflow. Names:
+Python `et.MAX_MC_WORK`, `et.MAX_AS_WORK`; C++ `etrade::kMaxMcWork`,
+`kMaxAsWork`; Rust `etrade::MAX_MC_WORK`, `MAX_AS_WORK`; Java
+`AlmgrenChriss.MAX_MC_WORK`, `AvellanedaStoikov.MAX_AS_WORK`.
+
 Units are abstract but must be consistent within a parameter set; nothing
 ties `tau`/`dt` to a clock or calendar (no day-count, no holidays). The
 intraday volume curve of Section 8.3 is a vector of per-interval weights,
@@ -156,8 +173,17 @@ exact linear TWAP limit
 x_j = X * (N - j) / N
 ```
 
-with no evaluation of the sinh ratio (no 0/0).  The sinh branch is continuous
+with no evaluation of the sinh ratio (no 0/0). `kappa = 0` always takes this
+branch, even when the horizon `N*tau` overflows to infinity (`0 * inf` is
+NaN, so the product test alone would miss it).  The sinh branch is continuous
 at the threshold to well below golden tolerance.
+
+**Infinite-urgency limit (pinned):** if `kappa` is not finite (the
+`kappa_tilde^2` or `log1p` evaluation overflows for absurd but finite
+inputs), the trajectory is the instantaneous schedule `x_0 = X`,
+`x_j = 0` for `j >= 1`, never NaN; `ac_kappa` then returns `+inf` (and
+`half_life` 0). `Var[IS]` of a schedule whose holdings after `x_0` are all
+zero is exactly 0 even when `sigma^2` overflows.
 
 Special cases: `X = 0` → all-zero trajectory, `E = Var = 0`.  `N = 1` →
 `x = [X, 0]`, single clip.
@@ -184,8 +210,12 @@ Special cases: `X = 0` → all-zero trajectory, `E = Var = 0`.  `N = 1` →
   participation `p in (0,1)` (both open endpoints; violation is an input
   error; all inputs finite).  Clip size `c = p*V*tau`.  The schedule sells
   `c` per interval until done, last clip partial: number of intervals
-  `M = ceil(X/c - 1e-12)`, holdings `x_i = max(X - i*c, 0)` for `i = 0..M`,
-  `x_M = 0` exactly.  **Bound (pinned):** `X/c <= MAX_POV_INTERVALS` is
+  `M = max(1, ceil(X/c - 1e-12))` for `X > 0` (a remainder below the
+  `1e-12` slack still takes one interval), holdings `x_i = max(X - i*c, 0)`
+  for `i = 0..M`, `x_M = 0` exactly.  A clip that is not finite (the product
+  `p*V*tau` overflowing) is the input error "POV clip
+  participation*market_volume_rate*tau must be finite"; a clip that
+  underflows to 0 fails the bound below.  **Bound (pinned):** `X/c <= MAX_POV_INTERVALS` is
   checked on the double ratio *before* the `ceil`/cast/allocation; violation
   is the input error "POV clip too small: would need > 10000000 intervals".
   E/Var from the Section 1.3 sums (the horizon is `M*tau`, not `N*tau`).
@@ -349,7 +379,7 @@ values.  The generators are pinned per language:
 | Python | `numpy.random.default_rng(seed)` (PCG64) | bit-stable across NumPy releases (PCG64 stream is versioned) |
 | C++ | `std::mt19937_64(seed)` + `std::uniform_real_distribution` / `std::normal_distribution` | bit-stable within one standard library; the distribution algorithms are implementation-defined, so libstdc++ / libc++ / MSVC differ for the same seed |
 | Rust | `rand_chacha::ChaCha12Rng::seed_from_u64(seed)` + `rand_distr::StandardNormal` | pinned explicitly (not `StdRng`, which `rand` documents as free to change between releases); bit-stable across `rand` 0.8.x |
-| Java | `java.util.SplittableRandom(seed)` (`nextDouble`, `nextGaussian`) | bit-stable within one JVM build and platform; `nextDouble` is specified, but `nextGaussian` is a `RandomGenerator` default and `Math.*` may differ by 1 ulp across platforms, so cross-JDK bit-stability is not guaranteed |
+| Java | `java.util.SplittableRandom(seed).nextDouble()` uniforms; normals by the Marsaglia polar method on those uniforms (`u, v = 2U - 1` until `0 < s = u^2 + v^2 < 1`, return `u*sqrt(-2 ln s / s)` then the cached `v*sqrt(-2 ln s / s)`), not `nextGaussian` | bit-identical across JVMs, JDK versions (25+) and platforms: `SplittableRandom.nextDouble` is specified, the normal generator is pinned in the library (`NormalRng`), and every transcendental call (`exp`, `expm1`, `log`, `log1p`, `pow`, `sqrt`, `sin`) uses `StrictMath` (fdlibm). Not guaranteed: equality with the Python/C++/Rust streams (statistical agreement only, checked by the 4-SE goldens) |
 
 Therefore:
 
@@ -399,6 +429,25 @@ Inputs use prefixed flat keys (`ac_*`, `as_*`) matching
 `n_paths_ref` (20000).  Regenerate with `python3 data/generate_data.py`
 (which first asserts the AC closed forms against Monte Carlo).
 
+### 5.1 Vector cases
+
+Schema v2 (`data/golden/trajectory_golden.json`, generated by
+`data/generate_trajectories.py`): `{"schema": 2, "cases": [...]}` with the
+case fields of Section 5. Vectors are stored as indexed flat keys
+(`x_0, x_1, ..., x_{len-1}`), plus `len`, the number of points; a reader
+asserts `len` and every indexed key. Comparison rule and tolerances as
+Section 5 (`1e-10` for Section 1 paths, `1e-9` for Section 8).
+
+| name | kind | expect keys |
+|---|---|---|
+| ac_trajectory_{liquid,illiquid,fx} | ac_trajectory | `x_j`, the Section 1.4 optimum on the bundled set |
+| twap_liquid_10 | twap | `x_j` of `twap_holdings(X, 10)` |
+| pov_liquid | pov | `x_j` of `pov_holdings` (Section 1.6) |
+| frontier_liquid_8 | frontier | `kappa_i`, `e_cost_i`, `std_cost_i` over the 8-point grid `lambda_0..lambda_7` (inputs carry `n_lambdas`) |
+| impact_alpha06_drift_curve_path | impact_schedule | `xfrac_j = x_j / X`, `j = 0..N`, of the Section 8.2 schedule (inputs as Section 8.5) |
+
+Every suite asserts every key of every case and that the count is 7.
+
 ## 6. Error behavior
 
 All input violations are reported, never silently clamped, and never crash
@@ -426,8 +475,12 @@ throws `IllegalArgumentException`.  Checked conditions include:
   `Q <= X`); finite prices; OLS `n >= 2` and non-degenerate x;
   `market_volume > 0` and `executed_volume <= market_volume`.
 
-No public function returns NaN or infinity from finite valid inputs, and no
-loop or allocation is unbounded (Section 0).
+No public function returns NaN from finite valid inputs, and no loop or
+allocation is unbounded (Section 0). A result whose true value exceeds the
+double range (for example a variance with `sigma` near `1e308`) is
+returned as infinity; the infinite-urgency limits of Section 1.4 are
+defined values, not errors. The property-based tests in every language
+draw extreme finite inputs to keep this true.
 
 Non-errors (documented behavior): negative prices (arithmetic walks);
 `kappa = 0` (TWAP branch, half-life = infinity); a quote through the mid
@@ -1394,3 +1447,195 @@ Moallemi and Yuan, "A model for queue position valuation in a limit order
 book", working paper, Columbia Business School, 2016; Cartea and Jaimungal,
 Quantitative Finance 15(8), 2015; Toth, Lemperiere, Deremble, de Lataillade,
 Kockelkoren and Bouchaud, Physical Review X 1(2), 2011.
+
+## 14. Hedged market making and risk controls (pinned)
+
+The Section 9 maker can shed inventory only by skewing its own quotes. A desk
+that makes markets in an ETF also trades the future or the basket: it lays
+inventory risk off in a correlated instrument, pays that instrument's half
+spread and fee, and keeps the basis risk. The same desk runs hard risk
+controls outside the quoting model. Section 14 adds both to the Section 9
+loop in a separate simulator; Section 9's loop and goldens are unchanged.
+Python `etrade.hedging` is the reference; ports expose the same names in
+their own style (C++ `etrade::simulate_hedged`, `etrade::HedgeConfig`,
+`etrade::RiskConfig`; Rust `etrade::hedging`; Java `Hedging`). Golden cases:
+`data/golden/hedging_golden.json` (18 cases: 8 exact, 10 statistical),
+generated by `data/generate_hedging.py`.
+
+### 14.1 Configuration
+
+`simulate_hedged(params, n_paths, seed, config, hedge, risk)` takes the
+Section 2 `ASParams`, the Section 9 `MMConfig` (9.1, same validation) and:
+
+`HedgeConfig` (all finite): `rho` in `[-1, 1]` (correlation of B's move with
+A's), `hedge_ratio >= 0` (B shares per A share; `0` = no hedging),
+`hedge_cost >= 0` (per B share traded: half spread plus fee),
+`hedge_threshold >= 0`, `hedge_target` in `[0, 1)`. Defaults all `0`.
+
+`RiskConfig`: `loss_limit >= 0` finite (`0` = off), integer
+`position_limit >= 0` (`0` = off), `flatten_penalty >= 0` finite (per share
+flattened by a control), integer `throttle_updates >= 0` (`0` = off),
+integer `throttle_window` in `[1, n_steps]` (default 1), integer
+`kill_step` in `[-1, n_steps]` (`-1` = off, the default). Defaults are all
+off. `n_paths` integer in `[2, MAX_PATHS]`; `latency_steps <= n_steps`.
+
+### 14.2 Hedge sizing (pinned, exact)
+
+`hedge_trade(q, y, hedge_ratio, hedge_threshold, hedge_target)`: with
+`hedge_ratio = 0` return `0`; else `u = q + y/hedge_ratio` (A shares not
+covered at the chosen ratio) and
+
+```
+dy = -hedge_ratio * (1 - hedge_target) * u   if |u| > hedge_threshold,   else 0
+```
+
+so a fraction `hedge_target` of `u` is left uncovered. `q`, `y` finite; the
+bounds of 14.1 apply.
+
+### 14.3 Instrument B and the skew exposure
+
+B moves `sigma*sqrt(dt)*(rho*z + sqrt(1 - rho^2)*z_b)` per step: it is quoted
+in A-equivalent units (same per-step volatility), so the minimum-variance
+hedge ratio is `rho` (Ederington 1979). B starts at `s0`. The book's
+per-step PnL variance is `sigma^2 dt (q^2 + 2 rho q y + y^2)`, whose
+half-derivative in `q` is `sigma^2 dt x` with
+
+```
+x = q + rho*y        (risk-equivalent exposure in A shares)
+```
+
+and the quoting agents of 9.4 use `x` in place of `q` (the multi-asset
+reservation price, Guéant 2017). Without a hedge `y = 0` and `x = q`. A full
+hedge at `hedge_ratio = rho` leaves `x = (1 - rho^2) q`. The skew of the
+desired quotes is `skew = x gamma sigma^2 (T - t)` (`as`), `x c2` (`glft`)
+and `0` (`fixed`). The `q_max` cap of 9.4 still applies to `q`.
+
+### 14.4 Simulation loop (ORDER PINNED)
+
+State per path: the Section 9 state (`s`, `q`, `cash`, latency history), B
+mid `b = s0`, B position `y = 0`, `active = true`, standing quotes
+`bid_q = ask_q = s0`, the steps of the last `throttle_updates` quote updates
+(all `-inf`), `mark_prev = 0`. Per step `i`, `t = i*dt`:
+
+1. **Draws, always all six, in this order:** the five of 9.4 (`z`, `u_sig`,
+   `u_ask`, `u_bid`, `u_inf`), then `z_b ~ N(0,1)`.
+2. **Stops.** `mark = cash + q s + y b`. `kill = active and i == kill_step`;
+   `loss = active and not kill and loss_limit > 0 and mark < -loss_limit`.
+   On a loss stop record `overshoot = max(0, -loss_limit - mark)` and
+   `stop_move = |mark - mark_prev|` (both 0 on paths that never stop on
+   loss). On either stop flatten both legs at their mids:
+   `cash += q s - flatten_penalty |q|`, `risk_costs += flatten_penalty |q|`,
+   `q = 0`; `cash += y b - hedge_cost |y|`, `hedge_costs += hedge_cost |y|`,
+   `hedge_trades += (y != 0)`, `y = 0`; then `active = false` for the rest of
+   the horizon. `kill_stop` and `loss_stop` record the stop (0 or 1). Then
+   `mark_prev = mark`.
+3. **Desired quotes.** 9.4 steps 2 and 3 with `x = q + rho y` in place of
+   `q`, then 9.2 rounding when `tick > 0`. If `active`,
+   `sum_skew2 += skew^2`.
+4. **Throttle.** `allow = active` when `throttle_updates = 0`; else
+   `allow = active and (step of the throttle_updates-th most recent update)
+   <= i - throttle_window`, i.e. at most `throttle_updates` updates in any
+   `throttle_window` consecutive steps. If `allow`, the desired quotes become
+   the standing quotes, the step is recorded and `quote_updates += 1`;
+   otherwise the previous standing quotes stand (stale: fills and informed
+   traders see them against the true mid).
+5. **Fills.** 9.4 steps 4 to 6 against the standing quotes, both sides gated
+   by `active` as well as `q_max`, with the same accumulators.
+6. **Position limit.** If `active`, `position_limit > 0` and
+   `|q| >= position_limit`: `cash += q s - flatten_penalty |q|`,
+   `risk_costs += flatten_penalty |q|`, `pos_flattens += 1`, `q = 0`.
+7. **Hedge.** If `active` and `hedge_ratio > 0`: `u = q + y/hedge_ratio`; if
+   `|u| > hedge_threshold`, `dy = -hedge_ratio (1 - hedge_target) u`,
+   `cash -= dy b + hedge_cost |dy|`, `hedge_costs += hedge_cost |dy|`,
+   `hedge_trades += 1`, `y += dy`.
+8. **Accounting and moves.** `move = sigma sqrt(dt) z`,
+   `move_b = sigma sqrt(dt) (rho z + sqrt(1 - rho^2) z_b)`;
+   `inventory += q move`, `markout += (fb - fa) move`,
+   `hedge_pnl += y move_b`, `sum_q2 += q^2`, `sum_x2 += (q + rho y)^2`;
+   `s += move`, `b += move_b`, push `s` into the history.
+
+Terminal: `liquidation = eta_liq |q_T|`; the hedge is unwound,
+`hedge_costs += hedge_cost |y_T|`, `hedge_trades += (y_T != 0)`;
+`pnl = cash + q_T s_T + y_T b_T - liquidation - hedge_cost |y_T|`;
+`rms_q = sqrt(sum_q2/n_steps)`, `rms_x = sqrt(sum_x2/n_steps)`,
+`rms_skew = sqrt(sum_skew2/n_steps)`.
+
+A stale quote deep through the mid has fill probability 1 (the exponential
+overflows to infinity and `-expm1(-inf) = 1`).
+
+With the default `HedgeConfig` and `RiskConfig` the loop is Section 9.4 plus
+one unused draw, so the result equals Section 9 **in distribution** (not
+sample by sample); every suite asserts this within the Section 4 rule.
+
+### 14.5 Attribution and statistics (pinned)
+
+Per path, exactly (relative to `max(1, |pnl|)`, tolerance `1e-9`, asserted
+by every suite):
+
+```
+pnl = spread + fees + inventory - liquidation + hedge_pnl - hedge_costs - risk_costs
+```
+
+Statistics, each a per-path array: the nine of 9.5, then `hedge_pnl,
+hedge_costs, hedge_trades, risk_costs, rms_x, rms_skew, quote_updates,
+loss_stop, kill_stop, pos_flattens, overshoot, stop_move`. `mean` and `se`
+as 9.5. `var(stat) = m2 = mean((v - mean)^2)` (population) with the
+delta-method standard error `var_se = sqrt(max(0, m4 - m2^2)/n_paths)`,
+`m4 = mean((v - mean)^4)`. `quantile(stat, p)` is 14.6 over paths. Unknown
+names are input errors. The result reports the largest identity residual.
+
+The loss limit never lets the mark at the stop fall below the limit by more
+than that step's change of the mark: `overshoot <= stop_move` on every path
+(asserted). The overshoot is the gap risk of a control checked once per
+step; the flatten penalty and B's unwind cost come on top of it.
+
+### 14.6 Quantile (pinned, exact)
+
+`quantile(values, p)`: Hyndman and Fan (1996) type 7, the default of NumPy
+and R. Sort ascending to `v` (length `n >= 1`, finite), `h = (n - 1) p`,
+`j = floor(h)`; return `v[n-1]` if `j >= n - 1`, else
+`v[j] + (h - j)(v[j+1] - v[j])`. `p` in `[0, 1]`.
+
+### 14.7 Golden cases
+
+Exact kinds (`tol 1e-12`, Section 5 rule): `hedge_trade` (inputs `q`, `y`,
+`hedge_ratio`, `hedge_threshold`, `hedge_target`; expect `dy`) and
+`hedge_quantile` (inputs `v_0..v_9`, `p`; expect `q`). Statistical kind
+`hedge_sim` (`tol = 4.0`, Section 4 rule): inputs are the `mm_sim` inputs of
+9.7 plus the 14.1 fields (integers stored as JSON numbers), `seed` and
+`n_paths_ref` (20000); expect `pnl, spread, fees, inventory, hedge_pnl,
+hedge_costs, risk_costs, fills, rms_q, rms_x, rms_skew, quote_updates,
+loss_stop, kill_stop, pos_flattens`, each with `_se`, and `pnl_var` with
+`pnl_var_se` (14.5). A key whose two standard errors are both 0 must match
+within `1e-12`. Ports run their own RNG (Section 4) with at least 2000
+paths. Every suite asserts every key of every case, that the count is 18,
+and the attribution identity on every simulated path.
+
+What the goldens show (Python, 20000 paths, `us_large_cap`, one-tick grid,
+0.2-cent rebate, 15% informed arrivals, B at `rho = 0.9`, hedge cost half a
+cent; PnL per session, 5% quantile by 14.6):
+
+| case | mean pnl | sd | 5% quantile | rms skew |
+|---|---|---|---|---|
+| A-S, unhedged | 4.00 | 1.45 | 1.59 | 0.0067 |
+| A-S, full hedge | 7.83 | 1.36 | 5.59 | 0.0031 |
+| fixed spread, unhedged | 3.83 | 25.80 | -40.41 | 0 |
+| fixed spread, full hedge | 7.92 | 11.39 | -11.18 | 0 |
+| fixed, loss limit 5 | 2.17 | 14.22 | -5.83 | 0 |
+| fixed, position limit 10 | 4.16 | 6.04 | -5.86 | 0 |
+| A-S, throttle 1 per 3 steps | -32.86 | 2.98 | -37.98 | 0.0135 |
+| fixed, kill at 3/4 of the session | 3.13 | 19.86 | -30.68 | 0 |
+
+The hedge halves the A-S skew: the book stops giving away edge to shed
+inventory, earns more spread and pays about 3 per session in hedge costs for
+it. For the fixed-spread agent, which cannot skew, it cuts the PnL standard
+deviation by more than half. The loss and position limits lift the 5%
+quantile from -40 to about -6, the loss limit at a cost in mean; the
+throttle turns the book into a loss because informed traders pick off stale
+quotes; the kill switch gives up the last quarter's spread for less
+inventory risk. These are illustrative parameters, not a calibration.
+
+References: Ederington, Journal of Finance 34(1), 1979 (minimum-variance
+hedge ratio); Guéant, *The Financial Mathematics of Market Liquidity*,
+Chapman and Hall/CRC, 2017 (multi-asset market making); Hyndman and Fan,
+The American Statistician 50(4), 1996 (sample quantiles).

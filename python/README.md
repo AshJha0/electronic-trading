@@ -11,7 +11,7 @@ Java ports are validated against it through shared golden values.
 
 ```bash
 pip install -e "python[dev]"     # from the repository root
-pytest python                    # run the tests (371)
+pytest python                    # run the tests (487)
 python python/demo.py            # run the demo
 ```
 

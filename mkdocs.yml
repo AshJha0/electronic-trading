@@ -38,6 +38,7 @@ nav:
   - API contract: api-spec.md
   - Architecture: architecture.md
   - Diagrams: diagrams.md
+  - Benchmarks: benchmarks.md
   - Changelog: changelog.md
   - Publishing the site: publishing.md
 

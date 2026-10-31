@@ -1,4 +1,5 @@
 #include "etrade/almgren_chriss.hpp"
+#include "etrade/detail/require.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,10 +11,7 @@ namespace etrade {
 
 namespace {
 
-/// Throw std::invalid_argument unless `cond` holds.
-void require(bool cond, const char* msg) {
-    if (!cond) throw std::invalid_argument(msg);
-}
+using detail::require;
 
 /// Validate a user-supplied holdings path: length >= 2, all finite.
 void require_holdings(const std::vector<double>& x) {
@@ -65,10 +63,12 @@ double ac_kappa(const ACParams& params) {
     const double kt2 = params.lambda_ra * params.sigma * params.sigma /
                        params.eta_tilde();
     if (kt2 == 0.0) return 0.0;
+    if (!std::isfinite(kt2)) return std::numeric_limits<double>::infinity();
     // arccosh(1 + x) = log1p(x + sqrt(x*(2 + x))): free of cancellation for small x
     // where acosh(1 + x) cancels (pinned evaluation form, API_SPEC 1.4).
     const double x = 0.5 * kt2 * params.tau * params.tau;
-    return std::log1p(x + std::sqrt(x * (2.0 + x))) / params.tau;
+    const double kappa = std::log1p(x + std::sqrt(x * (2.0 + x))) / params.tau;
+    return std::isfinite(kappa) ? kappa : std::numeric_limits<double>::infinity();
 }
 
 double half_life(const ACParams& params) {
@@ -84,10 +84,15 @@ std::vector<double> ac_trajectory(const ACParams& params) {
     std::vector<double> x(static_cast<std::size_t>(n) + 1, 0.0);
     if (x0 == 0.0) return x;
     const double kappa = ac_kappa(params);
+    if (!std::isfinite(kappa)) {
+        // kappa overflowed: infinite-urgency limit, everything in interval 1.
+        x[0] = x0;
+        return x;
+    }
     const double big_t = params.horizon();
-    if (kappa * big_t < kKappaTLimit) {
+    if (kappa == 0.0 || kappa * big_t < kKappaTLimit) {  // kappa = 0 even if T overflows
         // Exact linear TWAP limit — no 0/0 from the sinh ratio.
-        for (int j = 0; j <= n; ++j) x[j] = x0 * (n - j) / n;
+        for (int j = 0; j <= n; ++j) x[j] = x0 * (static_cast<double>(n - j) / n);  // fraction first: no overflow
     } else {
         // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT):
         // overflow-free for any kappa*T; ratio formed first so x_0 == X exactly.
@@ -122,7 +127,7 @@ std::vector<double> twap_holdings(double total_shares, int n_intervals) {
             "n_intervals must be an integer in [1, 10000000]");
     std::vector<double> x(static_cast<std::size_t>(n_intervals) + 1);
     for (int j = 0; j <= n_intervals; ++j) {
-        x[j] = total_shares * (n_intervals - j) / n_intervals;
+        x[j] = total_shares * (static_cast<double>(n_intervals - j) / n_intervals);
     }
     return x;
 }
@@ -138,11 +143,12 @@ std::vector<double> pov_holdings(double total_shares, double tau,
                 participation < 1.0,
             "participation must be in (0, 1)");
     const double clip = participation * market_volume_rate * tau;
+    require(std::isfinite(clip), "POV clip participation*market_volume_rate*tau must be finite");
     if (total_shares == 0.0) return {0.0, 0.0};
     const double ratio = total_shares / clip;  // bounded BEFORE any cast/alloc
     require(ratio <= static_cast<double>(kMaxPovIntervals),
             "POV clip too small: would need > 10000000 intervals");
-    const int m = static_cast<int>(std::ceil(ratio - 1e-12));
+    const int m = std::max(1, static_cast<int>(std::ceil(ratio - 1e-12)));  // >= 1 for X > 0
     std::vector<double> x(static_cast<std::size_t>(m) + 1);
     for (int i = 0; i <= m; ++i) {
         x[i] = std::max(total_shares - clip * i, 0.0);
@@ -172,6 +178,7 @@ double variance_cost(const ACParams& params, const std::vector<double>& holdings
     for (std::size_t j = 1; j < holdings.size(); ++j) {
         sum_x2 += holdings[j] * holdings[j];
     }
+    if (sum_x2 == 0.0) return 0.0;  // no residual exposure (avoids inf * 0)
     return params.sigma * params.sigma * params.tau * sum_x2;
 }
 
@@ -206,6 +213,10 @@ ISSimResult simulate_is(const ACParams& params, const std::vector<double>& holdi
             "n_paths must be an integer in [2, 10000000]");
     require_holdings(holdings);
     require_liquidating(holdings);
+    require(static_cast<std::int64_t>(n_paths) *
+                    static_cast<std::int64_t>(holdings.size() - 1) <=
+                kMaxMcWork,
+            "n_paths * n_intervals must be <= 1000000000");
     const std::vector<double> n = trades_from_holdings(holdings);
     std::mt19937_64 rng(seed);
     std::normal_distribution<double> normal(0.0, 1.0);

@@ -176,6 +176,47 @@ pub enum MMAgent {
     Fixed,
 }
 
+impl MMAgent {
+    /// Lowercase name, the inverse of [`FromStr`](std::str::FromStr).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MMAgent::As => "as",
+            MMAgent::Glft => "glft",
+            MMAgent::Fixed => "fixed",
+        }
+    }
+}
+
+impl std::str::FromStr for MMAgent {
+    type Err = EtradeError;
+
+    /// Parse the exact lowercase name (mirrors the reference).
+    ///
+    /// ```
+    /// use etrade::mm::MMAgent;
+    /// let a: MMAgent = "glft".parse().unwrap();
+    /// assert_eq!(a, MMAgent::Glft);
+    /// assert_eq!(a.to_string(), "glft");
+    /// ```
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "as" => Ok(MMAgent::As),
+            "glft" => Ok(MMAgent::Glft),
+            "fixed" => Ok(MMAgent::Fixed),
+            _ => Err(EtradeError::InvalidInput(
+                "agent must be 'as', 'glft' or 'fixed'".to_string(),
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for MMAgent {
+    /// Writes the same lowercase name [`FromStr`](std::str::FromStr) accepts.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Frictions and agent for [`simulate_mm`] (API_SPEC 9.1).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MMConfig {
@@ -210,7 +251,7 @@ impl Default for MMConfig {
 }
 
 impl MMConfig {
-    fn validate(&self) -> Result<(), EtradeError> {
+    pub(crate) fn validate(&self) -> Result<(), EtradeError> {
         require(
             self.tick.is_finite() && self.tick >= 0.0,
             "tick must be finite and >= 0",

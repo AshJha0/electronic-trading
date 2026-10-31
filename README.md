@@ -26,9 +26,12 @@ Welch t-test. Calibration estimators turn recorded data into model inputs,
 and three presets are fitted to one NASDAQ ITCH day (AAPL, MSFT, QQQ on
 2019-12-30, with the caveats of `API_SPEC.md` Section 11.6). Execution
 extensions add transient (decaying) impact, adaptive re-planning and
-internalisation. Market-making simulation does not yet include informed
-flow, fees or latency; that work is in progress. The other five presets and
-the pinned volume curve are illustrative, not fitted to data.
+internalisation. Market making runs with a price grid, maker fees or
+rebates, stale quotes, informed flow and a fair-value signal, with an exact
+PnL attribution and markouts, and GLFT quotes beside A-S. Limit-order
+placement covers queue fill probability, the choice between posting and
+crossing, and liquidation with limit and market orders. The other five
+presets and the pinned volume curve are illustrative, not fitted to data.
 
 Documentation site: https://ashjha0.github.io/electronic-trading/ (the guide,
 cookbook, contract, architecture notes and changelog, built from the Markdown
@@ -76,6 +79,31 @@ intensity from one day of NASDAQ data; order size, risk aversion and the
 market-making settings follow the US large-cap and ETF templates. One day
 on one venue in the week after Christmas: read them as realistic magnitudes,
 not as estimates with known error (`LEARN.md` Section 3.10).
+
+### Market making with frictions
+
+Every demo prints this friction ledger for the US large-cap A-S preset
+(one-share quotes, 5-second steps, one day; `API_SPEC.md` Section 9).
+Dollars per day, 20,000-path Python sample; each row adds or changes one
+friction, and every path satisfies
+`PnL = spread + fees + inventory - liquidation` exactly:
+
+| case | PnL (SE) | spread | fees | inventory | markout | fills |
+|---|---|---|---|---|---|---|
+| frictionless | 7.41 (0.01) | 7.44 | 0.00 | 0.01 | 0.01 | 1,076 |
+| 1-cent tick, 0.2-cent rebate | 7.33 (0.01) | 6.20 | 1.16 | -0.01 | 0.00 | 580 |
+| 1-cent tick, 0.2-cent fee | 5.00 (0.01) | 6.20 | -1.16 | -0.00 | -0.01 | 580 |
+| tick, rebate, 15% informed flow | 4.01 (0.01) | 10.25 | 1.86 | -8.07 | -8.06 | 931 |
+| as above, 60%-accurate signal | 5.00 (0.01) | 9.81 | 1.97 | -6.75 | -6.74 | 985 |
+| tick, rebate, quotes 5 s stale | -23.73 (0.02) | -28.33 | 4.65 | 0.00 | 0.00 | 2,327 |
+| GLFT quotes, tick, rebate | 11.00 (0.04) | 9.27 | 1.76 | -0.00 | -0.00 | 880 |
+
+Informed flow raises spread capture and lowers PnL: the markout, the loss in
+the step after each fill, takes it back, and the inventory skew does not
+prevent it. Quotes 5 seconds stale are picked off and lose money on every
+day. The C++, Rust and Java demos print the same table from their own
+5,000-path samples (`LEARN.md` Sections 6.7-6.12 read it row by row).
+
 ### Roadmap
 
 1. **F1. Market units and realistic presets** (done; `API_SPEC.md`
@@ -83,19 +111,17 @@ not as estimates with known error (`LEARN.md` Section 3.10).
 2. **F2. Execution a desk would recognise** (done; Section 8): square-root
    and power-law impact, alpha-aware (urgency) schedules, intraday volume
    curve, pre-trade cost report.
-3. **F3. Market making that can lose money** (in progress): informed flow,
-   fees and rebates, tick grid, latency, PnL attribution, markouts,
-   fair-value models.
+3. **F3. Market making that can lose money** (done; Section 9): informed
+   flow, fees and rebates, tick grid, latency, PnL attribution, markouts,
+   fair-value helpers, GLFT quotes.
 4. **F4. Calibration on recorded order-book data and post-trade TCA**
    (done; Sections 10 and 11): benchmark slippage, markouts, participation,
    Welch A/B comparison; volume, volatility, spread and fill-intensity
    estimators; three presets fitted to one NASDAQ ITCH day.
-5. **F5. Strategy extensions** (partly done; Section 12): adaptive
-   scheduling, transient impact and internalisation are done; limit-order
-   placement, hedged market making and risk controls are pending.
-
-Nothing from F3 is on `main` yet; the rest of this README describes only
-what is.
+5. **F5. Strategy extensions** (done; Sections 12, 13 and 14): adaptive
+   scheduling, transient impact, internalisation, limit-order placement,
+   hedged market making and risk controls (loss limit, position limit,
+   quote throttle, kill switch).
 
 Not investment advice and not a trading system; see the usage notes below.
 
@@ -132,13 +158,18 @@ Not investment advice and not a trading system; see the usage notes below.
 | ITCH ingestion and fitting (`data/calibration/fit_itch.py`, tooling) | yes | | | |
 | Execution: transient impact (Obizhaeva-Wang) with exact Thomas-solved optimum | yes | yes | yes | yes |
 | Execution: adaptive re-planning vs static (drift signal, partial fills), internalisation; 8 execution golden cases | yes | yes | yes | yes |
+| Market making with frictions: tick grid, maker fee or rebate, quote latency, informed flow, fair-value signal | yes | yes | yes | yes |
+| Exact per-path PnL attribution (spread, fees, inventory, liquidation) and one-step markouts | yes | yes | yes | yes |
+| GLFT closed-form quotes; weighted mid and order-flow imbalance helpers; 14 market-making golden cases | yes | yes | yes | yes |
+| Queue fill probability by uniformisation; passive-or-aggressive decision for a child order | yes | yes | yes | yes |
+| Liquidation with limit and market orders (backward induction, paired simulation); 11 placement golden cases | yes | yes | yes | yes |
 
 ## Directory layout
 
 ```
 electronic-trading/
   README.md                # this file
-  LEARN.md                 # theory: microstructure, AC, A-S, impact, calibration, TCA, regulation
+  LEARN.md                 # theory: microstructure, AC, A-S, impact, calibration, TCA, frictions, placement, regulation
   COOKBOOK.md              # task-oriented recipes in all four languages
   API_SPEC.md              # the pinned cross-language contract (normative)
   CHANGELOG.md
@@ -161,19 +192,22 @@ electronic-trading/
     generate_market.py     # regenerates presets.json + market golden cases
     generate_impact.py     # regenerates the power-law impact golden cases
     generate_tca.py  generate_calibration.py  generate_execution.py
+    generate_mm.py  generate_placement.py
     golden/golden.json     # 19 cross-language golden cases
     golden/market_golden.json       # 15 market-unit golden cases
     golden/impact_golden.json       # 8 power-law impact golden cases
     golden/tca_golden.json          # 11 TCA golden cases
     golden/calibration_golden.json  # 9 calibration golden cases
     golden/execution_golden.json    # 8 execution-extension golden cases
+    golden/mm_golden.json           # 14 market-making golden cases
+    golden/placement_golden.json    # 11 limit-order placement golden cases
   python/
-    src/etrade/            # reference package (almgren_chriss, avellaneda_stoikov, analytics, impact, market, tca, calibration, execution)
+    src/etrade/            # reference package (almgren_chriss, avellaneda_stoikov, analytics, impact, market, tca, calibration, execution, mm, placement)
     tests/                 # pytest suites incl. golden-value tests
     demo.py                # end-to-end demo report
     pyproject.toml  requirements.txt
   cpp/
-    include/etrade/*.hpp   # C++17 library headers
+    include/etrade/*.hpp   # C++26 library headers
     src/*.cpp  tests/*.cpp
     CMakeLists.txt  build.sh
   rust/
@@ -195,16 +229,16 @@ and pull request (`.github/workflows/ci.yml`).
 ```bash
 pip install -e "python[dev]"         # installs etrade + pytest, ruff, mypy
 python python/demo.py                # run the demo
-pytest python                        # run the tests (371 tests)
+pytest python                        # run the tests (575 tests; 6 benchmarks more with pytest-benchmark)
 ruff check . && (cd python && mypy)  # lint and type-check
 ```
 
-### C++ (C++17, CMake >= 3.20; GCC, Clang or MSVC)
+### C++ (C++26, CMake >= 3.25; GCC 14+, recent Clang, MSVC with `/std:c++latest`, LLVM Clang on macOS)
 
 ```bash
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release   # GoogleTest is fetched if not installed
 cmake --build build --config Release --parallel
-ctest --test-dir build -C Release --output-on-failure   # run the tests (127 tests)
+ctest --test-dir build -C Release --output-on-failure   # run the tests (191 tests)
 ```
 
 The demo is `build/etrade_demo` (`build/Release/etrade_demo.exe` with MSVC).
@@ -215,15 +249,15 @@ Options: `-DETRADE_BUILD_TESTS=OFF`, `-DETRADE_WERROR=ON`,
 
 ```bash
 cd rust
-cargo test --release                 # run the tests (151 tests, 3 of them doc-tests)
+cargo test --release                 # run the tests (290 tests, 16 of them doc-tests)
 cargo run --release --example demo   # run the demo
 ```
 
-### Java (JDK 17+, Maven)
+### Java (JDK 25, the latest LTS; Maven)
 
 ```bash
 cd java
-mvn verify                           # compile with -Xlint:all -Werror and run the tests (120 tests)
+mvn verify                           # compile with -Xlint:all -Werror and run the tests (333 tests)
 mvn -q exec:java                     # run the demo
 ```
 
@@ -236,9 +270,11 @@ mkdocs build --strict                # what the Docs workflow runs on every PR
 ```
 
 Test counts above are the suite sizes measured by running each suite on
-2026-10-30 (Python 371, C++ 127, Rust 151, Java 120; 769 in total); every
-suite loads the same six golden files, 70 cases: 19 model, 15 market, 8
-impact, 11 TCA, 9 calibration and 8 execution.
+2026-10-30 (Python 575, C++ 191, Rust 290, Java 333; 1,389 in total; the six
+Python benchmarks run only when pytest-benchmark is installed); every
+suite loads the same eight golden files, 95 cases: 19 model, 15 market, 8
+impact, 11 TCA, 9 calibration, 8 execution, 14 market-making and 11
+placement.
 
 ## Sample demo output (Python reference, abridged)
 
@@ -293,13 +329,16 @@ participation rate example: 120k / 1.5m = 8.00%
 === Market-impact regression (cost/share vs participation, native OLS)
 fitted: cost = 0.5035 + 7.9707 * participation (true 0.50 + 8.00), R^2 = 0.9934, n = 25
 
-[presets and pre-trade sections omitted: they are the two tables at the top]
+[presets, pre-trade and friction-ledger sections omitted: they are the tables at the top;
+ TCA, calibration, execution-extension and placement sections omitted]
 
 done.
 ```
 
 The demo prints every section in full; the excerpt leaves out the FX-like
-market-making run and the two tables already shown at the top of this file.
+market-making run, the tables already shown at the top of this file, and
+the sections for Sections 10-13 of the contract, whose numbers `LEARN.md`
+and `COOKBOOK.md` quote.
 The simulation rows are 2,000-path samples from the Python demo; the C++,
 Rust and Java demos print their own samples (e.g. A-S fills 85.2 / 85.5 /
 85.3) that agree within the statistical bands. `fills` is the total number of
@@ -335,13 +374,15 @@ at `kappa*T > 2500`, and every validation rule of `API_SPEC.md` Section 6
 (non-finite inputs, size bounds, non-liquidating schedules, participation
 above 1, ...).
 
-Five further golden files follow the same schema and comparison rule:
+Seven further golden files follow the same schema and comparison rule:
 `market_golden.json` (15 market-unit cases, 1e-12, `API_SPEC.md` Sections
 7.4 and 11.7), `impact_golden.json` (8 power-law impact cases, 1e-9,
 Section 8.5), `tca_golden.json` (11 cases, 1e-12, Section 10.6),
-`calibration_golden.json` (9 cases, 1e-12, Section 11.7) and
+`calibration_golden.json` (9 cases, 1e-12, Section 11.7),
 `execution_golden.json` (8 cases, exact at 1e-9 and statistical at 4 SE,
-Section 12.4). Each has a generator, `data/generate_<name>.py`
+Section 12.4), `mm_golden.json` (14 cases, exact at 1e-12 and statistical
+at 4 SE, Section 9.7) and `placement_golden.json` (11 cases, exact at 1e-10
+and statistical at 4 SE, Section 13.4). Each has a generator, `data/generate_<name>.py`
 (`generate_data.py` for `golden.json`); `docs/ARCHITECTURE.md` lists them
 all. Regenerate on Linux or macOS: the committed values come from there,
 and the last bit of some libm results differs on Windows.
@@ -361,9 +402,12 @@ What a practitioner gets, and what is deliberately left out:
   from market units with reporting in basis points (Section 7); post-trade
   TCA (Section 10); calibration estimators on plain arrays (Section 11);
   transient impact with exponential resilience, adaptive re-planning under a
-  drift signal and partial fills, and internalisation (Section 12). Nothing
-  else: no adverse selection in the market-making model, no order types,
-  venues, ticks, lots or latency.
+  drift signal and partial fills, and internalisation (Section 12); market
+  making with a tick grid, fees, stale quotes, informed flow and a signal
+  of given accuracy (Section 9); queue fill probability and liquidation
+  with limit and market orders (Section 13). Nothing else: no venues, lots
+  or order book; the frictions are stylised switches, not a matching
+  engine.
 - **Units and conventions** (`API_SPEC.md` Section 0): `tau`, `dt`, `T` are in
   an abstract time unit (the bundled sets use 1 = one trading day) — nothing
   ties them to a clock or a calendar (no day-count conventions or holidays;
@@ -397,10 +441,10 @@ What a practitioner gets, and what is deliberately left out:
   and `Math.*` are not bit-specified); C++ is deterministic per standard
   library because `std::normal_distribution` is implementation-defined.
   Cross-language agreement is statistical (4-SE bands), never bitwise.
-- **What is verified.** 769 tests across the four suites: 70 shared golden
+- **What is verified.** 1,389 tests across the four suites: 120 shared golden
   cases (19 model at 1e-10..1e-12, 15 market-unit at 1e-12, 8 power-law
   impact at 1e-9, 11 TCA and 9 calibration at 1e-12, 8 execution at 1e-9 or
-  4 SE), the paper's closed forms against the discrete sums at 1e-12, Monte
+  4 SE, 14 market-making at 1e-12 or 4 SE, 11 placement at 1e-10 or 4 SE), the paper's closed forms against the discrete sums at 1e-12, Monte
   Carlo against closed forms at 4 SE, and every validation rule; in the
   Python suite, the power-law solver against SciPy's constrained optimiser
   and the t-test against SciPy. What is *not* verified: the impact
@@ -430,7 +474,7 @@ Papers and standards the code implements or the documentation relies on:
   inventory risk: a solution to the market making problem", *Mathematics
   and Financial Economics* 7(4), 477–507.
   https://doi.org/10.1007/s11579-012-0087-0 (the inventory-capped variant
-  motivating `q_max`; cited in `LEARN.md`)
+  motivating `q_max`, and the GLFT quotes of Section 9.3)
 - A. A. Obizhaeva and J. Wang (2013), "Optimal trading strategy and
   supply/demand dynamics", *Journal of Financial Markets* 16(1), 1–32
   (transient impact, `API_SPEC.md` Section 12.1).
@@ -443,6 +487,15 @@ Papers and standards the code implements or the documentation relies on:
 - B. L. Welch (1947), "The generalization of 'Student's' problem when
   several different population variances are involved", *Biometrika*
   34(1–2), 28–35 (the A/B test, Section 10.4).
+- L. R. Glosten and P. R. Milgrom (1985), "Bid, ask and transaction prices
+  in a specialist market with heterogeneously informed traders", *Journal of
+  Financial Economics* 14(1), 71–100 (adverse selection, Section 9).
+- R. Cont, S. Stoikov and R. Talreja (2010), "A stochastic model for order
+  book dynamics", *Operations Research* 58(3), 549–563 (the queue model,
+  Section 13.1).
+- A. Cartea and S. Jaimungal (2015), "Optimal execution with limit and
+  market orders", *Quantitative Finance* 15(8), 1279–1291 (liquidation with
+  both order types, Section 13.3).
 - NASDAQ TotalView-ITCH 5.0 sample file `12302019.NASDAQ_ITCH50`
   (emi.nasdaq.com/ITCH/), the source of the fitted presets (Section 11.6).
 - Regulatory texts cited in `LEARN.md` Section 12: Directive 2014/65/EU

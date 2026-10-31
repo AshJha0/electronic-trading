@@ -56,6 +56,10 @@ pub const MAX_POV_INTERVALS: usize = 10_000_000;
 /// Upper bound on Monte Carlo path counts (pinned, API_SPEC.md Section 0).
 pub const MAX_PATHS: usize = 10_000_000;
 
+/// Upper bound on the total Monte Carlo work `n_paths * N` of [`simulate_is`]
+/// (pinned, API_SPEC.md Section 0).
+pub const MAX_MC_WORK: u64 = 1_000_000_000;
+
 /// Parameters of the discrete Almgren-Chriss problem (sell `X` shares).
 ///
 /// Constructed through [`ACParams::new`], which validates every field and
@@ -184,6 +188,88 @@ impl ACParams {
     }
 }
 
+/// Named-field form of [`ACParams::new`]: the same arguments, labelled, so a
+/// call site cannot silently swap two numbers of the same type.
+///
+/// [`ACSpec::build`] (or `ACParams::try_from(spec)`) runs exactly the validation of
+/// [`ACParams::new`] and returns the same errors.
+///
+/// ```
+/// use etrade::{ACParams, ACSpec};
+///
+/// let p = ACSpec {
+///     total_shares: 1e6,
+///     n_intervals: 10,
+///     tau: 1.0,
+///     sigma: 0.95,
+///     eta: 2.5e-6,
+///     gamma_p: 2.5e-7,
+///     lambda_ra: 1e-6,
+/// }
+/// .build()?;
+/// let x = etrade::ac_trajectory(&p);
+/// assert_eq!(x.len(), 11);
+/// assert_eq!((x[0], x[10]), (1e6, 0.0));
+/// // `ACParams::try_from(spec)` is the same validation.
+/// assert!(ACParams::try_from(ACSpec { eta: -1.0, ..ACSpec::from(p) }).is_err());
+/// # Ok::<(), etrade::EtradeError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ACSpec {
+    /// Shares to sell, `X >= 0`.
+    pub total_shares: f64,
+    /// Trading intervals `N`, `1 <= N <= MAX_AC_INTERVALS`.
+    pub n_intervals: usize,
+    /// Interval length, `> 0`.
+    pub tau: f64,
+    /// Arithmetic volatility per sqrt(time unit), `>= 0`.
+    pub sigma: f64,
+    /// Linear temporary impact coefficient, `> 0`.
+    pub eta: f64,
+    /// Linear permanent impact coefficient, `>= 0`.
+    pub gamma_p: f64,
+    /// Risk aversion, `>= 0`.
+    pub lambda_ra: f64,
+}
+
+impl ACSpec {
+    /// Validate and build the [`ACParams`] (same checks as [`ACParams::new`]).
+    pub fn build(self) -> Result<ACParams, EtradeError> {
+        ACParams::try_from(self)
+    }
+}
+
+impl TryFrom<ACSpec> for ACParams {
+    type Error = EtradeError;
+
+    fn try_from(s: ACSpec) -> Result<Self, Self::Error> {
+        ACParams::new(
+            s.total_shares,
+            s.n_intervals,
+            s.tau,
+            s.sigma,
+            s.eta,
+            s.gamma_p,
+            s.lambda_ra,
+        )
+    }
+}
+
+impl From<ACParams> for ACSpec {
+    /// The spec a validated parameter set was built from.
+    fn from(p: ACParams) -> Self {
+        Self {
+            total_shares: p.total_shares,
+            n_intervals: p.n_intervals,
+            tau: p.tau,
+            sigma: p.sigma,
+            eta: p.eta,
+            gamma_p: p.gamma_p,
+            lambda_ra: p.lambda_ra,
+        }
+    }
+}
+
 /// Discrete urgency parameter `kappa`.
 ///
 /// Solves `(2/tau^2)*(cosh(kappa*tau) - 1) = kappa_tilde^2` with
@@ -197,8 +283,16 @@ pub fn ac_kappa(params: &ACParams) -> f64 {
     if kt2 == 0.0 {
         return 0.0;
     }
+    if !kt2.is_finite() {
+        return f64::INFINITY;
+    }
     let x = 0.5 * kt2 * params.tau().powi(2);
-    (x + (x * (2.0 + x)).sqrt()).ln_1p() / params.tau()
+    let kappa = (x + (x * (2.0 + x)).sqrt()).ln_1p() / params.tau();
+    if kappa.is_finite() {
+        kappa
+    } else {
+        f64::INFINITY
+    }
 }
 
 /// Characteristic decay time `theta = 1/kappa` of the optimal trajectory
@@ -226,6 +320,19 @@ pub fn characteristic_time(params: &ACParams) -> f64 {
 /// Uses the sinh solution in the overflow-free `exp/exp_m1` ratio form;
 /// switches to the exact linear (TWAP) branch when `kappa*T < KAPPA_T_LIMIT`
 /// (covers `lambda_ra = 0` and `sigma = 0`).
+///
+/// ```
+/// use etrade::{ac_trade_list, ac_trajectory, ACParams};
+///
+/// let p = ACParams::new(1e6, 5, 1.0, 0.95, 2.5e-6, 2.5e-7, 2e-6)?;
+/// let x = ac_trajectory(&p);
+/// assert_eq!((x[0], x[5]), (1e6, 0.0));
+/// // Risk aversion front-loads: holdings fall faster than TWAP.
+/// assert!(x[1] < 0.8e6);
+/// let n = ac_trade_list(&p);
+/// assert!((n.iter().sum::<f64>() - 1e6).abs() < 1e-6);
+/// # Ok::<(), etrade::EtradeError>(())
+/// ```
 pub fn ac_trajectory(params: &ACParams) -> Vec<f64> {
     let n = params.n_intervals();
     let x0 = params.total_shares();
@@ -233,15 +340,21 @@ pub fn ac_trajectory(params: &ACParams) -> Vec<f64> {
         return vec![0.0; n + 1];
     }
     let kappa = ac_kappa(params);
+    if !kappa.is_finite() {
+        // kappa overflowed: infinite-urgency limit, everything in interval 1.
+        let mut x = vec![0.0; n + 1];
+        x[0] = x0;
+        return x;
+    }
     let big_t = params.horizon();
-    let linear = kappa * big_t < KAPPA_T_LIMIT;
-    // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT)
+    let linear = kappa == 0.0 || kappa * big_t < KAPPA_T_LIMIT; // kappa = 0 even if T overflows
+                                                                // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT)
     let denom = (-2.0 * kappa * big_t).exp_m1();
     let mut x: Vec<f64> = (0..=n)
         .map(|j| {
             if linear {
                 // Exact TWAP limit — no 0/0 from the sinh ratio.
-                x0 * (n - j) as f64 / n as f64
+                x0 * ((n - j) as f64 / n as f64)
             } else {
                 let t_j = j as f64 * params.tau();
                 // ratio formed first so that x_0 == X exactly
@@ -296,7 +409,7 @@ pub fn twap_holdings(total_shares: f64, n_intervals: usize) -> Result<Vec<f64>, 
         "n_intervals must be in [1, 10000000]",
     )?;
     Ok((0..=n_intervals)
-        .map(|j| total_shares * (n_intervals - j) as f64 / n_intervals as f64)
+        .map(|j| total_shares * ((n_intervals - j) as f64 / n_intervals as f64))
         .collect())
 }
 
@@ -330,6 +443,10 @@ pub fn pov_holdings(
         "participation must be in (0, 1)",
     )?;
     let clip = participation * market_volume_rate * tau;
+    require(
+        clip.is_finite(),
+        "POV clip participation*market_volume_rate*tau must be finite",
+    )?;
     if total_shares == 0.0 {
         return Ok(vec![0.0, 0.0]);
     }
@@ -338,7 +455,7 @@ pub fn pov_holdings(
         ratio <= MAX_POV_INTERVALS as f64,
         "POV clip too small: would need > 10000000 intervals",
     )?;
-    let n_int = (ratio - 1e-12).ceil() as usize;
+    let n_int = ((ratio - 1e-12).ceil() as usize).max(1); // >= 1 for X > 0
     let mut x: Vec<f64> = (0..=n_int)
         .map(|i| (total_shares - clip * i as f64).max(0.0))
         .collect();
@@ -383,6 +500,9 @@ pub fn variance_cost(params: &ACParams, holdings: Option<&[f64]>) -> Result<f64,
     };
     require_holdings(x)?;
     let sum_x2: f64 = x.iter().skip(1).map(|v| v * v).sum();
+    if sum_x2 == 0.0 {
+        return Ok(0.0); // no residual exposure (avoids inf * 0)
+    }
     Ok(params.sigma().powi(2) * params.tau() * sum_x2)
 }
 
@@ -479,6 +599,10 @@ pub fn simulate_is(
     };
     require_holdings(x)?;
     require_liquidating(x)?;
+    require(
+        (n_paths as u64).saturating_mul((x.len() - 1) as u64) <= MAX_MC_WORK,
+        "n_paths * n_intervals must be <= 1000000000",
+    )?;
     let trades = trades_from_holdings(x)?;
     let mut rng = ChaCha12Rng::seed_from_u64(seed);
     let srt = params.sigma() * params.tau().sqrt();

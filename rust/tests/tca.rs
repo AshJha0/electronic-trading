@@ -96,8 +96,8 @@ fn actual(case: &Value) -> Vec<(String, f64)> {
                 &idx(inp, "h", "n_horizons"),
             )
             .unwrap();
-            let mut out = indexed("per_fill", &m.per_fill);
-            out.extend(indexed("per_share", &m.per_share));
+            let mut out = indexed("per_fill", m.per_fill());
+            out.extend(indexed("per_share", m.per_share()));
             out
         }
         "participation" => {
@@ -107,7 +107,7 @@ fn actual(case: &Value) -> Vec<(String, f64)> {
                 &arr(inp, "vol", "n_bins"),
             )
             .unwrap();
-            let mut out = indexed("rate", &p.per_bin);
+            let mut out = indexed("rate", p.per_bin());
             out.push(("overall".to_string(), p.overall));
             out
         }
@@ -246,11 +246,11 @@ fn arrival_slippage_is_perold_trading_cost() {
 fn markout_sign() {
     let mids = [10.0, 10.5, 9.0];
     let buy = markouts(Side::Buy, &[0, 1], &[1.0, 3.0], &mids, &[0, 1]).unwrap();
-    assert_eq!(buy.per_fill[0], 0.0);
-    assert!((buy.per_fill[1] + 0.5).abs() < 1e-15);
-    assert!((buy.per_share[1] + 1.0).abs() < 1e-15);
+    assert_eq!(buy.per_fill()[0], 0.0);
+    assert!((buy.per_fill()[1] + 0.5).abs() < 1e-15);
+    assert!((buy.per_share()[1] + 1.0).abs() < 1e-15);
     let sell = markouts(Side::Sell, &[0, 1], &[1.0, 3.0], &mids, &[0, 1]).unwrap();
-    assert!((sell.per_fill[1] - 0.5).abs() < 1e-15);
+    assert!((sell.per_fill()[1] - 0.5).abs() < 1e-15);
 }
 
 #[test]

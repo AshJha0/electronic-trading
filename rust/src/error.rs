@@ -6,7 +6,11 @@ use std::fmt;
 ///
 /// No function in this crate panics on bad input; every documented domain
 /// violation surfaces as an `Err(EtradeError)` (see API_SPEC.md Section 6).
+///
+/// The enum is `#[non_exhaustive]`: match it with a wildcard arm so new
+/// variants can be added without breaking callers.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EtradeError {
     /// A parameter violated its documented domain (wrong sign, non-finite,
     /// inconsistent array lengths, ...).

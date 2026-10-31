@@ -22,6 +22,7 @@ PAGES = {
     "architecture.md": "docs/ARCHITECTURE.md",
     "changelog.md": "CHANGELOG.md",
     "publishing.md": "docs/GITHUB_PAGES.md",
+    "benchmarks.md": "docs/BENCHMARKS.md",
 }
 
 

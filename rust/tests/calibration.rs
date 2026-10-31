@@ -68,7 +68,7 @@ fn actual(case: &Value) -> Vec<(String, f64)> {
                 ("daily_vol".to_string(), v.daily_vol),
                 ("n_returns".to_string(), v.n_returns as f64),
             ];
-            out.extend(indexed("bin_vol", &v.bin_vol));
+            out.extend(indexed("bin_vol", v.bin_vol()));
             out
         }
         "cal_spread" => {

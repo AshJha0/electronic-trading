@@ -1,4 +1,5 @@
 #include "etrade/calibration.hpp"
+#include "etrade/detail/require.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,9 +11,7 @@ namespace etrade {
 
 namespace {
 
-void require(bool cond, const std::string& msg) {
-    if (!cond) throw std::invalid_argument(msg);
-}
+using detail::require;
 
 void check_session(double session_start, double session_end, int n_bins) {
     require(std::isfinite(session_start), "session_start must be finite");

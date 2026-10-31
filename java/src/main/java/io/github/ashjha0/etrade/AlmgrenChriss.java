@@ -1,8 +1,8 @@
 package io.github.ashjha0.etrade;
 
 import static io.github.ashjha0.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.requireNonNull;
 
-import java.util.SplittableRandom;
 
 /**
  * Almgren-Chriss discrete-time optimal execution (Almgren &amp; Chriss, 2000).
@@ -65,6 +65,9 @@ public final class AlmgrenChriss {
     /** Upper bound on Monte Carlo path counts (pinned, API_SPEC 0). */
     public static final int MAX_PATHS = 10_000_000;
 
+    /** Upper bound on the Monte Carlo work {@code nPaths * N} of simulateIS (pinned). */
+    public static final long MAX_MC_WORK = 1_000_000_000L;
+
     private AlmgrenChriss() {
     }
 
@@ -110,13 +113,18 @@ public final class AlmgrenChriss {
      * @return kappa (per unit time), {@code >= 0}
      */
     public static double kappa(ACParams params) {
+        requireNonNull(params, "params");
         double kt2 = params.lambdaRa() * params.sigma() * params.sigma() / params.etaTilde();
         if (kt2 == 0.0) {
             return 0.0;
         }
+        if (!Double.isFinite(kt2)) {
+            return Double.POSITIVE_INFINITY;
+        }
         // arccosh(1 + e) = log1p(e + sqrt(e*(2 + e))): accurate for small e too.
         double e = 0.5 * kt2 * params.tau() * params.tau();
-        return Math.log1p(e + Math.sqrt(e * (2.0 + e))) / params.tau();
+        double k = StrictMath.log1p(e + StrictMath.sqrt(e * (2.0 + e))) / params.tau();
+        return Double.isFinite(k) ? k : Double.POSITIVE_INFINITY;
     }
 
     /**
@@ -127,6 +135,7 @@ public final class AlmgrenChriss {
      * @return the half-life; {@link Double#POSITIVE_INFINITY} in the TWAP limit
      */
     public static double halfLife(ACParams params) {
+        requireNonNull(params, "params");
         double k = kappa(params);
         return k == 0.0 ? Double.POSITIVE_INFINITY : 1.0 / k;
     }
@@ -138,6 +147,7 @@ public final class AlmgrenChriss {
      * @return {@code 1/kappa}, or {@link Double#POSITIVE_INFINITY} in the TWAP limit
      */
     public static double characteristicTime(ACParams params) {
+        requireNonNull(params, "params");
         return halfLife(params);
     }
 
@@ -151,6 +161,7 @@ public final class AlmgrenChriss {
      * @return holdings array of length {@code nIntervals + 1}
      */
     public static double[] trajectory(ACParams params) {
+        requireNonNull(params, "params");
         int n = params.nIntervals();
         double x0 = params.totalShares();
         double[] x = new double[n + 1];
@@ -158,19 +169,23 @@ public final class AlmgrenChriss {
             return x;
         }
         double k = kappa(params);
+        if (!Double.isFinite(k)) {
+            x[0] = x0; // kappa overflowed: infinite-urgency limit, all in interval 1
+            return x;
+        }
         double bigT = params.horizon();
-        if (k * bigT < KAPPA_T_LIMIT) {
+        if (k == 0.0 || k * bigT < KAPPA_T_LIMIT) { // kappa = 0 even if T overflows
             for (int j = 0; j <= n; j++) {
-                x[j] = x0 * (n - j) / n;    // exact TWAP limit, no 0/0
+                x[j] = x0 * ((double) (n - j) / n); // exact TWAP limit; fraction first: no overflow
             }
         } else {
             // sinh(k(T-t))/sinh(kT) = exp(-k t) * expm1(-2k(T-t)) / expm1(-2kT):
             // overflow-free; ratio formed first so that x_0 == X exactly.
-            double denom = Math.expm1(-2.0 * k * bigT);
+            double denom = StrictMath.expm1(-2.0 * k * bigT);
             for (int j = 0; j <= n; j++) {
                 double tj = j * params.tau();
-                double ratio = Math.expm1(-2.0 * k * (bigT - tj)) / denom;
-                x[j] = x0 * Math.exp(-k * tj) * ratio;
+                double ratio = StrictMath.expm1(-2.0 * k * (bigT - tj)) / denom;
+                x[j] = x0 * StrictMath.exp(-k * tj) * ratio;
             }
         }
         x[n] = 0.0;
@@ -184,6 +199,7 @@ public final class AlmgrenChriss {
      * @return trade list of length {@code nIntervals}
      */
     public static double[] tradeList(ACParams params) {
+        requireNonNull(params, "params");
         return tradesFromHoldings(trajectory(params));
     }
 
@@ -229,10 +245,10 @@ public final class AlmgrenChriss {
         require(Double.isFinite(totalShares) && totalShares >= 0.0,
                 "totalShares must be finite and >= 0");
         require(nIntervals >= 1 && nIntervals <= MAX_AC_INTERVALS,
-                "nIntervals must be an integer in [1, 10000000]");
+                "nIntervals must be an integer in [1, " + AlmgrenChriss.MAX_AC_INTERVALS + "]");
         double[] x = new double[nIntervals + 1];
         for (int j = 0; j <= nIntervals; j++) {
-            x[j] = totalShares * (nIntervals - j) / nIntervals;
+            x[j] = totalShares * ((double) (nIntervals - j) / nIntervals);
         }
         return x;
     }
@@ -261,13 +277,14 @@ public final class AlmgrenChriss {
         require(Double.isFinite(participation) && participation > 0.0 && participation < 1.0,
                 "participation must be in (0, 1)");
         double clip = participation * marketVolumeRate * tau;
+        require(Double.isFinite(clip), "POV clip participation*market_volume_rate*tau must be finite");
         if (totalShares == 0.0) {
             return new double[2];
         }
         double ratio = totalShares / clip;   // bounded BEFORE any cast/allocation
         require(ratio <= MAX_POV_INTERVALS,
-                "POV clip too small: would need > 10000000 intervals");
-        int nInt = (int) Math.ceil(ratio - 1e-12);
+                "POV clip too small: would need > " + MAX_POV_INTERVALS + " intervals");
+        int nInt = Math.max(1, (int) Math.ceil(ratio - 1e-12)); // >= 1 for X > 0
         double[] x = new double[nInt + 1];
         for (int i = 0; i <= nInt; i++) {
             x[i] = Math.max(totalShares - i * clip, 0.0);
@@ -284,6 +301,7 @@ public final class AlmgrenChriss {
      * @return E[IS]
      */
     public static double expectedCost(ACParams params) {
+        requireNonNull(params, "params");
         return expectedCost(params, trajectory(params));
     }
 
@@ -297,6 +315,7 @@ public final class AlmgrenChriss {
      * @return E[IS]
      */
     public static double expectedCost(ACParams params, double[] holdings) {
+        requireNonNull(params, "params");
         requireHoldings(holdings);
         requireLiquidating(holdings);
         double x0 = holdings[0];
@@ -316,6 +335,7 @@ public final class AlmgrenChriss {
      * @return Var[IS]
      */
     public static double varianceCost(ACParams params) {
+        requireNonNull(params, "params");
         return varianceCost(params, trajectory(params));
     }
 
@@ -328,10 +348,14 @@ public final class AlmgrenChriss {
      * @return Var[IS]
      */
     public static double varianceCost(ACParams params, double[] holdings) {
+        requireNonNull(params, "params");
         requireHoldings(holdings);
         double sumX2 = 0.0;
         for (int j = 1; j < holdings.length; j++) {
             sumX2 += holdings[j] * holdings[j];
+        }
+        if (sumX2 == 0.0) {
+            return 0.0; // no residual exposure (avoids inf * 0)
         }
         return params.sigma() * params.sigma() * params.tau() * sumX2;
     }
@@ -345,6 +369,7 @@ public final class AlmgrenChriss {
      * @return the cost moments
      */
     public static CostMoments instantaneousCost(ACParams params) {
+        requireNonNull(params, "params");
         double x0 = params.totalShares();
         double e = 0.5 * params.gammaP() * x0 * x0 + params.etaTilde() * x0 * x0 / params.tau();
         return new CostMoments(e, 0.0);
@@ -360,13 +385,14 @@ public final class AlmgrenChriss {
      * @return one frontier point per grid value, in input order
      */
     public static FrontierPoint[] efficientFrontier(ACParams params, double[] lambdas) {
+        requireNonNull(params, "params");
         require(lambdas != null && lambdas.length > 0, "lambdas grid must be non-empty");
         FrontierPoint[] out = new FrontierPoint[lambdas.length];
         for (int i = 0; i < lambdas.length; i++) {
             ACParams p = params.withLambda(lambdas[i]);
             double e = expectedCost(p);
             double v = varianceCost(p);
-            out[i] = new FrontierPoint(lambdas[i], kappa(p), e, v, Math.sqrt(v));
+            out[i] = new FrontierPoint(lambdas[i], kappa(p), e, v, StrictMath.sqrt(v));
         }
         return out;
     }
@@ -381,6 +407,7 @@ public final class AlmgrenChriss {
      * @return the MC summary
      */
     public static ISSimResult simulateIS(ACParams params, int nPaths, long seed) {
+        requireNonNull(params, "params");
         return simulateIS(params, trajectory(params), nPaths, seed);
     }
 
@@ -396,19 +423,22 @@ public final class AlmgrenChriss {
      * @param params   model parameters
      * @param holdings the schedule to execute (any finite, fully liquidating path)
      * @param nPaths   number of paths, in {@code [2, MAX_PATHS]}
-     * @param seed     RNG seed (deterministic per seed; {@link SplittableRandom},
+     * @param seed     RNG seed (deterministic per seed; {@code SplittableRandom} uniforms with Marsaglia polar normals,
      *                 not NumPy's stream)
      * @return sample mean/variance of IS with standard errors
      */
     public static ISSimResult simulateIS(ACParams params, double[] holdings,
                                          int nPaths, long seed) {
+        requireNonNull(params, "params");
         require(nPaths >= 2 && nPaths <= MAX_PATHS,
-                "nPaths must be an integer in [2, 10000000]");
+                "nPaths must be an integer in [2, " + MAX_PATHS + "]");
         requireHoldings(holdings);
         requireLiquidating(holdings);
+        require((long) nPaths * (long) (holdings.length - 1) <= MAX_MC_WORK,
+                "n_paths * n_intervals must be <= " + MAX_MC_WORK);
         double[] n = tradesFromHoldings(holdings);
-        SplittableRandom rng = new SplittableRandom(seed);
-        double srt = params.sigma() * Math.sqrt(params.tau());
+        NormalRng rng = new NormalRng(seed);
+        double srt = params.sigma() * StrictMath.sqrt(params.tau());
         double[] shortfall = new double[nPaths];
         for (int p = 0; p < nPaths; p++) {
             double sPrev = 0.0;    // S_0 = 0; IS is independent of S_0
@@ -416,7 +446,7 @@ public final class AlmgrenChriss {
             for (double nj : n) {
                 double execPrice = sPrev - params.eta() * nj / params.tau();
                 proceeds += nj * execPrice;
-                sPrev = sPrev + srt * rng.nextGaussian() - params.gammaP() * nj;
+                sPrev = sPrev + srt * rng.nextNormal() - params.gammaP() * nj;
             }
             shortfall[p] = -proceeds;
         }
@@ -431,7 +461,7 @@ public final class AlmgrenChriss {
             ss += d * d;
         }
         double var = ss / (nPaths - 1);
-        return new ISSimResult(mean, var, Math.sqrt(var / nPaths),
-                var * Math.sqrt(2.0 / (nPaths - 1)), nPaths);
+        return new ISSimResult(mean, var, StrictMath.sqrt(var / nPaths),
+                var * StrictMath.sqrt(2.0 / (nPaths - 1)), nPaths);
     }
 }

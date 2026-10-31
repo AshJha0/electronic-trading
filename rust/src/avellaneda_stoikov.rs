@@ -46,6 +46,10 @@ pub const MAX_AS_STEPS: usize = 10_000_000;
 /// Upper bound on Monte Carlo path counts (pinned, API_SPEC.md Section 0).
 pub const MAX_AS_PATHS: usize = 10_000_000;
 
+/// Upper bound on the total simulation work `n_paths * n_steps` of
+/// [`simulate`] (pinned, API_SPEC.md Section 0).
+pub const MAX_AS_WORK: u64 = 10_000_000_000;
+
 /// Avellaneda-Stoikov model parameters (validated at construction).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ASParams {
@@ -104,12 +108,12 @@ impl ASParams {
         )?;
         let n = horizon / dt;
         require(
-            (n - n.round()).abs() < 1e-9,
-            "horizon must be an integer multiple of dt",
-        )?;
-        require(
             n <= MAX_AS_STEPS as f64,
             "horizon/dt must be <= 10000000 steps",
+        )?;
+        require(
+            (n - n.round()).abs() < 1e-9,
+            "horizon must be an integer multiple of dt",
         )?;
         Ok(Self {
             s0,
@@ -164,6 +168,91 @@ impl ASParams {
     /// Number of simulation steps `round(T/dt)`.
     pub fn n_steps(&self) -> usize {
         (self.horizon / self.dt).round() as usize
+    }
+}
+
+/// Named-field form of [`ASParams::new`]: the same arguments, labelled, so a
+/// call site cannot silently swap two numbers of the same type.
+///
+/// [`ASSpec::build`] (or `ASParams::try_from(spec)`) runs exactly the validation of
+/// [`ASParams::new`] and returns the same errors.
+///
+/// ```
+/// use etrade::{ASSpec, SimConfig};
+///
+/// let p = ASSpec {
+///     s0: 100.0,
+///     sigma: 2.0,
+///     horizon: 1.0,
+///     dt: 0.005,
+///     gamma: 0.1,
+///     k: 1.5,
+///     a_rate: 140.0,
+///     q_max: 50,
+///     eta_liq: 0.0,
+/// }
+/// .build()?;
+/// // Long inventory skews the reservation price below the mid.
+/// assert!(etrade::reservation_price(&p, 100.0, 5.0, 0.0)? < 100.0);
+/// let res = etrade::simulate(&p, 50, 7, &SimConfig::default())?;
+/// assert_eq!(res.n_paths(), 50);
+/// assert_eq!(res.pnl().len(), 50);
+/// assert!(!res.cap_violated);
+/// # Ok::<(), etrade::EtradeError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ASSpec {
+    /// Initial mid price (any finite real).
+    pub s0: f64,
+    /// Arithmetic mid volatility per sqrt(time unit), `>= 0`.
+    pub sigma: f64,
+    /// Terminal time `T > 0`.
+    pub horizon: f64,
+    /// Simulation step, `0 < dt <= T`, `T/dt` integral.
+    pub dt: f64,
+    /// Risk aversion, `> 0`.
+    pub gamma: f64,
+    /// Intensity decay, `> 0`.
+    pub k: f64,
+    /// Intensity scale `A`, `> 0`.
+    pub a_rate: f64,
+    /// Hard inventory cap in units.
+    pub q_max: u32,
+    /// Terminal liquidation penalty per unit inventory, `>= 0`.
+    pub eta_liq: f64,
+}
+
+impl ASSpec {
+    /// Validate and build the [`ASParams`] (same checks as [`ASParams::new`]).
+    pub fn build(self) -> Result<ASParams, EtradeError> {
+        ASParams::try_from(self)
+    }
+}
+
+impl TryFrom<ASSpec> for ASParams {
+    type Error = EtradeError;
+
+    fn try_from(s: ASSpec) -> Result<Self, Self::Error> {
+        ASParams::new(
+            s.s0, s.sigma, s.horizon, s.dt, s.gamma, s.k, s.a_rate, s.q_max, s.eta_liq,
+        )
+    }
+}
+
+impl From<ASParams> for ASSpec {
+    /// The spec a validated parameter set was built from.
+    fn from(p: ASParams) -> Self {
+        Self {
+            s0: p.s0,
+            sigma: p.sigma,
+            horizon: p.horizon,
+            dt: p.dt,
+            gamma: p.gamma,
+            k: p.k,
+            a_rate: p.a_rate,
+            q_max: p.q_max,
+            eta_liq: p.eta_liq,
+        }
     }
 }
 
@@ -232,6 +321,46 @@ pub enum Agent {
     Fixed,
 }
 
+impl Agent {
+    /// Lowercase name, the inverse of [`FromStr`](std::str::FromStr).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Agent::As => "as",
+            Agent::Fixed => "fixed",
+        }
+    }
+}
+
+impl std::str::FromStr for Agent {
+    type Err = EtradeError;
+
+    /// Parse the exact lowercase name (mirrors the reference).
+    ///
+    /// ```
+    /// use etrade::Agent;
+    /// let a: Agent = "fixed".parse().unwrap();
+    /// assert_eq!(a, Agent::Fixed);
+    /// assert_eq!(Agent::As.to_string(), "as");
+    /// assert!("glft".parse::<Agent>().is_err());
+    /// ```
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "as" => Ok(Agent::As),
+            "fixed" => Ok(Agent::Fixed),
+            _ => Err(EtradeError::InvalidInput(
+                "agent must be 'as' or 'fixed'".to_string(),
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for Agent {
+    /// Writes the same lowercase name [`FromStr`](std::str::FromStr) accepts.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Configuration of a market-making simulation run.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SimConfig {
@@ -265,21 +394,45 @@ impl Default for SimConfig {
 #[derive(Debug, Clone)]
 pub struct ASSimResult {
     /// Terminal PnL per path (after liquidation penalty).
-    pub pnl: Vec<f64>,
+    pnl: Vec<f64>,
     /// Per-path time average of `|q|` (over the post-update values).
-    pub mean_abs_q_path: Vec<f64>,
+    mean_abs_q_path: Vec<f64>,
     /// Per-path maximum of `|q|`.
-    pub max_abs_q_path: Vec<f64>,
+    max_abs_q_path: Vec<f64>,
     /// Per-path `sqrt(time average of q^2)` — the "inventory std" measure.
-    pub rms_q_path: Vec<f64>,
+    rms_q_path: Vec<f64>,
     /// Per-path total number of fills, both sides counted (a step where the
     /// bid and the ask both fill contributes two).
-    pub fills_path: Vec<f64>,
+    fills_path: Vec<f64>,
     /// Maximum `|q|` seen across all paths and steps.
     pub overall_max_abs_q: f64,
     /// True if the hard cap was ever breached (must always be false — the
     /// simulation asserts the cap by construction).
     pub cap_violated: bool,
+}
+
+impl ASSimResult {
+    /// Terminal PnL per path (after liquidation penalty).
+    pub fn pnl(&self) -> &[f64] {
+        &self.pnl
+    }
+    /// Per-path time average of `|q|` (over the post-update values).
+    pub fn mean_abs_q_path(&self) -> &[f64] {
+        &self.mean_abs_q_path
+    }
+    /// Per-path maximum of `|q|`.
+    pub fn max_abs_q_path(&self) -> &[f64] {
+        &self.max_abs_q_path
+    }
+    /// Per-path `sqrt(time average of q^2)` — the "inventory std" measure.
+    pub fn rms_q_path(&self) -> &[f64] {
+        &self.rms_q_path
+    }
+    /// Per-path total number of fills, both sides counted (a step where the
+    /// bid and the ask both fill contributes two).
+    pub fn fills_path(&self) -> &[f64] {
+        &self.fills_path
+    }
 }
 
 /// Statistic selector for [`ASSimResult::se`].
@@ -378,6 +531,19 @@ impl ASSimResult {
 /// Terminal: `PnL = cash + q*S_T - eta_liq*|q|`.  Deterministic per
 /// `(seed, config, n_paths)` with `ChaCha12Rng`.  `2 <= n_paths <=
 /// MAX_AS_PATHS`; `fixed_spread` (when given) must be finite and `> 0`.
+///
+/// ```
+/// use etrade::{simulate, ASParams, ASStat, Agent, SimConfig};
+///
+/// let p = ASParams::new(100.0, 2.0, 1.0, 0.005, 0.1, 1.5, 140.0, 50, 0.0)?;
+/// let res = simulate(&p, 200, 42, &SimConfig::default())?;
+/// assert!(res.mean_abs_q().is_finite() && res.se(ASStat::MeanPnl) > 0.0);
+/// // Same seed, same paths.
+/// assert_eq!(simulate(&p, 200, 42, &SimConfig::default())?.pnl(), res.pnl());
+/// let fixed = SimConfig { agent: Agent::Fixed, ..SimConfig::default() };
+/// assert_eq!(simulate(&p, 200, 42, &fixed)?.n_paths(), 200);
+/// # Ok::<(), etrade::EtradeError>(())
+/// ```
 pub fn simulate(
     params: &ASParams,
     n_paths: usize,
@@ -387,6 +553,10 @@ pub fn simulate(
     require(
         (2..=MAX_AS_PATHS).contains(&n_paths),
         "n_paths must be in [2, 10000000]",
+    )?;
+    require(
+        (n_paths as u64).saturating_mul(params.n_steps() as u64) <= MAX_AS_WORK,
+        "n_paths * n_steps must be <= 10000000000",
     )?;
     require(
         config.stress_factor.is_finite() && config.stress_factor > 0.0,

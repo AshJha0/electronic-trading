@@ -82,6 +82,21 @@ def _require(cond: bool, msg: str) -> None:
         raise ValueError(msg)
 
 
+def _div(a: float, b: float) -> float:
+    """IEEE division (inf for a positive over an underflowed 0), as in the
+    other ports, so the parameter constructor reports the bad value instead
+    of Python raising ZeroDivisionError."""
+    return a / b if b != 0.0 else math.inf
+
+
+def _exp(v: float) -> float:
+    """IEEE exp (inf on overflow instead of OverflowError)."""
+    try:
+        return math.exp(v)
+    except OverflowError:
+        return math.inf
+
+
 def _positive(name: str, v: float) -> None:
     _require(math.isfinite(v) and v > 0.0, f"{name} must be finite and > 0")
 
@@ -115,8 +130,8 @@ def ac_params_from_market(
         n_intervals=n_intervals,
         tau=tau,
         sigma=price * daily_vol,
-        eta=spread / (temp_frac * adv),
-        gamma_p=spread / (perm_frac * adv),
+        eta=_div(spread, temp_frac * adv),
+        gamma_p=_div(spread, perm_frac * adv),
         lambda_ra=lambda_ra,
     )
 
@@ -147,15 +162,15 @@ def as_params_from_market(
     _positive("session_seconds", session_seconds)
     _positive("horizon_days", horizon_days)
     sigma = price * daily_vol
-    k = math.log(2.0) / (halving_ticks * tick)
+    k = _div(math.log(2.0), halving_ticks * tick)
     return ASParams(
         s0=price,
         sigma=sigma,
         horizon=horizon_days,
-        dt=dt_seconds / session_seconds,
-        gamma=skew_ticks * tick / (sigma * sigma * horizon_days),
+        dt=_div(dt_seconds, session_seconds),
+        gamma=_div(skew_ticks * tick, sigma * sigma * horizon_days),
         k=k,
-        a_rate=touch_fills_per_day * math.exp(k * tick / 2.0),
+        a_rate=touch_fills_per_day * _exp(k * tick / 2.0),
         q_max=q_max,
         eta_liq=liq_ticks * tick,
     )
@@ -225,9 +240,9 @@ def impact_params_from_market(
         n_intervals=n_intervals,
         tau=tau,
         sigma=sigma,
-        eta=y * sigma / adv**alpha,
+        eta=_div(y * sigma, adv**alpha),
         alpha=alpha,
-        gamma_p=spread / (perm_frac * adv),
+        gamma_p=_div(spread, perm_frac * adv),
         lambda_ra=lambda_ra,
         drift=price * drift_bps_per_day * 1e-4,
         weights=None if weights is None else tuple(weights),

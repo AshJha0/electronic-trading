@@ -1,28 +1,31 @@
 package io.github.ashjha0.etrade;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static io.github.ashjha0.etrade.Rejects.assertRejects;
+import static io.github.ashjha0.etrade.Rejects.bad;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.ashjha0.etrade.Tca.MarkoutResult;
 import io.github.ashjha0.etrade.Tca.ParticipationResult;
 import io.github.ashjha0.etrade.Tca.SlippageReport;
 import io.github.ashjha0.etrade.Tca.WelchResult;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.junit.Test;
-import org.junit.function.ThrowingRunnable;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Post-trade TCA (API_SPEC Section 10): every case of {@code tca_golden.json}, sign
  * conventions, invariances and validation.
  */
-public final class TcaTest {
+final class TcaTest {
 
     private static final Map<String, Object> GOLDEN = load("golden/tca_golden.json");
 
@@ -35,7 +38,7 @@ public final class TcaTest {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> load(String rel) {
         try {
-            return (Map<String, Object>) Json.parse(Files.readString(Path.of("../data", rel)));
+            return (Map<String, Object>) TestData.load(rel);
         } catch (IOException e) {
             throw new IllegalStateException("cannot load " + rel, e);
         }
@@ -135,14 +138,14 @@ public final class TcaTest {
     }
 
     @Test
-    public void everyGoldenCaseEveryKey() {
+    void everyGoldenCaseEveryKey() {
         List<String> failures = new ArrayList<>();
         assertEquals(11, cases().size());
         for (Map<String, Object> c : cases()) {
             String name = (String) c.get("name");
             Map<String, Object> expect = obj(c, "expect");
             Map<String, Double> got = actual(c);
-            assertEquals(name + ": every expect key asserted", expect.keySet(), got.keySet());
+            assertEquals(expect.keySet(), got.keySet(), name + ": every expect key asserted");
             double tol = num(c, "tol");
             for (Map.Entry<String, Double> e : got.entrySet()) {
                 double want = num(expect, e.getKey());
@@ -152,11 +155,11 @@ public final class TcaTest {
                 }
             }
         }
-        assertTrue(String.join("\n", failures), failures.isEmpty());
+        assertTrue(failures.isEmpty(), String.join("\n", failures));
     }
 
     @Test
-    public void buySellSymmetry() {
+    void buySellSymmetry() {
         SlippageReport b = Tca.slippage("buy", 100.01, 100.09, BINS, QTYS, PXS, VOLS, VWAPS);
         SlippageReport s = Tca.slippage("sell", 100.01, 100.09, BINS, QTYS, PXS, VOLS, VWAPS);
         assertEquals(-s.arrivalBps(), b.arrivalBps(), 1e-12);
@@ -166,7 +169,7 @@ public final class TcaTest {
     }
 
     @Test
-    public void priceScaleAndShiftInvariance() {
+    void priceScaleAndShiftInvariance() {
         double c = 3.7;
         double k = 25.0;
         double[] pxC = new double[PXS.length];
@@ -194,15 +197,15 @@ public final class TcaTest {
     }
 
     @Test
-    public void arrivalSlippageIsPeroldTradingCost() {
+    void arrivalSlippageIsPeroldTradingCost() {
         SlippageReport r = Tca.slippage("buy", 100.01, 100.09, BINS, QTYS, PXS, VOLS, VWAPS);
-        Analytics.ISDecomposition d = Analytics.decomposeShortfall("buy", 100.01, 100.01,
+        Analytics.ISDecomposition d = Analytics.decomposeShortfall(Side.BUY, 100.01, 100.01,
                 100.09, 500.0, QTYS, PXS);
         assertEquals(d.trading(), r.arrivalBps() * 100.01 * r.executedQty() / 1e4, 1e-9);
     }
 
     @Test
-    public void markoutSign() {
+    void markoutSign() {
         double[] mids = {10.0, 10.5, 9.0};
         MarkoutResult buy = Tca.markouts("buy", new int[] {0, 1}, new double[] {1.0, 3.0}, mids,
                 new int[] {0, 1});
@@ -215,7 +218,7 @@ public final class TcaTest {
     }
 
     @Test
-    public void knownTValues() {
+    void knownTValues() {
         assertEquals(0.75, Tca.studentTCdf(1.0, 1.0), 1e-14);
         assertEquals(0.5, Tca.studentTCdf(0.0, 4.0), 0.0);
         assertEquals(0.5 + 1.5 / (2.0 * Math.sqrt(4.25)), Tca.studentTCdf(1.5, 2.0), 1e-14);
@@ -223,39 +226,41 @@ public final class TcaTest {
         assertEquals(Math.log(362880.0), Tca.lnGamma(10.0), 1e-13);
     }
 
-    private static void invalid(String fragment, ThrowingRunnable r) {
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, r);
-        assertTrue(e.getMessage(), e.getMessage().contains(fragment));
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("validationNamesTheArgumentCases")
+    void validationNamesTheArgument(String fragment, Executable call) {
+        assertRejects(fragment, call);
     }
 
-    @Test
-    public void validationNamesTheArgument() {
-        invalid("side", () -> Tca.slippage("hold", 1, 1, BINS, QTYS, PXS, VOLS, VWAPS));
-        invalid("arrival_price", () -> Tca.slippage("buy", 0, 1, BINS, QTYS, PXS, VOLS, VWAPS));
-        invalid("fill_bins must be integers in [0, 4)", () -> Tca.slippage("buy", 1, 1,
-                new int[] {0, 1, 1, 4}, QTYS, PXS, VOLS, VWAPS));
-        invalid("fill_bins", () -> Tca.slippage("buy", 1, 1, new int[] {0, 1, 1, -1}, QTYS,
-                PXS, VOLS, VWAPS));
-        invalid("executed quantity", () -> Tca.slippage("buy", 1, 1, BINS, new double[4], PXS,
-                VOLS, VWAPS));
-        invalid("traded bins", () -> Tca.slippage("buy", 1, 1, BINS, QTYS, PXS,
-                new double[] {0, 0, 0, 1}, VWAPS));
-        invalid("non-empty", () -> Tca.slippage("buy", 1, 1, new int[0], new double[0],
-                new double[0], VOLS, VWAPS));
-        invalid("exceeds mid series", () -> Tca.markouts("buy", new int[] {0, 1},
-                new double[] {1, 1}, new double[] {1, 1}, new int[] {1}));
-        invalid("horizons", () -> Tca.markouts("buy", new int[] {0}, new double[] {1},
-                new double[] {1, 1}, new int[] {-1}));
-        invalid("exceeds market volume", () -> Tca.participation(new int[] {0},
-                new double[] {1001}, VOLS));
-        invalid("total market volume", () -> Tca.participation(new int[] {0},
-                new double[] {0}, new double[] {0}));
-        invalid("a must have at least 2", () -> Tca.welchTTest(new double[] {1},
-                new double[] {1, 2}));
-        invalid("zero variance", () -> Tca.welchTTest(new double[] {1, 1},
-                new double[] {2, 2}));
-        invalid("df", () -> Tca.studentTCdf(1.0, 0.0));
-        invalid("x must be in", () -> Tca.betaincReg(1.0, 1.0, 1.5));
-        invalid("x must be finite", () -> Tca.lnGamma(-1.0));
+    static List<Arguments> validationNamesTheArgumentCases() {
+        List<Arguments> c = new ArrayList<>();
+        c.add(bad("side", () -> Tca.slippage("hold", 1, 1, BINS, QTYS, PXS, VOLS, VWAPS)));
+        c.add(bad("arrival_price", () -> Tca.slippage("buy", 0, 1, BINS, QTYS, PXS, VOLS, VWAPS)));
+        c.add(bad("fill_bins must be integers in [0, 4)", () -> Tca.slippage("buy", 1, 1,
+                new int[] {0, 1, 1, 4}, QTYS, PXS, VOLS, VWAPS)));
+        c.add(bad("fill_bins", () -> Tca.slippage("buy", 1, 1, new int[] {0, 1, 1, -1}, QTYS,
+                PXS, VOLS, VWAPS)));
+        c.add(bad("executed quantity", () -> Tca.slippage("buy", 1, 1, BINS, new double[4], PXS,
+                VOLS, VWAPS)));
+        c.add(bad("traded bins", () -> Tca.slippage("buy", 1, 1, BINS, QTYS, PXS,
+                new double[] {0, 0, 0, 1}, VWAPS)));
+        c.add(bad("non-empty", () -> Tca.slippage("buy", 1, 1, new int[0], new double[0],
+                new double[0], VOLS, VWAPS)));
+        c.add(bad("exceeds mid series", () -> Tca.markouts("buy", new int[] {0, 1},
+                new double[] {1, 1}, new double[] {1, 1}, new int[] {1})));
+        c.add(bad("horizons", () -> Tca.markouts("buy", new int[] {0}, new double[] {1},
+                new double[] {1, 1}, new int[] {-1})));
+        c.add(bad("exceeds market volume", () -> Tca.participation(new int[] {0},
+                new double[] {1001}, VOLS)));
+        c.add(bad("total market volume", () -> Tca.participation(new int[] {0},
+                new double[] {0}, new double[] {0})));
+        c.add(bad("a must have at least 2", () -> Tca.welchTTest(new double[] {1},
+                new double[] {1, 2})));
+        c.add(bad("zero variance", () -> Tca.welchTTest(new double[] {1, 1},
+                new double[] {2, 2})));
+        c.add(bad("df", () -> Tca.studentTCdf(1.0, 0.0)));
+        c.add(bad("x must be in", () -> Tca.betaincReg(1.0, 1.0, 1.5)));
+        c.add(bad("x must be finite", () -> Tca.lnGamma(-1.0)));
+        return c;
     }
 }

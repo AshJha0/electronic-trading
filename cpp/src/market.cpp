@@ -1,4 +1,5 @@
 #include "etrade/market.hpp"
+#include "etrade/detail/require.hpp"
 
 #include <cmath>
 #include <stdexcept>
@@ -7,21 +8,17 @@
 namespace etrade {
 namespace {
 
-void require(bool cond, const std::string& msg) {
-    if (!cond) throw std::invalid_argument(msg);
-}
+using detail::require;
 
-void positive(const char* name, double v) {
-    require(std::isfinite(v) && v > 0.0, std::string(name) + " must be finite and > 0");
-}
+using detail::require_positive;
 
 }  // namespace
 
 ACParams ac_params_from_market(const ACMarket& m) {
-    positive("price", m.price);
-    positive("spread", m.spread);
-    positive("adv", m.adv);
-    positive("daily_vol", m.daily_vol);
+    require_positive("price", m.price);
+    require_positive("spread", m.spread);
+    require_positive("adv", m.adv);
+    require_positive("daily_vol", m.daily_vol);
     require(std::isfinite(m.temp_frac) && m.temp_frac > 0.0 && m.temp_frac <= 1.0,
             "temp_frac must be in (0, 1]");
     require(std::isfinite(m.perm_frac) && m.perm_frac > 0.0 && m.perm_frac <= 1.0,
@@ -32,16 +29,16 @@ ACParams ac_params_from_market(const ACMarket& m) {
 }
 
 ASParams as_params_from_market(const ASMarket& m) {
-    positive("price", m.price);
-    positive("tick", m.tick);
-    positive("daily_vol", m.daily_vol);
-    positive("touch_fills_per_day", m.touch_fills_per_day);
-    positive("halving_ticks", m.halving_ticks);
-    positive("skew_ticks", m.skew_ticks);
+    require_positive("price", m.price);
+    require_positive("tick", m.tick);
+    require_positive("daily_vol", m.daily_vol);
+    require_positive("touch_fills_per_day", m.touch_fills_per_day);
+    require_positive("halving_ticks", m.halving_ticks);
+    require_positive("skew_ticks", m.skew_ticks);
     require(std::isfinite(m.liq_ticks) && m.liq_ticks >= 0.0, "liq_ticks must be finite and >= 0");
-    positive("dt_seconds", m.dt_seconds);
-    positive("session_seconds", m.session_seconds);
-    positive("horizon_days", m.horizon_days);
+    require_positive("dt_seconds", m.dt_seconds);
+    require_positive("session_seconds", m.session_seconds);
+    require_positive("horizon_days", m.horizon_days);
     const double sigma = m.price * m.daily_vol;
     const double k = std::log(2.0) / (m.halving_ticks * m.tick);
     return ASParams(m.price, sigma, m.horizon_days, m.dt_seconds / m.session_seconds,
@@ -52,23 +49,23 @@ ASParams as_params_from_market(const ASMarket& m) {
 
 double bps(double amount, double notional) {
     require(std::isfinite(amount), "amount must be finite");
-    positive("notional", notional);
+    require_positive("notional", notional);
     return 1e4 * amount / notional;
 }
 
 double half_spread_cost(double spread, double total_shares) {
-    positive("spread", spread);
+    require_positive("spread", spread);
     require(std::isfinite(total_shares) && total_shares >= 0.0,
             "total_shares must be finite and >= 0");
     return 0.5 * spread * total_shares;
 }
 
 ImpactParams impact_params_from_market(const ImpactMarket& m) {
-    positive("price", m.price);
-    positive("spread", m.spread);
-    positive("adv", m.adv);
-    positive("daily_vol", m.daily_vol);
-    positive("y", m.y);
+    require_positive("price", m.price);
+    require_positive("spread", m.spread);
+    require_positive("adv", m.adv);
+    require_positive("daily_vol", m.daily_vol);
+    require_positive("y", m.y);
     require(std::isfinite(m.perm_frac) && m.perm_frac > 0.0 && m.perm_frac <= 1.0,
             "perm_frac must be in (0, 1]");
     require(std::isfinite(m.drift_bps_per_day) && m.drift_bps_per_day >= 0.0,
@@ -87,7 +84,7 @@ PretradeReport pretrade_report(const ImpactMarket& m, const std::vector<double>&
     base.lambda_ra = 0.0;
     const ImpactParams p0 = impact_params_from_market(base);
     const double notional = m.total_shares * m.price;
-    positive("total_shares * price", notional);
+    require_positive("total_shares * price", notional);
     PretradeReport rep;
     rep.half_spread_bps = bps(half_spread_cost(m.spread, m.total_shares), notional);
     auto row = [&](const char* label, double lam, const std::vector<double>& x, int horizon,

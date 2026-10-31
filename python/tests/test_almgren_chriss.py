@@ -414,3 +414,20 @@ def test_determinism_of_simulate_is(p_liq: et.ACParams) -> None:
     b = et.simulate_is(p_liq, n_paths=300, seed=5)
     assert (a.mean, a.var, a.se_mean, a.se_var) == (b.mean, b.var, b.se_mean, b.se_var)
     assert et.simulate_is(p_liq, n_paths=300, seed=6).mean != a.mean
+
+
+def test_pov_overflowing_clip_and_tiny_remainder() -> None:
+    """A clip that overflows is an input error; a remainder far below one clip
+    still takes one interval (API_SPEC 1.6)."""
+    with pytest.raises(ValueError, match="clip"):
+        et.pov_holdings(1.0, 1e200, 1e200, 0.5)
+    x = et.pov_holdings(1e-13, 1.0, 1.0, 0.5)
+    assert x.tolist() == [1e-13, 0.0]
+
+
+def test_zero_kappa_with_overflowing_horizon_is_twap() -> None:
+    """N*tau overflows to inf; with sigma = 0 (kappa = 0) the TWAP branch must
+    still be taken (0 * inf is NaN), found by the property tests."""
+    p = et.ACParams(407783.96319156745, 2, 1e308, 0.0, 1e308, 2.2250738585072014e-308, 0.0)
+    x = et.ac_trajectory(p)
+    assert x.tolist() == [407783.96319156745, 407783.96319156745 / 2.0, 0.0]

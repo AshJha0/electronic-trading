@@ -45,6 +45,8 @@ jobs:
       - name: Build C++ library (tests off, so no GoogleTest download)
         if: matrix.build-mode == 'manual'
         run: |
+          sudo apt-get update -q && sudo apt-get install -y -q g++-14
+          export CC=gcc-14 CXX=g++-14
           cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DETRADE_BUILD_TESTS=OFF
           cmake --build build --parallel
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1

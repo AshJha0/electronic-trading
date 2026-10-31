@@ -1,6 +1,7 @@
 package io.github.ashjha0.etrade;
 
 import static io.github.ashjha0.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.requireNonNull;
 import static io.github.ashjha0.etrade.Validation.requireFinite;
 
 /**
@@ -55,7 +56,7 @@ public final class Analytics {
      * Decomposes implementation shortfall into delay/trading/opportunity.
      * The identity {@code total == delay + trading + opportunity} holds exactly.
      *
-     * @param side          {@code "buy"} or {@code "sell"}
+     * @param side          order side
      * @param decisionPrice price when the decision was made (finite)
      * @param arrivalPrice  price when trading started (finite)
      * @param closePrice    closing price (finite)
@@ -66,29 +67,30 @@ public final class Analytics {
      * @throws IllegalArgumentException on inconsistent inputs (mismatched fill
      *         arrays, negative quantities, over-execution, non-finite prices)
      */
-    public static ISDecomposition decomposeShortfall(String side, double decisionPrice,
+    public static ISDecomposition decomposeShortfall(Side side, double decisionPrice,
                                                      double arrivalPrice, double closePrice,
                                                      double totalQty, double[] fillQtys,
                                                      double[] fillPrices) {
-        require("buy".equals(side) || "sell".equals(side), "side must be 'buy' or 'sell'");
+        require(side != null, "side must not be null");
         requireFinite(decisionPrice, "decisionPrice");
         requireFinite(arrivalPrice, "arrivalPrice");
         requireFinite(closePrice, "closePrice");
         require(Double.isFinite(totalQty) && totalQty >= 0.0, "totalQty must be >= 0");
-        require(fillQtys != null && fillPrices != null
-                        && fillQtys.length == fillPrices.length,
+        require(fillQtys != null, "fillQtys must not be null");
+        require(fillPrices != null, "fillPrices must not be null");
+        require(fillQtys.length == fillPrices.length,
                 "fillQtys and fillPrices must be arrays of equal length");
         double executed = 0.0;
         for (int j = 0; j < fillQtys.length; j++) {
             require(Double.isFinite(fillQtys[j]) && fillQtys[j] >= 0.0,
-                    "fill quantities must be >= 0");
-            requireFinite(fillPrices[j], "fill prices");
+                    "fillQtys must be finite and >= 0");
+            requireFinite(fillPrices[j], "fillPrices");
             executed += fillQtys[j];
         }
         require(executed <= totalQty * (1.0 + 1e-12) + 1e-12,
                 "executed quantity exceeds totalQty");
         double remaining = totalQty - executed;
-        double sign = "sell".equals(side) ? 1.0 : -1.0;
+        double sign = side.sellSign();
         double delay = executed * sign * (decisionPrice - arrivalPrice);
         double trading = 0.0;
         for (int j = 0; j < fillQtys.length; j++) {
@@ -97,6 +99,29 @@ public final class Analytics {
         double opportunity = remaining * sign * (decisionPrice - closePrice);
         double total = delay + trading + opportunity;
         return new ISDecomposition(total, delay, trading, opportunity, executed, remaining);
+    }
+
+    /**
+     * String-side overload of {@link #decomposeShortfall(Side, double, double, double,
+     * double, double[], double[])}.
+     *
+     * @param side          {@code "buy"} or {@code "sell"}
+     * @param decisionPrice price when the decision was made
+     * @param arrivalPrice  price when trading started
+     * @param closePrice    closing price
+     * @param totalQty      parent order size
+     * @param fillQtys      fill quantities
+     * @param fillPrices    fill prices
+     * @return the decomposition
+     * @deprecated use the {@link Side} overload; this one will be removed in the next release
+     */
+    @Deprecated
+    public static ISDecomposition decomposeShortfall(String side, double decisionPrice,
+                                                     double arrivalPrice, double closePrice,
+                                                     double totalQty, double[] fillQtys,
+                                                     double[] fillPrices) {
+        return decomposeShortfall(Side.parse(side), decisionPrice, arrivalPrice, closePrice,
+                totalQty, fillQtys, fillPrices);
     }
 
     /**
@@ -127,9 +152,11 @@ public final class Analytics {
      * @return the fitted regression
      */
     public static OLSResult ols(double[] x, double[] y) {
-        require(x != null && y != null && x.length == y.length,
+        require(x != null, "x must not be null");
+        require(y != null, "y must not be null");
+        require(x.length == y.length,
                 "x and y must be arrays of equal length");
-        require(x.length >= 2, "need at least 2 observations");
+        require(x.length >= 2, "x and y need at least 2 observations");
         double xm = 0.0;
         double ym = 0.0;
         for (int i = 0; i < x.length; i++) {
@@ -179,7 +206,7 @@ public final class Analytics {
         double[] cost = new double[nObs];
         for (int i = 0; i < nObs; i++) {
             part[i] = 0.02 + 0.18 * i / (nObs - 1);
-            cost[i] = intercept + slope * part[i] + noiseAmp * Math.sin(2.5 * i + 0.3);
+            cost[i] = intercept + slope * part[i] + noiseAmp * StrictMath.sin(2.5 * i + 0.3);
         }
         return new double[][] {part, cost};
     }
@@ -192,6 +219,8 @@ public final class Analytics {
      * @return the fitted regression
      */
     public static OLSResult estimateImpact(double[] participations, double[] costs) {
+        requireNonNull(participations, "participations");
+        requireNonNull(costs, "costs");
         return ols(participations, costs);
     }
 }

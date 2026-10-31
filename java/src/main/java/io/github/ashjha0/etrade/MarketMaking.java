@@ -1,11 +1,11 @@
 package io.github.ashjha0.etrade;
 
 import static io.github.ashjha0.etrade.Validation.require;
+import static io.github.ashjha0.etrade.Validation.requireNonNull;
 
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.Map;
-import java.util.SplittableRandom;
 
 /**
  * Market making that can lose money: informed flow, ticks, fees, latency,
@@ -37,7 +37,7 @@ import java.util.SplittableRandom;
  */
 public final class MarketMaking {
 
-    private static final double SQRT_2_OVER_PI = Math.sqrt(2.0 / Math.PI);
+    private static final double SQRT_2_OVER_PI = StrictMath.sqrt(2.0 / Math.PI);
 
     private MarketMaking() {
     }
@@ -93,7 +93,7 @@ public final class MarketMaking {
 
         /** Validates all fields; see the record javadoc for the constraints. */
         public Config {
-            require(agent != null, "agent must be 'as', 'glft' or 'fixed'");
+            require(agent != null, "agent must not be null");
             require(Double.isFinite(tick) && tick >= 0.0, "tick must be finite and >= 0");
             require(Double.isFinite(makerFee), "maker_fee must be finite");
             require(latencySteps >= 0, "latency_steps must be an integer >= 0");
@@ -243,7 +243,7 @@ public final class MarketMaking {
                 ss += (v - m) * (v - m);
             }
             int n = nPaths();
-            return Math.sqrt(ss / (n - 1)) / Math.sqrt(n);
+            return StrictMath.sqrt(ss / (n - 1)) / StrictMath.sqrt(n);
         }
 
         /**
@@ -288,10 +288,11 @@ public final class MarketMaking {
      * @return the bid and ask distances from fair value
      */
     public static HalfSpreads glftHalfSpreads(ASParams params, double q) {
+        requireNonNull(params, "params");
         require(Double.isFinite(q), "q must be finite");
         double g = params.gamma();
         double k = params.k();
-        double c1 = Math.log1p(g / k) / g;
+        double c1 = StrictMath.log1p(g / k) / g;
         double c2 = glftC2(params);
         return new HalfSpreads(c1 + (2.0 * q + 1.0) / 2.0 * c2, c1 - (2.0 * q - 1.0) / 2.0 * c2);
     }
@@ -300,7 +301,7 @@ public final class MarketMaking {
         double g = params.gamma();
         double k = params.k();
         double s2 = params.sigma() * params.sigma();
-        return Math.sqrt(s2 * g / (2.0 * k * params.aRate()) * Math.pow(1.0 + g / k, 1.0 + k / g));
+        return StrictMath.sqrt(s2 * g / (2.0 * k * params.aRate()) * StrictMath.pow(1.0 + g / k, 1.0 + k / g));
     }
 
     /**
@@ -365,7 +366,7 @@ public final class MarketMaking {
     /**
      * Simulates the market maker with frictions (API_SPEC 9.4; loop order pinned, see the
      * class javadoc).  Deterministic per (seed, config, nPaths); uses
-     * {@link SplittableRandom}, so sample values differ from the Python reference while
+     * {@code SplittableRandom} uniforms with Marsaglia polar normals, so sample values differ from the Python reference while
      * agreeing statistically.
      *
      * @param params model parameters
@@ -378,12 +379,12 @@ public final class MarketMaking {
         require(params != null, "params must not be null");
         require(config != null, "config must not be null");
         require(nPaths >= 2 && nPaths <= AvellanedaStoikov.MAX_AS_PATHS,
-                "n_paths must be an integer in [2, 10000000]");
+                "nPaths must be an integer in [2, " + AvellanedaStoikov.MAX_AS_PATHS + "]");
         int nSteps = params.nSteps();
         int lat = config.latencySteps();
         require(lat <= nSteps, "latency_steps must be <= n_steps");
 
-        SplittableRandom rng = new SplittableRandom(seed);
+        NormalRng rng = new NormalRng(seed);
         double g = params.gamma();
         double sig = params.sigma();
         double sig2 = sig * sig;
@@ -392,11 +393,11 @@ public final class MarketMaking {
         double k = params.k();
         double aRate = params.aRate();
         double qMax = params.qMax();
-        double sqdt = Math.sqrt(dt);
-        double markup = 2.0 / g * Math.log1p(g / k);
+        double sqdt = StrictMath.sqrt(dt);
+        double markup = 2.0 / g * StrictMath.log1p(g / k);
         double fixedHalf = 0.5 * (config.fixedSpread() != null ? config.fixedSpread()
                 : 0.5 * g * sig2 * bigT + markup);
-        double c1 = Math.log1p(g / k) / g;
+        double c1 = StrictMath.log1p(g / k) / g;
         double c2 = config.agent() == Agent.GLFT ? glftC2(params) : 0.0;
         double shiftScale = (2.0 * config.signalAccuracy() - 1.0) * sig * sqdt * SQRT_2_OVER_PI;
         double tick = config.tick();
@@ -426,7 +427,7 @@ public final class MarketMaking {
             for (int i = 0; i < nSteps; i++) {
                 double t = i * dt;
                 // 1. five draws, always, in the pinned order
-                double z = rng.nextGaussian();
+                double z = rng.nextNormal();
                 double uSig = rng.nextDouble();
                 double uAsk = rng.nextDouble();
                 double uBid = rng.nextDouble();
@@ -457,8 +458,8 @@ public final class MarketMaking {
                 // 4. uninformed fills, distances from the true current mid
                 boolean canAsk = q > -qMax;
                 boolean canBid = q < qMax;
-                double pAsk = -Math.expm1(-aRate * Math.exp(-k * (ask - s)) * dt);
-                double pBid = -Math.expm1(-aRate * Math.exp(-k * (s - bid)) * dt);
+                double pAsk = -StrictMath.expm1(-aRate * StrictMath.exp(-k * (ask - s)) * dt);
+                double pBid = -StrictMath.expm1(-aRate * StrictMath.exp(-k * (s - bid)) * dt);
                 boolean fillAsk = canAsk && uAsk < pAsk;
                 boolean fillBid = canBid && uBid < pBid;
                 // 5. informed fills against quotes inside the coming move
@@ -496,7 +497,7 @@ public final class MarketMaking {
             out.get(Stat.MARKOUT)[p] = markout;
             out.get(Stat.FILLS)[p] = fills;
             out.get(Stat.INFORMED_FILLS)[p] = informedFills;
-            out.get(Stat.RMS_Q)[p] = Math.sqrt(sumQ2 / nSteps);
+            out.get(Stat.RMS_Q)[p] = StrictMath.sqrt(sumQ2 / nSteps);
             double recon = spread + fees + inventory - liq;
             maxErr = Math.max(maxErr, Math.abs(recon - pnl) / Math.max(1.0, Math.abs(pnl)));
         }
