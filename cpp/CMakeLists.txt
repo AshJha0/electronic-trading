@@ -11,7 +11,7 @@
 #   ETRADE_COVERAGE     instrument for gcov/lcov (GCC/Clang only, default OFF)
 # GoogleTest is taken from the system when available, otherwise fetched.
 cmake_minimum_required(VERSION 3.25)
-project(etrade VERSION 2.0.0 LANGUAGES CXX)
+project(etrade VERSION 2.0.1 LANGUAGES CXX)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)

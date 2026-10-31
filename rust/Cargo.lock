@@ -173,7 +173,7 @@ checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
 name = "etrade"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "criterion",
  "proptest",
