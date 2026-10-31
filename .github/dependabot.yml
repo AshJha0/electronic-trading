@@ -15,6 +15,19 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Major versions change the seeded random streams (API_SPEC Section 4)
+      # and with them every simulation result; upgrade deliberately, with a
+      # golden regeneration, never automatically.
+      - dependency-name: "rand"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "rand_chacha"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "rand_distr"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # Newer criterion needs a Rust newer than the crate's MSRV (1.78).
+      - dependency-name: "criterion"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: maven
     directory: /java
     schedule:
@@ -24,6 +37,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # The tag is the Rust version the MSRV job tests, not an action version.
+      - dependency-name: "dtolnay/rust-toolchain"
     groups:
       actions:
         patterns: ["*"]

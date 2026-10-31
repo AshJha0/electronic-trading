@@ -9,6 +9,7 @@ flowchart LR
     EX["execution<br/>(Section 12)"]
     MM["mm<br/>(Section 9)"]
     PL["placement<br/>(Section 13)"]
+    HG["hedging<br/>(Section 14)"]
 
     MK --> AC
     MK --> AS
@@ -17,5 +18,7 @@ flowchart LR
     EX --> IM
     EX --> MK
     MM --> AS
+    HG --> MM
+    HG --> AS
     PL -. "MAX_PATHS" .-> AC
     TC -. "Side enum (Rust, C++)" .-> AN

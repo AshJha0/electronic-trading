@@ -1,6 +1,6 @@
 [package]
 name = "etrade"
-version = "1.1.0"
+version = "2.0.0"
 edition = "2021"
 rust-version = "1.78"
 description = "Execution and market-making research: Almgren-Chriss optimal execution, Avellaneda-Stoikov market making, execution analytics"

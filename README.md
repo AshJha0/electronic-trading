@@ -30,7 +30,10 @@ internalisation. Market making runs with a price grid, maker fees or
 rebates, stale quotes, informed flow and a fair-value signal, with an exact
 PnL attribution and markouts, and GLFT quotes beside A-S. Limit-order
 placement covers queue fill probability, the choice between posting and
-crossing, and liquidation with limit and market orders. The other five
+crossing, and liquidation with limit and market orders. Hedged market
+making lays inventory off in a correlated instrument, with the hedge PnL and
+costs in the same exact attribution, under a loss limit, a position limit,
+a quote throttle and a kill switch. The other five
 presets and the pinned volume curve are illustrative, not fitted to data.
 
 Documentation site: https://ashjha0.github.io/electronic-trading/ (the guide,
@@ -104,6 +107,35 @@ prevent it. Quotes 5 seconds stale are picked off and lose money on every
 day. The C++, Rust and Java demos print the same table from their own
 5,000-path samples (`LEARN.md` Sections 6.7-6.12 read it row by row).
 
+### Hedged market making and risk controls
+
+The same book (1-cent tick, 0.2-cent rebate, 15% informed arrivals), hedged
+in an instrument with correlation 0.9 at half a cent a share, or run under
+one risk control (`API_SPEC.md` Section 14). Dollars per day, 20,000-path
+Python sample (the `hedging_golden.json` reference); the 5% quantile is the
+pinned type-7 estimator. Every path satisfies
+`PnL = spread + fees + inventory - liquidation + hedge PnL - hedge costs - risk costs`
+exactly:
+
+| case | mean PnL | sd | 5% quantile | rms skew |
+|---|---|---|---|---|
+| A-S, unhedged | 4.00 | 1.45 | 1.59 | 0.0067 |
+| A-S, full hedge | 7.83 | 1.36 | 5.59 | 0.0031 |
+| fixed spread, unhedged | 3.83 | 25.80 | -40.41 | 0 |
+| fixed spread, full hedge | 7.92 | 11.39 | -11.18 | 0 |
+| fixed, loss limit 5 | 2.17 | 14.22 | -5.83 | 0 |
+| fixed, position limit 10 | 4.16 | 6.04 | -5.86 | 0 |
+| A-S, throttle 1 update per 3 steps | -32.86 | 2.98 | -37.98 | 0.0135 |
+| fixed, kill at 3/4 of the session | 3.13 | 19.86 | -30.68 | 0 |
+
+The hedge halves the A-S skew and cuts the fixed-spread book's standard
+deviation by more than half, for about 3 a day in hedge costs. The loss and
+position limits lift the 5% quantile from -40 to about -6; the loss limit
+pays for it in mean, the position limit does not here. The throttle leaves
+stale quotes to be picked off. Every demo prints these cases from its own
+2,000-path sample with the control trigger counts (`LEARN.md` Section 6.13;
+COOKBOOK recipes 26 and 27).
+
 ### Roadmap
 
 1. **F1. Market units and realistic presets** (done; `API_SPEC.md`
@@ -163,13 +195,15 @@ Not investment advice and not a trading system; see the usage notes below.
 | GLFT closed-form quotes; weighted mid and order-flow imbalance helpers; 14 market-making golden cases | yes | yes | yes | yes |
 | Queue fill probability by uniformisation; passive-or-aggressive decision for a child order | yes | yes | yes | yes |
 | Liquidation with limit and market orders (backward induction, paired simulation); 11 placement golden cases | yes | yes | yes | yes |
+| Hedged market making: correlated hedge instrument, pinned hedge rule with band and target, skew on risk-equivalent exposure, exact attribution with hedge PnL and costs | yes | yes | yes | yes |
+| Risk controls: running loss limit, position limit with flattening, quote-rate throttle, kill switch; trigger counts, pinned type-7 quantile; 18 hedging golden cases | yes | yes | yes | yes |
 
 ## Directory layout
 
 ```
 electronic-trading/
   README.md                # this file
-  LEARN.md                 # theory: microstructure, AC, A-S, impact, calibration, TCA, frictions, placement, regulation
+  LEARN.md                 # theory: microstructure, AC, A-S, impact, calibration, TCA, frictions, placement, hedging, regulation
   COOKBOOK.md              # task-oriented recipes in all four languages
   API_SPEC.md              # the pinned cross-language contract (normative)
   CHANGELOG.md
@@ -192,7 +226,7 @@ electronic-trading/
     generate_market.py     # regenerates presets.json + market golden cases
     generate_impact.py     # regenerates the power-law impact golden cases
     generate_tca.py  generate_calibration.py  generate_execution.py
-    generate_mm.py  generate_placement.py
+    generate_mm.py  generate_placement.py  generate_hedging.py
     golden/golden.json     # 19 cross-language golden cases
     golden/market_golden.json       # 15 market-unit golden cases
     golden/impact_golden.json       # 8 power-law impact golden cases
@@ -201,8 +235,9 @@ electronic-trading/
     golden/execution_golden.json    # 8 execution-extension golden cases
     golden/mm_golden.json           # 14 market-making golden cases
     golden/placement_golden.json    # 11 limit-order placement golden cases
+    golden/hedging_golden.json      # 18 hedging and risk-control golden cases
   python/
-    src/etrade/            # reference package (almgren_chriss, avellaneda_stoikov, analytics, impact, market, tca, calibration, execution, mm, placement)
+    src/etrade/            # reference package (almgren_chriss, avellaneda_stoikov, analytics, impact, market, tca, calibration, execution, mm, placement, hedging)
     tests/                 # pytest suites incl. golden-value tests
     demo.py                # end-to-end demo report
     pyproject.toml  requirements.txt
@@ -272,9 +307,9 @@ mkdocs build --strict                # what the Docs workflow runs on every PR
 Test counts above are the suite sizes measured by running each suite on
 2026-10-30 (Python 575, C++ 191, Rust 290, Java 333; 1,389 in total; the six
 Python benchmarks run only when pytest-benchmark is installed); every
-suite loads the same eight golden files, 95 cases: 19 model, 15 market, 8
-impact, 11 TCA, 9 calibration, 8 execution, 14 market-making and 11
-placement.
+suite loads the same ten golden files, 120 cases: 19 model, 7
+whole-trajectory, 15 market, 8 impact, 11 TCA, 9 calibration, 8 execution,
+14 market-making, 11 placement and 18 hedging.
 
 ## Sample demo output (Python reference, abridged)
 
@@ -330,14 +365,14 @@ participation rate example: 120k / 1.5m = 8.00%
 fitted: cost = 0.5035 + 7.9707 * participation (true 0.50 + 8.00), R^2 = 0.9934, n = 25
 
 [presets, pre-trade and friction-ledger sections omitted: they are the tables at the top;
- TCA, calibration, execution-extension and placement sections omitted]
+ TCA, calibration, execution-extension, placement and hedging sections omitted]
 
 done.
 ```
 
 The demo prints every section in full; the excerpt leaves out the FX-like
 market-making run, the tables already shown at the top of this file, and
-the sections for Sections 10-13 of the contract, whose numbers `LEARN.md`
+the sections for Sections 10-14 of the contract, whose numbers `LEARN.md`
 and `COOKBOOK.md` quote.
 The simulation rows are 2,000-path samples from the Python demo; the C++,
 Rust and Java demos print their own samples (e.g. A-S fills 85.2 / 85.5 /
@@ -374,15 +409,16 @@ at `kappa*T > 2500`, and every validation rule of `API_SPEC.md` Section 6
 (non-finite inputs, size bounds, non-liquidating schedules, participation
 above 1, ...).
 
-Seven further golden files follow the same schema and comparison rule:
+Eight further golden files follow the same schema and comparison rule:
 `market_golden.json` (15 market-unit cases, 1e-12, `API_SPEC.md` Sections
 7.4 and 11.7), `impact_golden.json` (8 power-law impact cases, 1e-9,
 Section 8.5), `tca_golden.json` (11 cases, 1e-12, Section 10.6),
 `calibration_golden.json` (9 cases, 1e-12, Section 11.7),
 `execution_golden.json` (8 cases, exact at 1e-9 and statistical at 4 SE,
 Section 12.4), `mm_golden.json` (14 cases, exact at 1e-12 and statistical
-at 4 SE, Section 9.7) and `placement_golden.json` (11 cases, exact at 1e-10
-and statistical at 4 SE, Section 13.4). Each has a generator, `data/generate_<name>.py`
+at 4 SE, Section 9.7), `placement_golden.json` (11 cases, exact at 1e-10
+and statistical at 4 SE, Section 13.4) and `hedging_golden.json` (18 cases,
+exact at 1e-12 and statistical at 4 SE, Section 14.7). Each has a generator, `data/generate_<name>.py`
 (`generate_data.py` for `golden.json`); `docs/ARCHITECTURE.md` lists them
 all. Regenerate on Linux or macOS: the committed values come from there,
 and the last bit of some libm results differs on Windows.
@@ -405,8 +441,9 @@ What a practitioner gets, and what is deliberately left out:
   drift signal and partial fills, and internalisation (Section 12); market
   making with a tick grid, fees, stale quotes, informed flow and a signal
   of given accuracy (Section 9); queue fill probability and liquidation
-  with limit and market orders (Section 13). Nothing else: no venues, lots
-  or order book; the frictions are stylised switches, not a matching
+  with limit and market orders (Section 13); hedging in one correlated
+  instrument with a fixed, known correlation, and risk controls checked once
+  per step (Section 14). Nothing else: no venues, lots or order book; the frictions are stylised switches, not a matching
   engine.
 - **Units and conventions** (`API_SPEC.md` Section 0): `tau`, `dt`, `T` are in
   an abstract time unit (the bundled sets use 1 = one trading day) — nothing
@@ -442,9 +479,11 @@ What a practitioner gets, and what is deliberately left out:
   library because `std::normal_distribution` is implementation-defined.
   Cross-language agreement is statistical (4-SE bands), never bitwise.
 - **What is verified.** 1,389 tests across the four suites: 120 shared golden
-  cases (19 model at 1e-10..1e-12, 15 market-unit at 1e-12, 8 power-law
-  impact at 1e-9, 11 TCA and 9 calibration at 1e-12, 8 execution at 1e-9 or
-  4 SE, 14 market-making at 1e-12 or 4 SE, 11 placement at 1e-10 or 4 SE), the paper's closed forms against the discrete sums at 1e-12, Monte
+  cases (19 model at 1e-10..1e-12, 7 whole-trajectory at 1e-10 or 1e-9, 15
+  market-unit at 1e-12, 8 power-law impact at 1e-9, 11 TCA and 9
+  calibration at 1e-12, 8 execution at 1e-9 or 4 SE, 14 market-making at
+  1e-12 or 4 SE, 11 placement at 1e-10 or 4 SE, 18 hedging at 1e-12 or
+  4 SE), the paper's closed forms against the discrete sums at 1e-12, Monte
   Carlo against closed forms at 4 SE, and every validation rule; in the
   Python suite, the power-law solver against SciPy's constrained optimiser
   and the t-test against SciPy. What is *not* verified: the impact
@@ -496,6 +535,17 @@ Papers and standards the code implements or the documentation relies on:
 - A. Cartea and S. Jaimungal (2015), "Optimal execution with limit and
   market orders", *Quantitative Finance* 15(8), 1279–1291 (liquidation with
   both order types, Section 13.3).
+- L. H. Ederington (1979), "The hedging performance of the new futures
+  markets", *Journal of Finance* 34(1), 157–170.
+  https://doi.org/10.1111/j.1540-6261.1979.tb02077.x (the minimum-variance
+  hedge ratio, Section 14.3)
+- O. Guéant (2017), *The Financial Mathematics of Market Liquidity: From
+  Optimal Execution to Market Making*, Chapman and Hall/CRC (multi-asset
+  market making, the skew on the risk-equivalent exposure of Section 14.3).
+- R. J. Hyndman and Y. Fan (1996), "Sample quantiles in statistical
+  packages", *The American Statistician* 50(4), 361–365.
+  https://doi.org/10.1080/00031305.1996.10473566 (the type-7 quantile,
+  Section 14.6)
 - NASDAQ TotalView-ITCH 5.0 sample file `12302019.NASDAQ_ITCH50`
   (emi.nasdaq.com/ITCH/), the source of the fitted presets (Section 11.6).
 - Regulatory texts cited in `LEARN.md` Section 12: Directive 2014/65/EU

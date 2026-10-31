@@ -8,10 +8,12 @@
 /// implementation-shortfall decomposition with a market-impact regression,
 /// presets in bps, a pre-trade report, post-trade TCA, calibration with the
 /// fitted ITCH presets, execution extensions, the market-making friction
-/// ledger and limit-order placement.
+/// ledger, limit-order placement, and hedged market making with risk
+/// controls.
 ///
 /// Parameter values mirror data/params_liquid.json, data/params_fx.json and
 /// data/parent_order.json (hardcoded so the demo runs from any directory).
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -24,6 +26,7 @@
 #include "etrade/avellaneda_stoikov.hpp"
 #include "etrade/calibration.hpp"
 #include "etrade/execution.hpp"
+#include "etrade/hedging.hpp"
 #include "etrade/impact.hpp"
 #include "etrade/market.hpp"
 #include "etrade/mm.hpp"
@@ -516,6 +519,90 @@ void placement_section() {
 
 }  // namespace
 
+/// Hedged market making and risk controls (API_SPEC Section 14).
+void hedging_section() {
+    hdr("Hedged market making and risk controls: US large-cap preset, B at rho = 0.9");
+    const struct {
+        double q, y, ratio, thr, tgt;
+    } trades[] = {
+        {7.0, 0.0, 0.9, 0.0, 0.0}, {7.0, -4.5, 0.9, 2.5, 0.0}, {-6.0, 1.8, 0.9, 2.5, 0.25}};
+    for (const auto& t : trades) {
+        // 0.0 + dy keeps a zero trade printing as +0.0000, not -0.0000.
+        const double dy = 0.0 + etrade::hedge_trade(t.q, t.y, t.ratio, t.thr, t.tgt);
+        std::printf("hedge_trade(q %+.1f, y %+.2f, ratio %.1f, band %.1f, target %.2f): "
+                    "dy = %+.4f\n", t.q, t.y, t.ratio, t.thr, t.tgt, dy);
+    }
+    const std::vector<double> vals = {3.5, -1.25, 0.0, 7.75, -4.5, 2.0, 2.0, -0.5, 10.25, 1.0};
+    std::printf("type-7 quantile of the 10 golden values: 5%% %.4f, median %.4f\n",
+                etrade::quantile(vals, 0.05), etrade::quantile(vals, 0.5));
+    etrade::ASMarket am = make_as(100.0, 0.015, 1170.0, 0.462, 2.25, 50, 5.0);
+    const etrade::ASParams a = etrade::as_params_from_market(am);
+    std::printf("$ per day, 2k paths (each language samples its own paths); q05 = 5%% quantile of "
+                "PnL:\n");
+    std::printf("%20s %6s %5s %7s | %6s %6s %6s %6s | %5s %5s %7s\n", "case", "PnL", "se", "q05",
+                "hedge", "h.cost", "r.cost", "skew", "stops", "flat", "updates");
+    using etrade::MMAgent;
+    auto book = [](MMAgent agent) {
+        etrade::MMConfig c;
+        c.agent = agent;
+        c.tick = 0.01;
+        c.maker_fee = 0.002;
+        c.informed_prob = 0.15;
+        return c;
+    };
+    etrade::HedgeConfig full;
+    full.rho = 0.9;
+    full.hedge_ratio = 0.9;
+    full.hedge_cost = 0.005;
+    const etrade::HedgeConfig none;
+    auto risk = [](double loss, int pos, double pen, int upd, int win, int kill) {
+        etrade::RiskConfig r;
+        r.loss_limit = loss;
+        r.position_limit = pos;
+        r.flatten_penalty = pen;
+        r.throttle_updates = upd;
+        r.throttle_window = win;
+        r.kill_step = kill;
+        return r;
+    };
+    const etrade::RiskConfig off;
+    // Seeds are the hedge_sim golden cases of API_SPEC 14.7.
+    const struct {
+        const char* label;
+        etrade::MMConfig c;
+        etrade::HedgeConfig h;
+        etrade::RiskConfig r;
+        std::uint64_t seed;
+    } rows[] = {
+        {"A-S, unhedged", book(MMAgent::kAs), none, off, 201},
+        {"A-S, full hedge", book(MMAgent::kAs), full, off, 202},
+        {"fixed, unhedged", book(MMAgent::kFixed), none, off, 204},
+        {"fixed, full hedge", book(MMAgent::kFixed), full, off, 205},
+        {"fixed, loss limit 5", book(MMAgent::kFixed), none, risk(5.0, 0, 0.01, 0, 1, -1), 206},
+        {"fixed, pos limit 10", book(MMAgent::kFixed), none, risk(0.0, 10, 0.01, 0, 1, -1), 207},
+        {"A-S, 1 quote/3 steps", book(MMAgent::kAs), none, risk(0.0, 0, 0.0, 1, 3, -1), 208},
+        {"fixed, kill at 3/4", book(MMAgent::kFixed), none, risk(0.0, 0, 0.01, 0, 1, 3510), 209},
+    };
+    using etrade::HedgeStat;
+    double worst = 0.0;
+    for (const auto& row : rows) {
+        const etrade::HedgedResult r = etrade::simulate_hedged(a, 2'000, row.seed, row.c, row.h,
+                                                               row.r);
+        worst = std::max(worst, r.max_identity_error);
+        std::printf("%20s %6.2f %5.2f %7.2f | %6.2f %6.2f %6.2f %6.4f | %5.2f %5.1f %7.0f\n",
+                    row.label, r.mean(HedgeStat::kPnl), r.se(HedgeStat::kPnl),
+                    r.quantile(HedgeStat::kPnl, 0.05), r.mean(HedgeStat::kHedgePnl),
+                    r.mean(HedgeStat::kHedgeCosts), r.mean(HedgeStat::kRiskCosts),
+                    r.mean(HedgeStat::kRmsSkew),
+                    r.mean(HedgeStat::kLossStop) + r.mean(HedgeStat::kKillStop),
+                    r.mean(HedgeStat::kPosFlattens), r.mean(HedgeStat::kQuoteUpdates));
+    }
+    std::printf("hedge = hedge PnL, h.cost/r.cost = hedge and risk-control costs, skew = rms skew "
+                "$;\nstops = share of paths stopped (loss limit or kill switch), flat = "
+                "position-limit\nflattens per path. Attribution identity holds on every path: "
+                "max residual %.0e.\n", worst);
+}
+
 int main() {
     std::printf("etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov "
                 "market making (C++)\n");
@@ -537,6 +624,7 @@ int main() {
     execution_ext_section();
     mm_frictions_section();
     placement_section();
+    hedging_section();
     std::printf("\ndone.\n");
     return 0;
 }

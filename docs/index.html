@@ -97,6 +97,15 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
     <tr><td>Latency and GLFT</td><td>quotes 5 s stale: −23.73 a day (picked off); GLFT quotes with tick and rebate: 11.00</td></tr>
   </table></div>
 
+  <h2>Hedged market making and risk controls</h2>
+  <div class="numbers"><table>
+    <tr><td>Setup</td><td>the informed-flow book above; hedge instrument at correlation 0.9, half a cent a share; dollars per day, 20,000-path Python reference; 5% quantile by the pinned type-7 estimator; PnL = spread + fees + inventory − liquidation + hedge PnL − hedge costs − risk costs on every path</td></tr>
+    <tr><td>Hedge, A-S quotes</td><td>mean 4.00 → 7.83, 5% quantile 1.59 → 5.59, rms skew 0.0067 → 0.0031</td></tr>
+    <tr><td>Hedge, fixed spread</td><td>mean 3.83 → 7.92, sd 25.80 → 11.39, 5% quantile −40.41 → −11.18</td></tr>
+    <tr><td>Loss and position limits</td><td>fixed spread, loss limit 5: mean 2.17, 5% quantile −5.83; position limit 10: mean 4.16, 5% quantile −5.86</td></tr>
+    <tr><td>Throttle and kill switch</td><td>A-S quotes, one update per 3 steps: −32.86 (stale quotes picked off); fixed spread, kill at 3/4 of the session: mean 3.13, 5% quantile −30.68</td></tr>
+  </table></div>
+
   <h2>What's inside</h2>
   <div class="grid">
     <div class="card"><h3>Almgren-Chriss execution</h3>
@@ -117,8 +126,10 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
       <p>The A-S quoting logic with a price grid, maker fees or rebates, stale quotes, informed traders and a fair-value signal, switched on one at a time; GLFT quotes beside A-S; every path's PnL split exactly into spread, fees, inventory and liquidation, with one-step markouts.</p></div>
     <div class="card"><h3>Limit-order placement</h3>
       <p>Fill probability of a resting order from its place in the queue; the choice between posting and crossing for a child order; liquidation with limit and market orders by backward induction, checked against all-market and post-then-sweep on shared paths.</p></div>
+    <div class="card"><h3>Hedged market making and risk controls</h3>
+      <p>Inventory laid off in a correlated instrument by a pinned hedge rule (band and target), quotes skewed on the risk-equivalent exposure, hedge PnL and costs in the exact attribution; a running loss limit, a position limit with flattening, a quote-rate throttle and a kill switch, read from their trigger counts and the 5% quantile.</p></div>
     <div class="card"><h3>Golden-value testing</h3>
-      <p>Eight golden files with 95 cases (19 model, 15 market, 8 impact, 11 TCA, 9 calibration, 8 execution, 14 market-making, 11 placement), loaded by all four suites: deterministic cases under a relative-or-absolute tolerance of 1e-9 to 1e-12, Monte Carlo cases as reference values plus standard errors. Sample values differ across languages by design; distributions must agree.</p></div>
+      <p>Ten golden files with 120 cases (19 model, 7 whole-trajectory, 15 market, 8 impact, 11 TCA, 9 calibration, 8 execution, 14 market-making, 11 placement, 18 hedging), loaded by all four suites: deterministic cases under a relative-or-absolute tolerance of 1e-9 to 1e-12, Monte Carlo cases as reference values plus standard errors. Sample values differ across languages by design; distributions must agree.</p></div>
     <div class="card"><h3>Property, numeric and validation tests</h3>
       <p>Per language: trajectory monotonicity, inventory cap respected at every step, frontier monotonicity, continuity across the TWAP branch, overflow safety at <code>kappa·T &gt; 2500</code>, <code>ac_kappa_small_tau</code> at millisecond tau, and every rule in API_SPEC §6 — NaN/inf, empty grids, non-liquidating schedules, participation above 1, sizes beyond the pinned bounds.</p></div>
     <div class="card"><h3>Error contract</h3>
@@ -126,7 +137,7 @@ footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
     <div class="card"><h3>Reference papers</h3>
       <p>Almgren &amp; Chriss (2000), <em>Journal of Risk</em>; Avellaneda &amp; Stoikov (2008), <em>Quantitative Finance</em>; Perold (1988) and Wagner &amp; Edwards (1993) for the shortfall decomposition and its naming; Guéant, Lehalle &amp; Fernandez-Tapia (2013) for the inventory-capped variant behind <code>q_max</code>; Obizhaeva &amp; Wang (2013) for transient impact; Almgren &amp; Lorenz (2007) for adaptive execution; Welch (1947) for the A/B test; MiFID II Art. 17/27, Reg NMS Rules 605/606 and SEC Rule 15c3-5 in the LEARN guide's regulatory section.</p></div>
     <div class="card"><h3>Units and what is out of scope</h3>
-      <p><code>tau</code>, <code>dt</code>, <code>T</code> in an abstract time unit (bundled sets use one trading day); <code>sigma</code> is arithmetic (currency per share per √time); prices may go negative; AC shares are fractional, A-S fills are one unit. Ticks, fees, latency and informed flow are stylised switches in the market-making simulator, not a matching engine. Not covered yet: venues, lots, an order book, hedging and risk limits, calendars, and any fit of the impact parameters <code>eta</code>, <code>alpha</code>, <code>gamma_p</code> and <code>Y</code> to real parent orders.</p></div>
+      <p><code>tau</code>, <code>dt</code>, <code>T</code> in an abstract time unit (bundled sets use one trading day); <code>sigma</code> is arithmetic (currency per share per √time); prices may go negative; AC shares are fractional, A-S fills are one unit. Ticks, fees, latency and informed flow are stylised switches in the market-making simulator, not a matching engine; the hedge instrument has a fixed, known correlation. Not covered yet: venues, lots, an order book, calendars, and any fit of the impact parameters <code>eta</code>, <code>alpha</code>, <code>gamma_p</code> and <code>Y</code> to real parent orders.</p></div>
   </div>
 
   <h2>Part of a wider portfolio</h2>

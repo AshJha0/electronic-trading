@@ -19,6 +19,8 @@ flowchart TB
         GENX["generate_execution.py"]
         GENMM["generate_mm.py"]
         GENP["generate_placement.py"]
+        GENTR["generate_trajectories.py"]
+        GENH["generate_hedging.py"]
         GOLD["golden/golden.json<br/>19 cases: exact + statistical"]
         GOLDM["golden/market_golden.json<br/>15 cases"]
         GOLDI["golden/impact_golden.json<br/>8 cases"]
@@ -27,6 +29,8 @@ flowchart TB
         GOLDX["golden/execution_golden.json<br/>8 cases: exact + statistical"]
         GOLDMM["golden/mm_golden.json<br/>14 cases: exact + statistical"]
         GOLDP["golden/placement_golden.json<br/>11 cases: exact + statistical"]
+        GOLDTR["golden/trajectory_golden.json<br/>7 vector cases"]
+        GOLDH["golden/hedging_golden.json<br/>18 cases: exact + statistical"]
         FIT --> FJ
         FJ --> GENM
         GEN --> PJ
@@ -41,6 +45,9 @@ flowchart TB
         PR --> GENMM
         GENMM --> GOLDMM
         GENP --> GOLDP
+        GENTR --> GOLDTR
+        PR --> GENH
+        GENH --> GOLDH
     end
 
     IAP --> FIT
@@ -56,6 +63,7 @@ flowchart TB
         EX["execution"]
         MM["mm"]
         PL["placement"]
+        HG["hedging"]
     end
 
     PJ --> AC
@@ -66,7 +74,7 @@ flowchart TB
     CA -. "estimators used by" .-> FIT
 
     subgraph OUT["outputs"]
-        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report,<br/>TCA, calibration, execution extensions,<br/>friction ledger, placement)"]
+        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report,<br/>TCA, calibration, execution extensions,<br/>friction ledger, placement,<br/>hedging and risk controls)"]
         TESTS["4 language test suites<br/>exact cases: 1e-9..1e-12<br/>statistical cases: 4-SE band"]
     end
 
@@ -80,3 +88,5 @@ flowchart TB
     GOLDX --> TESTS
     GOLDMM --> TESTS
     GOLDP --> TESTS
+    GOLDTR --> TESTS
+    GOLDH --> TESTS

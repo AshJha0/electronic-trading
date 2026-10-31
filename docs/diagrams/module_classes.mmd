@@ -188,6 +188,26 @@ classDiagram
         +order_flow_imbalance(bid_px, bid_sz, ask_px, ask_sz) array
         +simulate_mm(params, n_paths, seed, config) MMResult
     }
+    class HedgeConfig {
+        +float rho
+        +float hedge_ratio
+        +float hedge_cost
+        +float hedge_threshold
+        +float hedge_target
+    }
+    class RiskConfig {
+        +float loss_limit
+        +int position_limit
+        +float flatten_penalty
+        +int throttle_updates
+        +int throttle_window
+        +int kill_step
+    }
+    class hedging {
+        +hedge_trade(q, y, hedge_ratio, threshold, target_frac) float
+        +quantile(values, p) float
+        +simulate_hedged(params, n_paths, seed, config, hedge, risk) HedgedResult
+    }
     class LiquidationParams {
         +int total_units
         +int n_periods
@@ -232,6 +252,11 @@ classDiagram
     mm ..> MMConfig : validates on construction
     mm --> ASParams
     mm --> MMResult
+    hedging ..> HedgeConfig : validates on construction
+    hedging ..> RiskConfig : validates on construction
+    hedging --> MMConfig
+    hedging --> ASParams
+    hedging --> HedgedResult
     placement ..> LiquidationParams : validates on construction
     placement --> PlacementDecision
     placement --> LiquidationPolicy

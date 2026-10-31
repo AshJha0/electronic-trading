@@ -12,20 +12,22 @@ the square-root law of impact with intraday volume and alpha-aware schedules
 placement and liquidation with limit and market orders (3.14-3.16),
 post-trade analysis: benchmarks, markouts and comparing algorithms
 (4.2-4.4), and market making with frictions: adverse selection, ticks and
-fees, latency, fair-value signals and GLFT quotes (6.7-6.12). A
+fees, latency, fair-value signals and GLFT quotes (6.7-6.12), and hedged
+market making with risk controls (6.13). A
 glossary is at the end (Section 15). The closed-form numbers below are
 reproduced by the code and
 pinned in `data/golden/golden.json` (tolerance 1e-10..1e-12); the market-unit
 and power-law figures are pinned in `data/golden/market_golden.json` and
 `data/golden/impact_golden.json` and printed by every demo; the TCA,
 calibration, execution-extension, market-making and placement figures come
-from the golden files of `API_SPEC.md` Sections 9-13, from COOKBOOK recipes
-15-25, run in all four languages, or from the demos (simulated rows say
+from the golden files of `API_SPEC.md` Sections 9-14, from COOKBOOK recipes
+15-27, run in all four languages, or from the demos (simulated rows say
 so). The simulation
 numbers (Section 6.5–6.6) are 2,000-path samples from the Python demo that
 the C++/Rust/Java ports reproduce *statistically* (within the 4-SE bands of
 the golden file), not bit-for-bit; those of Sections 3.12, 3.16 and
-6.7-6.12 are 20,000-path Python samples.
+6.7-6.13 are 20,000-path Python samples, except where a row says it is a
+2,000-path demo sample.
 
 ---
 
@@ -1337,6 +1339,166 @@ Under informed flow or latency both lose in the same way, because neither
 rule knows about the coming move. The useful habit is to run the ledger for
 any quoting rule before trusting its PnL.
 
+### 6.13 Hedged market making and risk controls
+
+**The plain idea.** The makers of Sections 6.1-6.12 have one way to get rid
+of inventory: skew the quotes and wait for someone to trade the other way.
+The skew gives away edge, since the side that sheds inventory is quoted
+closer to the mid than the spread warrants. A desk that makes markets in an
+ETF has a faster tool. It holds the position and trades the future or the
+basket against it, so that what it owns in one instrument is roughly
+offset in the other. The hedge costs that instrument's half spread and fee
+on every trade, and it leaves the basis risk: the part of A's move that B
+does not share. Separately, the desk runs hard limits that sit outside the
+quoting model and do not trust it: a loss limit, a position limit, a cap on
+how fast quotes can change, and a kill switch. Section 14 of `API_SPEC.md`
+adds both to the Section 9 simulator, keeping its exact accounting.
+
+**The formal statement: the hedge** (`API_SPEC.md` 14.2-14.3). B is quoted
+in A-equivalent units: each step it moves
+`sigma sqrt(dt) (rho z + sqrt(1 - rho^2) z_b)`, the same volatility as A
+with correlation `rho`. Holding `q` of A and `y` of B, the book's PnL
+variance over one step is
+
+$$
+\operatorname{Var} = \sigma^2 \Delta t \,\big(q^2 + 2\rho\, q y + y^2\big).
+$$
+
+Minimising over `y` gives the minimum-variance hedge `y = -rho q`, the
+hedge ratio of Ederington (1979, published), and the residual variance
+`sigma^2 dt (1 - rho^2) q^2`. Hedging at another ratio `h`, `y = -h q`,
+leaves `sigma^2 dt (1 - 2 rho h + h^2) q^2`, which is smallest at `h = rho`
+(derived). The rule the simulator pins hedges the uncovered position
+`u = q + y/h` back towards zero after each step's fills:
+
+$$
+\Delta y = -h\,(1 - \text{target})\,u \quad \text{if } |u| > \text{threshold}, \qquad 0 \text{ otherwise},
+$$
+
+each B share traded costing `hedge_cost`. The quotes no longer lean on `q`.
+Half the derivative of the variance with respect to `q` is
+`sigma^2 dt (q + rho y)`, so the risk-equivalent exposure is
+
+$$
+x = q + \rho\, y ,
+$$
+
+and the A-S and GLFT quotes use `x` in place of `q`: the reservation price
+becomes `r = s - x gamma sigma^2 (T - t)`, the multi-asset form of Guéant
+(2017, published). A full hedge at `h = rho` leaves `x = (1 - rho^2) q`;
+the book stops leaning on its quotes once B has taken the risk. Each path's
+PnL splits exactly (asserted, `1e-9` relative) into
+
+$$
+\text{PnL} = \text{spread} + \text{fees} + \text{inventory} - \text{liquidation}
+ + \text{hedge PnL} - \text{hedge costs} - \text{risk costs},
+$$
+
+where the hedge PnL is `sum y_t Delta B_t`, the hedge costs are
+`hedge_cost |Delta y|` over every B trade (including the unwind at the
+close) and the risk costs are the flatten penalties of the controls below.
+
+**How correlation and the hedge ratio set the residual risk** (derived).
+The standard deviation left after a minimum-variance hedge is
+`sqrt(1 - rho^2)` of the unhedged one: 0.87 at `rho = 0.5`, 0.44 at 0.9,
+0.14 at 0.99. Correlation must be high before a hedge removes most of the
+risk; at 0.5 it removes an eighth. Getting the ratio wrong costs little near
+the optimum. At `rho = 0.9`, hedging one for one (`h = 1`) leaves
+`sqrt(1 - 1.8 + 1) = 0.447` against 0.436, but an estimated `rho` that is
+too high on a weakly correlated pair can leave more risk than no hedge: at
+`rho = 0.3`, `h = 0.9` leaves `sqrt(1 - 0.54 + 0.81) = 1.13`. The
+simulator holds `rho` fixed and known; a desk estimates it, and it moves.
+
+**The formal statement: the controls** (`API_SPEC.md` 14.4, in the order
+the loop applies them each step).
+
+- **Kill switch** at step `kill_step`: flatten A and B at their mids, stop
+  quoting for the rest of the session.
+- **Running loss limit**: if the marked PnL `cash + q s + y b` is below
+  `-loss_limit` at the start of a step, flatten both legs and stop. The
+  check runs once per step, so the mark can fall through the limit by up to
+  that step's change in the mark; the simulator records that `overshoot` and
+  asserts `overshoot <= stop_move` on every path.
+- **Quote-rate throttle**: at most `throttle_updates` quote updates in any
+  `throttle_window` consecutive steps. A blocked update leaves the old
+  quotes standing against the moving mid.
+- **Position limit**: when `|q| >= position_limit` after the fills, flatten
+  A at the mid and keep quoting.
+
+Each A share a control flattens pays `flatten_penalty`. The trigger counts
+are per-path statistics (`kill_stop`, `loss_stop`, `pos_flattens`,
+`quote_updates`), and the tail is read with the 5% quantile of PnL by the
+pinned type-7 estimator of Hyndman and Fan (1996, published), the default
+of NumPy and R: sort the `n` values, `h = (n - 1) p`, interpolate linearly
+between the order statistics either side of `h`.
+
+**Worked example** (golden `hedge_sim` and `risk_sim` cases, 20,000-path
+Python reference in `data/golden/hedging_golden.json`, reproduced by
+`python data/generate_hedging.py`; US large-cap preset with a 1-cent tick,
+a 0.2-cent rebate and 15% informed arrivals as in Section 6.8; B at
+`rho = 0.9`, hedge cost half a cent a share, flatten penalty one cent;
+dollars per session; the last column comes from the Python 2,000-path
+samples of the demo and COOKBOOK recipes 26-27):
+
+| case | mean PnL | sd | 5% quantile | rms skew | triggers |
+|---|---|---|---|---|---|
+| A-S, unhedged | 4.00 | 1.45 | 1.59 | 0.0067 | |
+| A-S, full hedge | 7.83 | 1.36 | 5.59 | 0.0031 | 794 B trades |
+| fixed spread, unhedged | 3.83 | 25.80 | -40.41 | 0 | |
+| fixed spread, full hedge | 7.92 | 11.39 | -11.18 | 0 | |
+| fixed, loss limit 5 | 2.17 | 14.22 | -5.83 | 0 | 68% of paths stopped |
+| fixed, position limit 10 | 4.16 | 6.04 | -5.86 | 0 | 6.3 flattens a path |
+| A-S, throttle 1 update per 3 steps | -32.86 | 2.98 | -37.98 | 0.0135 | 1,560 of 4,680 updates |
+| fixed, kill at 3/4 of the session | 3.13 | 19.86 | -30.68 | 0 | every path stopped |
+
+Hedged, the A-S book's skew halves, its spread capture rises from 10.26 to
+11.17 a session and it pays 3.22 in hedge costs (COOKBOOK recipe 26,
+2,000 paths). For
+the fixed-spread agent, which cannot skew, the same hedge cuts the PnL
+standard deviation from 25.80 to 11.39, a ratio of 0.44, which is the
+`sqrt(1 - rho^2)` of the formula: almost all of that book's risk is the
+position it holds, and the hedge removes the share of it that B carries. The
+native ports print the same rows from their own samples (COOKBOOK recipe 27)
+and agree within sampling error.
+
+**Why the hedged book earns more here, and how far to believe it**
+(judgement). Part of the gain is real in kind: a maker that does not have to
+skew keeps more of its spread. Part of it is the model. The simulator
+trades B at its mid in the same step as the fill, before the price moves,
+so under informed flow the hedge recovers about `rho^2` of the adverse move
+that follows an informed fill (the hedge PnL of 6.82 against an A inventory
+loss of 8.45). A real hedge goes out after the fill is reported and often
+pays part of that move, and the hedge cost of half a cent is a
+large-cap-future number, not a basket's. Read the hedged mean as an upper
+bound and the reduction in variance as the robust result.
+
+**How each control trades mean for tail** (judgement, from the table).
+
+- The **loss limit** lifts the 5% quantile from -40 to -6 and costs 1.7 of
+  mean. Most of the paths it stops were on an ordinary dip they would have
+  recovered from; the stop turns that dip into a realised loss and gives up
+  the rest of the day's spread. A tight loss limit on a strategy with
+  positive mean and fat-tailed inventory risk buys its tail at a high price.
+- The **position limit** gives a similar tail with a higher mean (4.16)
+  because it removes the cause, the large position, at a flatten cost of
+  about 0.63 a session, and keeps the book quoting. Where the loss comes
+  from inventory, a limit on inventory is the better tool.
+- The **throttle** is not a tail control at all in this model; it is a
+  cost. Quotes that cannot move while the mid moves are filled on the wrong
+  side, and the whole loss sits in the spread column. Real throttles exist
+  to stop runaway order traffic (and venues enforce message limits), but
+  their cost is staleness, the latency problem of Section 6.10.
+- The **kill switch** at a fixed time stops every path, so it trades away
+  the last quarter's spread for less time exposed. It narrows the tail only
+  in proportion (-40 to -31). Its real job is the one MiFID II Article 17
+  and the SEC Market Access Rule 15c3-5 give it (Section 12): stopping a
+  strategy that has gone wrong, which a simulation of a strategy working as
+  designed cannot show.
+
+A desk sets these limits from the loss distribution it can tolerate and
+reads the trigger counts as costs: a limit that fires on most days is part
+of the strategy, not a backstop.
+
 ---
 
 ## 7. Model assumptions — and where they break in real life
@@ -1351,6 +1513,7 @@ any quoting rule before trusting its PnL.
 | Unit fill size, one venue, continuous quoting | Real fills are lumpy, markets fragmented, quoting throttled by messaging limits and tick sizes. |
 | Exponential utility, terminal-wealth horizon | Gives clean closed forms; real desks think in drawdown limits, VaR budgets and overnight caps rather than gamma. |
 | Frictionless quote updates | Every A-S quote reprice is free; in reality cancels/replacements lose queue position (Section 11). |
+| Hedge at B's mid, same step, known `rho` (Section 6.13) | A real hedge goes out after the fill is reported and often pays part of the move; the correlation is estimated and drifts, and the basis can widen when it matters most. Risk controls are checked once per step, so a loss stop can overshoot by one step's move. |
 
 ---
 
@@ -1669,6 +1832,36 @@ law the total cost of an order grows like `Q^(3/2)`; avoiding two
 `C(75,000)`; the model with the US large-cap inputs gives 5.67 (Section
 3.13).
 
+**Q18. Why does a hedged market maker skew its quotes less?** The quotes
+should lean on the risk the book carries, not on the position in the quoted
+instrument alone. With `y` of a hedge at correlation `rho` that risk is
+`x = q + rho y` A-equivalent shares, and a full hedge leaves
+`x = (1 - rho^2) q`: at `rho = 0.9`, a fifth of the unhedged skew. The book
+keeps more spread and pays the hedge's half spread and fee instead
+(Section 6.13; `rms_skew` halves in the golden cases).
+
+**Q19. Your hedge instrument has correlation 0.5 with the one you quote.
+How much risk does the best static hedge remove?** The residual standard
+deviation is `sqrt(1 - rho^2) = 0.87` of the unhedged one, so about 13%,
+for a hedge cost paid on every trade. Below a correlation of about 0.9 a
+hedge leaves most of the risk in place, and an over-estimated `rho` can
+leave more risk than no hedge (Section 6.13).
+
+**Q20. A loss limit and a position limit give the fixed-spread book about
+the same 5% quantile. Which would you run, and why?** The position limit:
+it keeps a mean of 4.16 a session against 2.17. The loss limit stops 68% of
+paths, most on dips they would have recovered from, and gives up the rest
+of the day's spread; the position limit removes the cause of the tail, the
+large position, and keeps quoting. Read the trigger counts as costs before
+setting either (Section 6.13).
+
+**Q21. Why does the quote throttle lose money in the simulation?** A blocked
+update leaves the old quotes standing while the mid moves, so they are
+filled on the wrong side of the new mid and picked off by informed traders.
+The loss, about 33 a session at one update per three steps, is all in the
+spread column; a throttle is a cost of latency, not a tail control
+(Sections 6.10 and 6.13).
+
 ---
 
 ## 14. Further reading
@@ -1752,6 +1945,16 @@ law the total cost of an order grows like `Q^(3/2)`; avoiding two
   of Section 3.16.
 - US Regulation NMS, 17 CFR 242.610 and 242.612: access-fee cap and minimum
   pricing increment (Section 6.9).
+- L. H. Ederington (1979), "The hedging performance of the new futures
+  markets", *Journal of Finance* 34(1), 157–170: the minimum-variance hedge
+  ratio of Section 6.13.
+- O. Guéant (2017), *The Financial Mathematics of Market Liquidity: From
+  Optimal Execution to Market Making*, Chapman and Hall/CRC: multi-asset
+  market making and the reservation price on the risk-equivalent exposure
+  (Section 6.13).
+- R. J. Hyndman, Y. Fan (1996), "Sample quantiles in statistical
+  packages", *The American Statistician* 50(4), 361–365: the type-7
+  quantile pinned for the tail statistics of Section 6.13.
 - W. H. Press, S. A. Teukolsky, W. T. Vetterling, B. P. Flannery,
   *Numerical Recipes*, 3rd ed., Sections 6.1 and 6.4: the incomplete beta
   function behind the pinned t CDF.
@@ -1765,22 +1968,30 @@ law the total cost of an order grows like `Q^(3/2)`; avoiding two
 | ADV | average daily volume, shares per day; the fitted presets use one day's NASDAQ volume | 3.8, 3.10 |
 | arrival price | the mid when the order reaches the desk; the benchmark of implementation shortfall | 4.1, 4.2 |
 | basis point (bp) | one hundredth of a percent of notional; `bps(x, N) = 1e4 x / N` | 3.8 |
+| basis risk | the part of the quoted instrument's move that the hedge does not share; `sqrt(1 - rho^2)` of it under a minimum-variance hedge | 6.13 |
 | child order | one slice of a parent order, sent in one interval | 3.7 |
 | efficient frontier | the set of schedules with the least expected cost for each variance | 3.5 |
 | fill intensity | the rate `A exp(-k delta)` at which a quote `delta` from the mid is hit | 6.1, 3.10 |
 | half-life | the time `ln 2 / kappa` over which an optimal schedule halves its holding | 3.4 |
+| hedge ratio | units of the hedge instrument held per unit of the quoted one; the minimum-variance ratio is `rho` in A-equivalent units | 6.13 |
 | implementation shortfall (IS) | paper-portfolio value minus realised value; delay + trading + opportunity | 4.1 |
 | internalisation | crossing opposite client orders at the mid and sending only the net | 3.13 |
 | interval VWAP | market VWAP over only the bins in which the order traded | 4.2 |
 | kappa (Almgren-Chriss) | urgency of the optimal schedule, from `cosh(kappa tau)` | 3.3, 3.4 |
 | kappa (transient) | price displacement per share traded, the inverse of book depth | 3.11 |
+| kill switch | a control that flattens the book and stops all quoting at once | 6.13, 12 |
+| loss limit | a control that flattens and stops when the marked PnL falls below a threshold | 6.13 |
 | markout | the mid's move after a fill, signed so that negative is adverse | 4.3 |
 | participation | the order's share of market volume, per bin or overall | 3.7, 4.2 |
 | permanent impact | the part of a trade's price move that never decays (`gamma_p`) | 1.2 |
+| position limit | a control that flattens the quoted instrument when the inventory reaches a size | 6.13 |
 | POV | percentage-of-volume schedule | 3.7 |
+| quantile (type 7) | the sample quantile interpolated linearly between order statistics, NumPy's and R's default | 6.13 |
+| quote throttle | a cap on quote updates per time window; blocked updates leave stale quotes | 6.13 |
 | realised variance | the sum of squared intraday log returns | 3.10 |
 | reservation price | the market maker's indifference price given its inventory | 6.2 |
 | resilience | the rate `rho` at which the book refills after a trade | 3.11 |
+| risk-equivalent exposure | `x = q + rho y`, the position in quoted-instrument shares that carries the book's risk; hedged quotes skew on it | 6.13 |
 | square-root law | cost per share grows like the square root of order size over ADV | 3.9 |
 | temporary impact | the part of a trade's price move that lasts only while trading (`eta`) | 1.2 |
 | time consistency | a plan stays optimal when re-solved later from the state it reaches | 3.12 |
