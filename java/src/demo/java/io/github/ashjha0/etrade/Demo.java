@@ -10,7 +10,8 @@ import java.util.Locale;
  * implementation-shortfall decomposition with a market-impact regression,
  * presets in bps, a pre-trade report, post-trade TCA, calibration with the
  * fitted ITCH presets, execution extensions, the market-making friction
- * ledger and limit-order placement.
+ * ledger, limit-order placement, and hedged market making with risk
+ * controls.
  *
  * <p>Parameter values mirror {@code data/params_liquid.json},
  * {@code data/params_fx.json} and {@code data/parent_order.json}.
@@ -374,6 +375,68 @@ public final class Demo {
         System.out.println("of inventory (negative = adverse selection).");
     }
 
+    /** Hedged market making and risk controls (API_SPEC Section 14). */
+    private static void hedgingSection() {
+        hdr("Hedged market making and risk controls: US large-cap preset, B at rho = 0.9");
+        double[][] trades = {{7.0, 0.0, 0.9, 0.0, 0.0}, {7.0, -4.5, 0.9, 2.5, 0.0},
+            {-6.0, 1.8, 0.9, 2.5, 0.25}};
+        for (double[] t : trades) {
+            // 0.0 + dy keeps a zero trade printing as +0.0000, not -0.0000.
+            double dy = 0.0 + Hedging.hedgeTrade(t[0], t[1], t[2], t[3], t[4]);
+            System.out.printf(Locale.ROOT, "hedge_trade(q %+.1f, y %+.2f, ratio %.1f, band %.1f, "
+                    + "target %.2f): dy = %+.4f%n", t[0], t[1], t[2], t[3], t[4], dy);
+        }
+        double[] vals = {3.5, -1.25, 0.0, 7.75, -4.5, 2.0, 2.0, -0.5, 10.25, 1.0};
+        System.out.printf(Locale.ROOT, "type-7 quantile of the 10 golden values: 5%% %.4f, "
+                + "median %.4f%n", Hedging.quantile(vals, 0.05), Hedging.quantile(vals, 0.5));
+        // mirrors data/presets.json, us_large_cap "as"
+        ASParams a = Market.asParamsFromMarket(asMarket(100.0, 0.015, 1170.0, 0.462, 2.25, 50,
+                5.0));
+        System.out.println("$ per day, 2k paths (each language samples its own paths); q05 = 5% "
+                + "quantile of PnL:");
+        System.out.printf(Locale.ROOT, "%20s %6s %5s %7s | %6s %6s %6s %6s | %5s %5s %7s%n",
+                "case", "PnL", "se", "q05", "hedge", "h.cost", "r.cost", "skew", "stops", "flat",
+                "updates");
+        MarketMaking.Config as = new MarketMaking.Config(MarketMaking.Agent.AS, 0.01, 0.002, 0,
+                0.15, 0.5, null);
+        MarketMaking.Config fixed = new MarketMaking.Config(MarketMaking.Agent.FIXED, 0.01, 0.002,
+                0, 0.15, 0.5, null);
+        Hedging.HedgeConfig none = Hedging.HedgeConfig.defaults();
+        Hedging.HedgeConfig full = new Hedging.HedgeConfig(0.9, 0.9, 0.005, 0.0, 0.0);
+        Hedging.RiskConfig off = Hedging.RiskConfig.defaults();
+        // Seeds are the hedge_sim golden cases of API_SPEC 14.7.
+        String[] labels = {"A-S, unhedged", "A-S, full hedge", "fixed, unhedged",
+            "fixed, full hedge", "fixed, loss limit 5", "fixed, pos limit 10",
+            "A-S, 1 quote/3 steps", "fixed, kill at 3/4"};
+        MarketMaking.Config[] cfgs = {as, as, fixed, fixed, fixed, fixed, as, fixed};
+        Hedging.HedgeConfig[] hedges = {none, full, none, full, none, none, none, none};
+        Hedging.RiskConfig[] risks = {off, off, off, off,
+            new Hedging.RiskConfig(5.0, 0, 0.01, 0, 1, -1),
+            new Hedging.RiskConfig(0.0, 10, 0.01, 0, 1, -1),
+            new Hedging.RiskConfig(0.0, 0, 0.0, 1, 3, -1),
+            new Hedging.RiskConfig(0.0, 0, 0.01, 0, 1, 3510)};
+        long[] seeds = {201, 202, 204, 205, 206, 207, 208, 209};
+        double worst = 0.0;
+        for (int i = 0; i < labels.length; i++) {
+            Hedging.Result r = Hedging.simulateHedged(a, 2_000, seeds[i], cfgs[i], hedges[i],
+                    risks[i]);
+            worst = Math.max(worst, r.maxIdentityError());
+            System.out.printf(Locale.ROOT, "%20s %6.2f %5.2f %7.2f | %6.2f %6.2f %6.2f %6.4f | "
+                    + "%5.2f %5.1f %7.0f%n", labels[i], r.mean(Hedging.Stat.PNL),
+                    r.se(Hedging.Stat.PNL), r.quantile(Hedging.Stat.PNL, 0.05),
+                    r.mean(Hedging.Stat.HEDGE_PNL), r.mean(Hedging.Stat.HEDGE_COSTS),
+                    r.mean(Hedging.Stat.RISK_COSTS), r.mean(Hedging.Stat.RMS_SKEW),
+                    r.mean(Hedging.Stat.LOSS_STOP) + r.mean(Hedging.Stat.KILL_STOP),
+                    r.mean(Hedging.Stat.POS_FLATTENS), r.mean(Hedging.Stat.QUOTE_UPDATES));
+        }
+        System.out.println("hedge = hedge PnL, h.cost/r.cost = hedge and risk-control costs, "
+                + "skew = rms skew $;");
+        System.out.println("stops = share of paths stopped (loss limit or kill switch), flat = "
+                + "position-limit");
+        System.out.printf(Locale.ROOT, "flattens per path. Attribution identity holds on every "
+                + "path: max residual %.0e.%n", worst);
+    }
+
     /** Queue position, passive or aggressive, liquidation (API_SPEC Section 13). */
     private static void placementSection() {
         hdr("Limit-order placement: queue fill probability, post or cross, liquidation");
@@ -457,6 +520,7 @@ public final class Demo {
         executionExtSection();
         mmFrictionsSection();
         placementSection();
+        hedgingSection();
         System.out.println();
         System.out.println("done.");
     }

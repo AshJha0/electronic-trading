@@ -7,7 +7,8 @@ fixed-spread agent), and an implementation-shortfall decomposition with a
 market-impact regression, presets in bps, a pre-trade report, post-trade
 TCA, calibration with the fitted ITCH presets, execution extensions
 (transient impact, adaptive vs static, internalisation), the market-making
-friction ledger and limit-order placement. Deterministic lines match the
+friction ledger, limit-order placement, and hedged market making with risk
+controls. Deterministic lines match the
 C++, Rust and Java demos; simulated lines are each language's own sample.
 
 Run:  cd python && PYTHONPATH=src python3 demo.py
@@ -447,6 +448,71 @@ def placement_section() -> None:
     print("simulations 20k paths, each language samples its own paths.")
 
 
+# The hedge_sim golden cases of API_SPEC 14.7 (data/generate_hedging.py): a
+# one-tick grid, a 0.2-cent rebate, 15% informed arrivals; B at rho 0.9
+# costs half a cent per share to trade.
+_BOOK = {"tick": 0.01, "maker_fee": 0.002, "informed_prob": 0.15}
+_FIXED = {**_BOOK, "agent": "fixed"}
+_HEDGE = {"rho": 0.9, "hedge_ratio": 0.9, "hedge_cost": 0.005}
+HEDGED = (
+    ("A-S, unhedged", _BOOK, {}, {}, 201),
+    ("A-S, full hedge", _BOOK, _HEDGE, {}, 202),
+    ("fixed, unhedged", _FIXED, {}, {}, 204),
+    ("fixed, full hedge", _FIXED, _HEDGE, {}, 205),
+    ("fixed, loss limit 5", _FIXED, {}, {"loss_limit": 5.0, "flatten_penalty": 0.01}, 206),
+    ("fixed, pos limit 10", _FIXED, {}, {"position_limit": 10, "flatten_penalty": 0.01}, 207),
+    ("A-S, 1 quote/3 steps", _BOOK, {}, {"throttle_updates": 1, "throttle_window": 3}, 208),
+    ("fixed, kill at 3/4", _FIXED, {}, {"kill_step": 3510, "flatten_penalty": 0.01}, 209),
+)
+
+
+def hedging_section() -> None:
+    """Hedged market making and risk controls (API_SPEC Section 14)."""
+    hdr("Hedged market making and risk controls: US large-cap preset, B at rho = 0.9")
+    for q, y, ratio, thr, tgt in (
+        (7.0, 0.0, 0.9, 0.0, 0.0),
+        (7.0, -4.5, 0.9, 2.5, 0.0),
+        (-6.0, 1.8, 0.9, 2.5, 0.25),
+    ):
+        dy = et.hedging.hedge_trade(q, y, ratio, thr, tgt)
+        print(
+            f"hedge_trade(q {q:+.1f}, y {y:+.2f}, ratio {ratio:.1f}, band {thr:.1f},"
+            f" target {tgt:.2f}): dy = {dy:+.4f}"
+        )
+    vals = [3.5, -1.25, 0.0, 7.75, -4.5, 2.0, 2.0, -0.5, 10.25, 1.0]
+    print(
+        "type-7 quantile of the 10 golden values: 5% "
+        f"{et.hedging.quantile(vals, 0.05):.4f}, median {et.hedging.quantile(vals, 0.5):.4f}"
+    )
+    a = et.market.as_params_from_market(**load("presets.json")["us_large_cap"]["as"])
+    print("$ per day, 2k paths (each language samples its own paths); q05 = 5% quantile of PnL:")
+    print(
+        f"{'case':>20} {'PnL':>6} {'se':>5} {'q05':>7} | {'hedge':>6} {'h.cost':>6}"
+        f" {'r.cost':>6} {'skew':>6} | {'stops':>5} {'flat':>5} {'updates':>7}"
+    )
+    worst = 0.0
+    for label, cfg, hedge, risk, seed in HEDGED:
+        r = et.hedging.simulate_hedged(
+            a,
+            2_000,
+            seed,
+            et.mm.MMConfig(**cfg),
+            et.hedging.HedgeConfig(**hedge),
+            et.hedging.RiskConfig(**risk),
+        )
+        worst = max(worst, r.max_identity_error)
+        print(
+            f"{label:>20} {r.mean('pnl'):6.2f} {r.se('pnl'):5.2f} {r.quantile('pnl', 0.05):7.2f} |"
+            f" {r.mean('hedge_pnl'):6.2f} {r.mean('hedge_costs'):6.2f}"
+            f" {r.mean('risk_costs'):6.2f} {r.mean('rms_skew'):6.4f} |"
+            f" {r.mean('loss_stop') + r.mean('kill_stop'):5.2f} {r.mean('pos_flattens'):5.1f}"
+            f" {r.mean('quote_updates'):7.0f}"
+        )
+    print("hedge = hedge PnL, h.cost/r.cost = hedge and risk-control costs, skew = rms skew $;")
+    print("stops = share of paths stopped (loss limit or kill switch), flat = position-limit")
+    print(f"flattens per path. Attribution identity holds on every path: max residual {worst:.0e}.")
+
+
 def main() -> int:
     print("etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov market making")
     liq = load("params_liquid.json")
@@ -463,6 +529,7 @@ def main() -> int:
     execution_ext_section()
     mm_frictions_section()
     placement_section()
+    hedging_section()
     print("\ndone.")
     return 0
 

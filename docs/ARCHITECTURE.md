@@ -5,13 +5,14 @@ Rust, Java) of the Almgren-Chriss / Avellaneda-Stoikov / analytics stack,
 the power-law impact model, the market-unit layer, post-trade TCA,
 calibration from recorded data, the execution extensions (transient
 impact, adaptive re-planning, internalisation), market making with
-frictions, and limit-order placement.
+frictions, limit-order placement, and hedged market making with risk
+controls.
 The normative contract is `../API_SPEC.md`; this document explains *why* it
 is shaped the way it is.
 
 ## 1. Component responsibilities
 
-Ten modules per language, mirrored one-to-one across ports:
+Eleven modules per language, mirrored one-to-one across ports:
 
 | Module | Owns | Depends on |
 |---|---|---|
@@ -24,6 +25,7 @@ Ten modules per language, mirrored one-to-one across ports:
 | `calibration` | the pinned binning rule; volume curve, realised-volatility curve, spread statistics and the weighted log-linear fill-intensity fit, all on plain arrays; `FITTED_VOLUME_CURVE_13` (API_SPEC Section 11) | nothing |
 | `execution` | `TransientParams` (Obizhaeva-Wang) with exact cost and the Thomas-solved static optimum; `SignalParams`, the linear re-plan and its coefficients, the paired static-vs-adaptive simulation; `internalise` (API_SPEC Section 12) | `almgren_chriss` (`ACParams`, `MAX_PATHS`), `impact` (cost, VWAP schedule), `market` (`impact_params_from_market`, `bps`) |
 | `mm` | market making with frictions: `MMConfig` (agent `as`/`glft`/`fixed`, tick, maker fee or rebate, quote latency, informed-flow probability, signal accuracy), tick rounding away from fair value, GLFT closed-form half spreads, the pinned simulation loop with its exact per-path attribution `pnl = spread + fees + inventory - liquidation` and one-step markout, weighted mid and order-flow imbalance (API_SPEC Section 9) | `avellaneda_stoikov` (`ASParams`, the A-S closed forms, `MAX_PATHS`) |
+| `hedging` | hedged market making and risk controls: `HedgeConfig` (correlation `rho` of a second instrument B, hedge ratio, hedge cost per B share, threshold band, target fraction), `RiskConfig` (running loss limit, position limit with a flatten penalty, quote-rate throttle, kill switch), the pinned hedge-sizing rule, the Section 9 loop extended with B, the stops, the throttle and the hedge, quotes skewed on the risk-equivalent exposure `x = q + rho y`, the exact attribution `pnl = spread + fees + inventory - liquidation + hedge_pnl - hedge_costs - risk_costs`, control trigger counts, population variance with its delta-method SE and the pinned type-7 quantile (API_SPEC Section 14) | `mm` (`MMConfig` and its validation, the attribution names), `avellaneda_stoikov` (`ASParams`, `MAX_PATHS`) |
 | `placement` | fill probability of a resting order by queue position (pinned uniformisation), passive-or-aggressive decision for one child order, `LiquidationParams` with the backward-induction policy for liquidating with limit and market orders, the all-market schedule and the paired three-strategy simulation (API_SPEC Section 13) | `almgren_chriss` (`MAX_PATHS` only) |
 
 The four model modules (`almgren_chriss`, `avellaneda_stoikov`, `analytics`,
@@ -33,8 +35,10 @@ and, for the pre-trade report, calls the `impact` cost and schedule
 functions. `execution` is the only module above `market`: internalisation
 prices each side with the Section 8 cost of a VWAP schedule built from
 market inputs, and the adaptive simulation takes an `ACParams`. `mm` sits
-on `avellaneda_stoikov` (it reuses `ASParams` and the A-S quotes) and
-`placement` imports only the path bound. Parameter objects are immutable value
+on `avellaneda_stoikov` (it reuses `ASParams` and the A-S quotes), and
+`hedging` sits on `mm`: it takes the same `MMConfig` and reports the same
+attribution names plus its own, in a separate loop so that Section 9's loop
+and goldens stay unchanged. `placement` imports only the path bound. Parameter objects are immutable value
 types (frozen dataclasses in Python, plain structs/records elsewhere) that
 validate **at construction**, so every downstream function can assume valid
 inputs and stay branch-free. Functions that take user data (holdings paths,
@@ -59,6 +63,7 @@ flowchart LR
     EX["execution<br/>(Section 12)"]
     MM["mm<br/>(Section 9)"]
     PL["placement<br/>(Section 13)"]
+    HG["hedging<br/>(Section 14)"]
 
     MK --> AC
     MK --> AS
@@ -67,6 +72,8 @@ flowchart LR
     EX --> IM
     EX --> MK
     MM --> AS
+    HG --> MM
+    HG --> AS
     PL -. "MAX_PATHS" .-> AC
     TC -. "Side enum (Rust, C++)" .-> AN
 ```
@@ -99,6 +106,8 @@ flowchart TB
         GENX["generate_execution.py"]
         GENMM["generate_mm.py"]
         GENP["generate_placement.py"]
+        GENTR["generate_trajectories.py"]
+        GENH["generate_hedging.py"]
         GOLD["golden/golden.json<br/>19 cases: exact + statistical"]
         GOLDM["golden/market_golden.json<br/>15 cases"]
         GOLDI["golden/impact_golden.json<br/>8 cases"]
@@ -107,6 +116,8 @@ flowchart TB
         GOLDX["golden/execution_golden.json<br/>8 cases: exact + statistical"]
         GOLDMM["golden/mm_golden.json<br/>14 cases: exact + statistical"]
         GOLDP["golden/placement_golden.json<br/>11 cases: exact + statistical"]
+        GOLDTR["golden/trajectory_golden.json<br/>7 vector cases"]
+        GOLDH["golden/hedging_golden.json<br/>18 cases: exact + statistical"]
         FIT --> FJ
         FJ --> GENM
         GEN --> PJ
@@ -121,6 +132,9 @@ flowchart TB
         PR --> GENMM
         GENMM --> GOLDMM
         GENP --> GOLDP
+        GENTR --> GOLDTR
+        PR --> GENH
+        GENH --> GOLDH
     end
 
     IAP --> FIT
@@ -136,6 +150,7 @@ flowchart TB
         EX["execution"]
         MM["mm"]
         PL["placement"]
+        HG["hedging"]
     end
 
     PJ --> AC
@@ -146,7 +161,7 @@ flowchart TB
     CA -. "estimators used by" .-> FIT
 
     subgraph OUT["outputs"]
-        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report,<br/>TCA, calibration, execution extensions,<br/>friction ledger, placement)"]
+        DEMO["demo report<br/>(trajectories, frontier, baselines,<br/>A-S vs fixed, IS, impact fit,<br/>presets in bps, pre-trade report,<br/>TCA, calibration, execution extensions,<br/>friction ledger, placement,<br/>hedging and risk controls)"]
         TESTS["4 language test suites<br/>exact cases: 1e-9..1e-12<br/>statistical cases: 4-SE band"]
     end
 
@@ -160,16 +175,20 @@ flowchart TB
     GOLDX --> TESTS
     GOLDMM --> TESTS
     GOLDP --> TESTS
+    GOLDTR --> TESTS
+    GOLDH --> TESTS
 ```
 
-Eight Python scripts are the single source of truth for the bundled JSON.
+Ten Python scripts are the single source of truth for the bundled JSON.
 `generate_data.py` writes the parameter sets, the parent order and the model
 golden values (after asserting the AC closed forms against its own Monte
 Carlo), all seeded; `generate_market.py` writes `presets.json` and the market
 golden cases; `generate_impact.py`, `generate_tca.py`,
-`generate_calibration.py`, `generate_execution.py`, `generate_mm.py` and
-`generate_placement.py` write the golden cases of Sections 8 and 10-13
-(`generate_mm.py` reads the `us_large_cap` preset from `presets.json`). Ports never regenerate data; they only
+`generate_calibration.py`, `generate_execution.py`, `generate_mm.py`,
+`generate_placement.py` and `generate_hedging.py` write the golden cases of
+Sections 8 and 9-14 (`generate_mm.py` and `generate_hedging.py` read the
+`us_large_cap` preset from `presets.json`); `generate_trajectories.py`
+writes the whole-trajectory vector cases of Section 5.1. Ports never regenerate data; they only
 consume it.
 
 **From an ITCH file to a preset.** The recorded data never enters the
@@ -207,8 +226,10 @@ asserts the case count of every file and that each case is handled.
 | `execution_golden.json` | `generate_execution.py` | 8 | `transient_schedule` (3), `internalise` (2), `adaptive_sim` (3) | 1e-9; 4 SE | 12.4 |
 | `mm_golden.json` | `generate_mm.py` | 14 | `mm_tick` (3), `mm_glft` (3), `mm_wmid` (1), `mm_ofi` (1), `mm_sim` (6) | 1e-12; 4 SE | 9.7 |
 | `placement_golden.json` | `generate_placement.py` | 11 | `fill_probability` (4), `placement_decision` (3), `liquidation_policy` (2), `liquidation_sim` (2) | 1e-10; 4 SE | 13.4 |
+| `trajectory_golden.json` | `generate_trajectories.py` | 7 | `ac_trajectory` (3), `twap` (1), `pov` (1), `frontier` (1), `impact_schedule` (1); schema v2, vectors as indexed keys `x_0..x_{len-1}` | 1e-10; 1e-9 | 5.1 |
+| `hedging_golden.json` | `generate_hedging.py` | 18 | `hedge_trade` (4), `hedge_quantile` (4), `hedge_sim` (10) | 1e-12; 4 SE | 14.7 |
 
-95 cases in all. The case names say what each pins: for example
+120 cases in all. The case names say what each pins: for example
 `welch_constant_sample` (one sample with zero variance, the other not),
 `t_cdf_negative_fractional_df` (a negative `t` with non-integer degrees
 of freedom),
@@ -217,7 +238,9 @@ of freedom),
 `transient_slow_resilience` (`a` close to 1), `internalise_balanced_curve`
 (`B = S`, residual side `none`), `adaptive_no_signal` (saving exactly 0),
 `mm_sim_latency` (quotes one step stale), `fill_no_cancellations` (the
-Poisson-tail case) and `decision_aggressive_zero_spread` (crossing wins
+Poisson-tail case), `hedge_trade_inside_band` (no trade while the
+uncovered position is within the threshold), `risk_sim_all_controls_hedged`
+(every control and a partial hedge at once) and `decision_aggressive_zero_spread` (crossing wins
 with no spread).
 
 ### Module surface
@@ -413,6 +436,26 @@ classDiagram
         +order_flow_imbalance(bid_px, bid_sz, ask_px, ask_sz) array
         +simulate_mm(params, n_paths, seed, config) MMResult
     }
+    class HedgeConfig {
+        +float rho
+        +float hedge_ratio
+        +float hedge_cost
+        +float hedge_threshold
+        +float hedge_target
+    }
+    class RiskConfig {
+        +float loss_limit
+        +int position_limit
+        +float flatten_penalty
+        +int throttle_updates
+        +int throttle_window
+        +int kill_step
+    }
+    class hedging {
+        +hedge_trade(q, y, hedge_ratio, threshold, target_frac) float
+        +quantile(values, p) float
+        +simulate_hedged(params, n_paths, seed, config, hedge, risk) HedgedResult
+    }
     class LiquidationParams {
         +int total_units
         +int n_periods
@@ -457,6 +500,11 @@ classDiagram
     mm ..> MMConfig : validates on construction
     mm --> ASParams
     mm --> MMResult
+    hedging ..> HedgeConfig : validates on construction
+    hedging ..> RiskConfig : validates on construction
+    hedging --> MMConfig
+    hedging --> ASParams
+    hedging --> HedgedResult
     placement ..> LiquidationParams : validates on construction
     placement --> PlacementDecision
     placement --> LiquidationPolicy
@@ -700,6 +748,35 @@ Design points:
     O(N Q) arithmetic with the loop order pinned (`j` down, `q` up) so that
     every port computes the same sums in the same order.
 
+18. **Hedging and risk controls: a sixth draw, an exact seven-term ledger,
+    a pinned quantile.** The hedged loop (`API_SPEC.md` 14.4) draws six
+    numbers every step: the five of Section 9 in their order, then `z_b`
+    for instrument B, always, whether or not a hedge is configured. Turning
+    the hedge or a control on therefore changes a path only through the
+    hedge or the control, never through a shifted stream. The price is that
+    the default configuration equals Section 9 in distribution but not
+    sample by sample (the extra draw moves the stream), so every suite
+    checks that equivalence within the Section 4 rule instead of
+    bit-for-bit. Each path keeps seven attribution sums and the identity
+    `pnl = spread + fees + inventory - liquidation + hedge_pnl - hedge_costs
+    - risk_costs` is asserted after every simulation (relative `1e-9`; the
+    demos print the largest residual, about `1e-11`). The identity holds
+    exactly because every cash movement has one named home: a forced
+    flatten of A books its penalty in `risk_costs`, every B trade
+    (including the flatten on a stop and the terminal unwind) books its
+    cost in `hedge_costs`, and B's mark-to-market is `hedge_pnl`. The loss
+    stop is checked once per step on the mark, so the overshoot past the
+    limit is bounded by that step's change of the mark; each port asserts
+    `overshoot <= stop_move` on every path. Tail statistics use one
+    quantile estimator, Hyndman and Fan type 7 (linear interpolation
+    between order statistics, NumPy's default), pinned in 14.6 because the
+    nine common definitions give different values for the same sample (by
+    up to one gap between neighbouring order statistics) and the exact
+    `hedge_quantile` cases pin the result to `1e-12`. The variance reported for `pnl` is the population moment with
+    a delta-method standard error, so the golden file can pin `pnl_var`
+    under the same 4-SE rule as the means. The native demos run 2,000
+    paths per case (eight cases, about 75 million path-steps).
+
 ## 4. Error-handling strategy per language
 
 All input violations are detected at parameter construction or function
@@ -740,7 +817,7 @@ Five layers, replicated per language (Python 575 tests, C++ 191, Rust 290
 including 16 doc-tests, Java 333; 1,389 in total, counted on 2026-10-30 by
 running each suite):
 
-1. **Golden values** (the eight files of the inventory in Section 1, 95
+1. **Golden values** (the ten files of the inventory in Section 1, 120
    cases; every suite asserts each count exactly and that every case is
    handled).
    *Exact* cases (tol 1e-10..1e-12, relative for large magnitudes via

@@ -11,7 +11,7 @@ site_name: electronic-trading
 site_description: >-
   Execution and market-making research platform: Almgren-Chriss, Avellaneda-Stoikov,
   square-root and transient impact, calibration, TCA and implementation shortfall,
-  in Python, C++, Rust and Java.
+  market making with frictions, hedging and risk controls, in Python, C++, Rust and Java.
 site_url: https://ashjha0.github.io/electronic-trading/
 repo_url: https://github.com/AshJha0/electronic-trading
 repo_name: AshJha0/electronic-trading

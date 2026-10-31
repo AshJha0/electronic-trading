@@ -7,7 +7,8 @@
 //! implementation-shortfall decomposition with a market-impact regression,
 //! presets in bps, a pre-trade report, post-trade TCA, calibration with the
 //! fitted ITCH presets, execution extensions, the market-making friction
-//! ledger and limit-order placement.
+//! ledger, limit-order placement, and hedged market making with risk
+//! controls.
 //!
 //! Run: `cd rust && cargo run --release --example demo`
 
@@ -757,6 +758,131 @@ fn sci(v: f64) -> String {
     format!("{mant:.1}e{sign}{:02}", exp.abs())
 }
 
+/// Hedged market making and risk controls (API_SPEC Section 14).
+fn hedging_section() -> Result<(), Box<dyn Error>> {
+    use etrade::hedging::{
+        hedge_trade, quantile, simulate_hedged, HedgeConfig, HedgeStat, RiskConfig,
+    };
+    use etrade::market::as_params_from_market;
+    use etrade::mm::{MMAgent, MMConfig};
+    hdr("Hedged market making and risk controls: US large-cap preset, B at rho = 0.9");
+    for (q, y, ratio, thr, tgt) in [
+        (7.0, 0.0, 0.9, 0.0, 0.0),
+        (7.0, -4.5, 0.9, 2.5, 0.0),
+        (-6.0, 1.8, 0.9, 2.5, 0.25),
+    ] {
+        // 0.0 + dy keeps a zero trade printing as +0.0000, not -0.0000.
+        let dy = 0.0 + hedge_trade(q, y, ratio, thr, tgt)?;
+        println!(
+            "hedge_trade(q {q:+.1}, y {y:+.2}, ratio {ratio:.1}, band {thr:.1}, target {tgt:.2}): dy = {dy:+.4}"
+        );
+    }
+    let vals = [3.5, -1.25, 0.0, 7.75, -4.5, 2.0, 2.0, -0.5, 10.25, 1.0];
+    println!(
+        "type-7 quantile of the 10 golden values: 5% {:.4}, median {:.4}",
+        quantile(&vals, 0.05)?,
+        quantile(&vals, 0.5)?
+    );
+    let a = as_params_from_market(&as_market(&load("presets.json")?["us_large_cap"]["as"]))?;
+    println!(
+        "$ per day, 2k paths (each language samples its own paths); q05 = 5% quantile of PnL:"
+    );
+    println!(
+        "{:>20} {:>6} {:>5} {:>7} | {:>6} {:>6} {:>6} {:>6} | {:>5} {:>5} {:>7}",
+        "case", "PnL", "se", "q05", "hedge", "h.cost", "r.cost", "skew", "stops", "flat", "updates"
+    );
+    let book = |agent| MMConfig {
+        agent,
+        tick: 0.01,
+        maker_fee: 0.002,
+        informed_prob: 0.15,
+        ..MMConfig::default()
+    };
+    let none = HedgeConfig::default();
+    let full = HedgeConfig {
+        rho: 0.9,
+        hedge_ratio: 0.9,
+        hedge_cost: 0.005,
+        ..HedgeConfig::default()
+    };
+    let off = RiskConfig::default();
+    // Seeds are the hedge_sim golden cases of API_SPEC 14.7.
+    let rows = [
+        ("A-S, unhedged", book(MMAgent::As), none, off, 201),
+        ("A-S, full hedge", book(MMAgent::As), full, off, 202),
+        ("fixed, unhedged", book(MMAgent::Fixed), none, off, 204),
+        ("fixed, full hedge", book(MMAgent::Fixed), full, off, 205),
+        (
+            "fixed, loss limit 5",
+            book(MMAgent::Fixed),
+            none,
+            RiskConfig {
+                loss_limit: 5.0,
+                flatten_penalty: 0.01,
+                ..off
+            },
+            206,
+        ),
+        (
+            "fixed, pos limit 10",
+            book(MMAgent::Fixed),
+            none,
+            RiskConfig {
+                position_limit: 10,
+                flatten_penalty: 0.01,
+                ..off
+            },
+            207,
+        ),
+        (
+            "A-S, 1 quote/3 steps",
+            book(MMAgent::As),
+            none,
+            RiskConfig {
+                throttle_updates: 1,
+                throttle_window: 3,
+                ..off
+            },
+            208,
+        ),
+        (
+            "fixed, kill at 3/4",
+            book(MMAgent::Fixed),
+            none,
+            RiskConfig {
+                kill_step: 3510,
+                flatten_penalty: 0.01,
+                ..off
+            },
+            209,
+        ),
+    ];
+    let mut worst: f64 = 0.0;
+    for (label, c, h, r, seed) in rows {
+        let res = simulate_hedged(&a, 2_000, seed, &c, &h, &r)?;
+        worst = worst.max(res.max_identity_error());
+        println!(
+            "{label:>20} {:6.2} {:5.2} {:7.2} | {:6.2} {:6.2} {:6.2} {:6.4} | {:5.2} {:5.1} {:7.0}",
+            res.mean(HedgeStat::Pnl),
+            res.se(HedgeStat::Pnl),
+            res.quantile(HedgeStat::Pnl, 0.05)?,
+            res.mean(HedgeStat::HedgePnl),
+            res.mean(HedgeStat::HedgeCosts),
+            res.mean(HedgeStat::RiskCosts),
+            res.mean(HedgeStat::RmsSkew),
+            res.mean(HedgeStat::LossStop) + res.mean(HedgeStat::KillStop),
+            res.mean(HedgeStat::PosFlattens),
+            res.mean(HedgeStat::QuoteUpdates)
+        );
+    }
+    println!("hedge = hedge PnL, h.cost/r.cost = hedge and risk-control costs, skew = rms skew $;");
+    println!("stops = share of paths stopped (loss limit or kill switch), flat = position-limit");
+    println!(
+        "flattens per path. Attribution identity holds on every path: max residual {worst:.0e}."
+    );
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     println!("etrade demo — Almgren-Chriss execution & Avellaneda-Stoikov market making (Rust)");
     let liq = load("params_liquid.json")?;
@@ -773,6 +899,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     execution_ext_section()?;
     mm_frictions_section()?;
     placement_section()?;
+    hedging_section()?;
     println!("\ndone.");
     Ok(())
 }

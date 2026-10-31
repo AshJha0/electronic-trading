@@ -1707,3 +1707,283 @@ The simulated means differ between ports by about one or two standard
 errors (0.0217 per port), as samples of the same distribution should; the
 paired saving against all-market orders has a much smaller error (0.0048)
 because both strategies see the same prices (LEARN Sections 3.14-3.16).
+
+---
+
+## 26. How do I hedge the market maker in a correlated instrument and read the hedge PnL?
+
+`simulate_hedged` runs the Section 9 maker (any `MMConfig`) with a second
+instrument B. B's moves have correlation `rho` with A's and the same
+per-step volatility (API_SPEC 14.3). `HedgeConfig` sets the hedge. After
+each step's fills, `u = q + y/hedge_ratio` is the A position not yet
+covered; whenever `|u| > hedge_threshold` the maker trades
+`dy = -hedge_ratio (1 - hedge_target) u` shares of B (14.2; `hedge_trade` is
+the same rule as a function). Every B share traded costs `hedge_cost`.
+Quotes skew on `x = q + rho y` instead of `q`. Each path's PnL splits
+exactly into
+
+```
+pnl = spread + fees + inventory - liquidation + hedge_pnl - hedge_costs - risk_costs
+```
+
+(14.5). The example is the `hedge_sim_as_hedged` golden case: the
+informed-flow book of recipe 24 (1-cent tick, 0.2-cent rebate, 15% informed
+arrivals), hedged in full (`hedge_ratio = rho = 0.9`) at half a cent a
+share. Seed 201 with no `HedgeConfig` is the unhedged case.
+
+**Python**
+
+```python
+import json
+from etrade import hedging as hg, market as mk, mm
+
+print(hg.hedge_trade(7.0, 0.0, 0.9, 0.0, 0.0))     # -6.3  (sell 6.3 B against 7 long A)
+print(hg.hedge_trade(-6.0, 1.8, 0.9, 2.5, 0.25))   # 2.7   (u = -4 is outside the band; cover 3/4)
+with open("../data/presets.json") as f:
+    a = mk.as_params_from_market(**json.load(f)["us_large_cap"]["as"])
+cfg = mm.MMConfig(tick=0.01, maker_fee=0.002, informed_prob=0.15)
+hedge = hg.HedgeConfig(rho=0.9, hedge_ratio=0.9, hedge_cost=0.005)
+for seed, h in ((201, None), (202, hedge)):
+    r = hg.simulate_hedged(a, 2_000, seed, cfg, h)
+    print([round(r.mean(s), 2) for s in
+           ("pnl", "spread", "fees", "inventory", "liquidation", "hedge_pnl", "hedge_costs")])
+    print(round(r.mean("rms_q"), 2), round(r.mean("rms_x"), 2), round(r.mean("rms_skew"), 4),
+          round(r.mean("hedge_trades")), round(r.var("pnl") ** 0.5, 2), r.max_identity_error < 1e-9)
+# [4.04, 10.26, 1.86, -8.05, 0.03, 0.0, 0.0]
+# 0.94 0.94 0.0068 0 1.45 True
+# [7.81, 11.17, 1.53, -8.45, 0.05, 6.82, 3.22]
+# 1.99 0.38 0.0031 794 1.32 True
+```
+
+**C++**
+
+```cpp
+#include <etrade/hedging.hpp>
+#include <etrade/market.hpp>
+#include <etrade/mm.hpp>
+
+double dy = etrade::hedge_trade(7.0, 0.0, 0.9, 0.0, 0.0);   // -6.3
+etrade::ASMarket m;  // data/presets.json, us_large_cap "as"
+m.price = 100.0; m.tick = 0.01; m.daily_vol = 0.015; m.touch_fills_per_day = 1170.0;
+m.halving_ticks = 0.462; m.skew_ticks = 2.25; m.q_max = 50; m.liq_ticks = 1.0; m.dt_seconds = 5.0;
+etrade::ASParams a = etrade::as_params_from_market(m);
+etrade::MMConfig cfg;
+cfg.tick = 0.01; cfg.maker_fee = 0.002; cfg.informed_prob = 0.15;
+etrade::HedgeConfig hedge;
+hedge.rho = 0.9; hedge.hedge_ratio = 0.9; hedge.hedge_cost = 0.005;
+etrade::HedgedResult r = etrade::simulate_hedged(a, 2'000, 202, cfg, hedge);
+// r.mean(etrade::HedgeStat::kPnl) 7.8297 (se 0.0307), kSpread 11.1523, kInventory -8.4320,
+// kHedgePnl 6.8456, kHedgeCosts 3.2157, kRmsQ 1.984, kRmsX 0.377, kRmsSkew 0.00306,
+// kHedgeTrades 793.4, r.max_identity_error 9.8e-13
+```
+
+**Rust**
+
+```rust
+use etrade::hedging::{hedge_trade, simulate_hedged, HedgeConfig, HedgeStat, RiskConfig};
+use etrade::market::{as_params_from_market, ASMarket};
+use etrade::mm::MMConfig;
+
+let dy = hedge_trade(7.0, 0.0, 0.9, 0.0, 0.0)?;   // -6.3
+let a = as_params_from_market(&ASMarket {
+    price: 100.0, tick: 0.01, daily_vol: 0.015, touch_fills_per_day: 1170.0,
+    halving_ticks: 0.462, skew_ticks: 2.25, q_max: 50, liq_ticks: 1.0, dt_seconds: 5.0,
+    ..ASMarket::default()
+})?;
+let cfg = MMConfig { tick: 0.01, maker_fee: 0.002, informed_prob: 0.15, ..MMConfig::default() };
+let hedge = HedgeConfig { rho: 0.9, hedge_ratio: 0.9, hedge_cost: 0.005, ..HedgeConfig::default() };
+let r = simulate_hedged(&a, 2_000, 202, &cfg, &hedge, &RiskConfig::default())?;
+// r.mean(HedgeStat::Pnl) 7.7954 (se 0.0293), Spread 11.1558, Inventory -8.5302,
+// HedgePnl 6.9090, HedgeCosts 3.2177, RmsQ 1.983, RmsX 0.377, RmsSkew 0.00306
+```
+
+**Java**
+
+```java
+double dy = Hedging.hedgeTrade(7.0, 0.0, 0.9, 0.0, 0.0);   // -6.3
+ASParams a = Market.asParamsFromMarket(new Market.ASMarket(100.0, 0.01, 0.015, 1170.0, 0.462,
+        2.25, 50, 1.0, 5.0, 23_400.0, 1.0));
+MarketMaking.Config cfg = new MarketMaking.Config(MarketMaking.Agent.AS, 0.01, 0.002, 0, 0.15,
+        0.5, null);
+Hedging.HedgeConfig hedge = new Hedging.HedgeConfig(0.9, 0.9, 0.005, 0.0, 0.0);
+Hedging.Result r = Hedging.simulateHedged(a, 2_000, 202L, cfg, hedge,
+        Hedging.RiskConfig.defaults());
+// r.mean(Hedging.Stat.PNL) 7.8314 (se 0.0294), SPREAD 11.1652, INVENTORY -8.3926,
+// HEDGE_PNL 6.7962, HEDGE_COSTS 3.2180, RMS_Q 1.988, RMS_X 0.378, RMS_SKEW 0.00306
+```
+
+`hedge_trade` gives the same value in every port. The simulated numbers
+are each port's own 2,000-path sample (API_SPEC 4) and agree within their
+standard errors. Reading the attribution, hedged against unhedged:
+
+- **The skew halves** (`rms_skew` 0.0068 to 0.0031 dollars). The quotes
+  lean on `x`, and a full hedge leaves `x = (1 - rho^2) q = 0.19 q`. The A
+  position is allowed to grow (`rms_q` 0.94 to 1.99) because B carries most
+  of its risk (`rms_x` 0.38).
+- **Spread capture rises** (10.26 to 11.17) because the book no longer gives
+  away edge to shed inventory. Fees fall a little because it fills less.
+- **`hedge_pnl` (6.82) offsets most of the A inventory loss** (-8.45) under
+  informed flow. In this model the hedge trades at B's mid before the step's
+  move, so it recovers about `rho^2` of the adverse move that follows an
+  informed fill. A real hedge sent after a fill would often pay part of
+  that move, so read this column as an upper bound.
+- **`hedge_costs` (3.22) is the price**: about 794 B trades a session at half
+  a cent a share. `hedge_threshold` and `hedge_target` trade fewer, larger
+  hedges for more residual risk (golden `hedge_sim_as_band`).
+
+The PnL standard deviation barely moves for A-S (1.45 to 1.32), because
+its skew already controlled inventory risk. For the fixed-spread agent,
+which cannot skew, the same hedge cuts it from about 26 to 11 per session
+(LEARN Section 6.13).
+
+---
+
+## 27. How do I configure the risk controls and read their trigger counts and tail?
+
+`RiskConfig` adds four controls to `simulate_hedged`, each off by default
+(API_SPEC 14.1, 14.4):
+
+| field | control | fires when | then |
+|---|---|---|---|
+| `loss_limit` | running loss limit | marked PnL `< -loss_limit` at the start of a step | flatten A and B, stop quoting for the rest of the session |
+| `position_limit` | position limit | `abs(q) >= position_limit` after the fills | flatten A at the mid, keep quoting |
+| `throttle_updates`, `throttle_window` | quote-rate throttle | `throttle_updates` updates already made in the last `throttle_window` steps | the old quotes stand (stale) |
+| `kill_step` | kill switch | step `kill_step` | flatten both legs, stop quoting |
+
+`flatten_penalty` is charged per A share a control flattens (`risk_costs`).
+The trigger counts are per-path statistics. `loss_stop` and `kill_stop` are
+0 or 1, so their mean is the share of paths stopped; `pos_flattens` counts
+flattens per path; `quote_updates` counts quote updates; `overshoot` is how
+far below the limit the mark was when the loss stop fired. Tail risk is read
+with `quantile(stat, p)`, the pinned type-7 estimator (14.6). The example is
+the fixed-spread agent on the recipe 24 book (the golden `risk_sim_*`
+cases): it cannot skew, so it carries large positions.
+
+**Python**
+
+```python
+import json
+from etrade import hedging as hg, market as mk, mm
+
+with open("../data/presets.json") as f:
+    a = mk.as_params_from_market(**json.load(f)["us_large_cap"]["as"])
+fixed = mm.MMConfig(agent="fixed", tick=0.01, maker_fee=0.002, informed_prob=0.15)
+base = hg.simulate_hedged(a, 2_000, 204, fixed)
+print(round(base.mean("pnl"), 2), round(base.quantile("pnl", 0.05), 2))   # 3.87 -43.02
+for seed, risk in (
+    (206, hg.RiskConfig(loss_limit=5.0, flatten_penalty=0.01)),
+    (207, hg.RiskConfig(position_limit=10, flatten_penalty=0.01)),
+    (209, hg.RiskConfig(kill_step=3510, flatten_penalty=0.01)),
+):
+    r = hg.simulate_hedged(a, 2_000, seed, fixed, risk=risk)
+    print(round(r.mean("pnl"), 2), round(r.quantile("pnl", 0.05), 2),
+          round(r.mean("risk_costs"), 3), round(r.mean("loss_stop"), 3),
+          round(r.mean("pos_flattens"), 2), r.mean("kill_stop"), round(r.mean("quote_updates")))
+    if risk.loss_limit:
+        print(round(r.quantile("overshoot", 0.95), 3),
+              bool((r.paths["overshoot"] <= r.paths["stop_move"]).all()))
+# 2.15 -5.86 0.124 0.683 0.0 0.0 2699     loss limit: 68% of paths stopped
+# 0.614 True                              overshoot never exceeds that step's move
+# 4.25 -5.68 0.626 0.0 6.26 0.0 4680      position limit: 6.3 flattens a path
+# 3.42 -31.43 0.174 0.0 0.0 1.0 3510      kill switch at 3/4 of the session
+cfg = mm.MMConfig(tick=0.01, maker_fee=0.002, informed_prob=0.15)        # A-S quotes
+thr = hg.simulate_hedged(a, 2_000, 208, cfg,
+                         risk=hg.RiskConfig(throttle_updates=1, throttle_window=3))
+print(round(thr.mean("pnl"), 2), round(thr.mean("quote_updates")),
+      round(thr.mean("spread"), 2))                                     # -32.88 1560 -32.95
+print(hg.quantile([3.5, -1.25, 0.0, 7.75, -4.5, 2.0, 2.0, -0.5, 10.25, 1.0], 0.05))
+# -3.0374999999999996
+```
+
+**C++**
+
+```cpp
+etrade::MMConfig fixed = cfg;   // a and cfg as in recipe 26
+fixed.agent = etrade::MMAgent::kFixed;
+etrade::RiskConfig loss;
+loss.loss_limit = 5.0; loss.flatten_penalty = 0.01;
+etrade::HedgedResult l = etrade::simulate_hedged(a, 2'000, 206, fixed, etrade::HedgeConfig{}, loss);
+// l.mean(kPnl) 1.6724, l.quantile(kPnl, 0.05) -5.8358, l.mean(kLossStop) 0.7050,
+// l.mean(kRiskCosts) 0.1259, l.quantile(kOvershoot, 0.95) 0.5970
+etrade::RiskConfig pos;
+pos.position_limit = 10; pos.flatten_penalty = 0.01;
+etrade::HedgedResult p = etrade::simulate_hedged(a, 2'000, 207, fixed, etrade::HedgeConfig{}, pos);
+// p.mean(kPnl) 4.3141, p.quantile(kPnl, 0.05) -5.4941, p.mean(kPosFlattens) 6.3135
+etrade::RiskConfig thr;
+thr.throttle_updates = 1; thr.throttle_window = 3;
+etrade::HedgedResult t = etrade::simulate_hedged(a, 2'000, 208, cfg, etrade::HedgeConfig{}, thr);
+// t.mean(kPnl) -32.8182, t.mean(kQuoteUpdates) 1560.0
+etrade::RiskConfig kill;
+kill.kill_step = 3510; kill.flatten_penalty = 0.01;
+etrade::HedgedResult k = etrade::simulate_hedged(a, 2'000, 209, fixed, etrade::HedgeConfig{}, kill);
+// k.mean(kPnl) 2.6085, k.quantile(kPnl, 0.05) -31.3467, k.mean(kKillStop) 1.0000
+double q05 = etrade::quantile({3.5, -1.25, 0.0, 7.75, -4.5, 2.0, 2.0, -0.5, 10.25, 1.0}, 0.05);
+// -3.0375
+```
+
+**Rust**
+
+```rust
+use etrade::mm::MMAgent;   // plus the recipe 26 imports, a and cfg
+
+let fixed = MMConfig { agent: MMAgent::Fixed, ..cfg };
+let none = HedgeConfig::default();
+let loss = RiskConfig { loss_limit: 5.0, flatten_penalty: 0.01, ..RiskConfig::default() };
+let l = simulate_hedged(&a, 2_000, 206, &fixed, &none, &loss)?;
+// l.mean(HedgeStat::Pnl) 1.8881, l.quantile(HedgeStat::Pnl, 0.05)? -5.8150,
+// LossStop 0.6950, quantile(Overshoot, 0.95) 0.5834
+let pos = RiskConfig { position_limit: 10, flatten_penalty: 0.01, ..RiskConfig::default() };
+let p = simulate_hedged(&a, 2_000, 207, &fixed, &none, &pos)?;
+// p.mean(HedgeStat::Pnl) 4.1301, 5% quantile -5.9823, PosFlattens 6.3070
+let thr = RiskConfig { throttle_updates: 1, throttle_window: 3, ..RiskConfig::default() };
+let t = simulate_hedged(&a, 2_000, 208, &cfg, &none, &thr)?;
+// t.mean(HedgeStat::Pnl) -32.8389, QuoteUpdates 1560.0
+let kill = RiskConfig { kill_step: 3510, flatten_penalty: 0.01, ..RiskConfig::default() };
+let k = simulate_hedged(&a, 2_000, 209, &fixed, &none, &kill)?;
+// k.mean(HedgeStat::Pnl) 1.7518, 5% quantile -32.2252, KillStop 1.0000
+```
+
+**Java**
+
+```java
+MarketMaking.Config fixed = new MarketMaking.Config(MarketMaking.Agent.FIXED, 0.01, 0.002, 0,
+        0.15, 0.5, null);   // a and cfg as in recipe 26
+Hedging.HedgeConfig none = Hedging.HedgeConfig.defaults();
+Hedging.Result l = Hedging.simulateHedged(a, 2_000, 206L, fixed, none,
+        new Hedging.RiskConfig(5.0, 0, 0.01, 0, 1, -1));
+// l.mean(PNL) 1.8985, l.quantile(PNL, 0.05) -5.7979, LOSS_STOP 0.6970,
+// quantile(OVERSHOOT, 0.95) 0.5539
+Hedging.Result p = Hedging.simulateHedged(a, 2_000, 207L, fixed, none,
+        new Hedging.RiskConfig(0.0, 10, 0.01, 0, 1, -1));
+// p.mean(PNL) 4.0487, 5% quantile -5.8373, POS_FLATTENS 6.2205
+Hedging.Result t = Hedging.simulateHedged(a, 2_000, 208L, cfg, none,
+        new Hedging.RiskConfig(0.0, 0, 0.0, 1, 3, -1));
+// t.mean(PNL) -32.9196, QUOTE_UPDATES 1560.0
+Hedging.Result k = Hedging.simulateHedged(a, 2_000, 209L, fixed, none,
+        new Hedging.RiskConfig(0.0, 0, 0.01, 0, 1, 3510));
+// k.mean(PNL) 3.0350, 5% quantile -31.4608, KILL_STOP 1.0000
+```
+
+The quantile of the fixed array is exact and the same in every port. The
+simulations are each port's own 2,000-path sample and agree within their
+standard errors; the kill-switch mean, with a standard error of 0.45,
+varies most. Reading the controls against the uncontrolled fixed-spread
+book (mean 3.87, 5% quantile -43.02):
+
+- **Loss limit 5**: the 5% quantile rises to about -6. It sits a little
+  below -5 because of the overshoot and the flatten cost. The mean falls
+  to 2.15: 68% of paths stop, most of them on an ordinary dip they would
+  have recovered from, and give up the spread they would have earned
+  afterwards (2,699 quote updates against 4,680).
+- **Position limit 10**: a similar tail (-5.68) and a higher mean (4.25),
+  for 0.63 a session in flatten penalties. It removes the cause, the large
+  position, and keeps quoting.
+- **Throttle, one update per 3 steps** (A-S quotes): the book loses about
+  33 a session, all of it in the spread column. Quotes left standing while
+  the mid moves are filled on the wrong side, and informed traders pick
+  them off.
+- **Kill switch at three quarters**: every path stops (`kill_stop` 1.0),
+  the tail improves only a little (-43 to -31), and the last quarter's
+  spread is lost. A scheduled stop limits the time exposed, not the loss.
+
+LEARN Section 6.13 discusses the trade-off between mean PnL and the tail.

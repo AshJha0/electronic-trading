@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "etrade"
-version = "1.1.0"
+version = "2.0.0"
 description = "Execution and market-making research: Almgren-Chriss optimal execution, Avellaneda-Stoikov market making, execution analytics"
 readme = "README.md"
 license = { text = "MIT" }

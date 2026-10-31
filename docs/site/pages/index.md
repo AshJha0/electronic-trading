@@ -106,6 +106,30 @@ satisfies PnL = spread + fees + inventory − liquidation exactly.
 Informed flow raises spread capture and lowers PnL; the markout shows where
 the money went ([Learn, Sections 6.7-6.12](learn.md)).
 
+## Hedged market making and risk controls
+
+The informed-flow book above, hedged in an instrument with correlation 0.9
+at half a cent a share, or run under one risk control (`API_SPEC`
+Section 14). Dollars per day, 20,000-path Python reference; 5% quantile by
+the pinned type-7 estimator. Every path satisfies PnL = spread + fees +
+inventory − liquidation + hedge PnL − hedge costs − risk costs exactly.
+
+| case | mean PnL | sd | 5% quantile | rms skew |
+|---|---|---|---|---|
+| A-S, unhedged | 4.00 | 1.45 | 1.59 | 0.0067 |
+| A-S, full hedge | 7.83 | 1.36 | 5.59 | 0.0031 |
+| fixed spread, unhedged | 3.83 | 25.80 | −40.41 | 0 |
+| fixed spread, full hedge | 7.92 | 11.39 | −11.18 | 0 |
+| fixed, loss limit 5 | 2.17 | 14.22 | −5.83 | 0 |
+| fixed, position limit 10 | 4.16 | 6.04 | −5.86 | 0 |
+| A-S, throttle 1 update per 3 steps | −32.86 | 2.98 | −37.98 | 0.0135 |
+| fixed, kill at 3/4 of the session | 3.13 | 19.86 | −30.68 | 0 |
+
+The hedge halves the skew and more than halves the fixed-spread book's
+standard deviation; the loss and position limits lift the 5% quantile from
+−40 to about −6, the loss limit at a cost in mean
+([Learn, Section 6.13](learn.md)).
+
 ## What's inside
 
 <div class="grid cards" markdown>
@@ -211,12 +235,23 @@ the money went ([Learn, Sections 6.7-6.12](learn.md)).
     market orders by backward induction, checked against all-market and
     post-then-sweep on shared paths.
 
+-   **Hedged market making and risk controls**
+
+    ---
+
+    Inventory laid off in a correlated instrument by a pinned hedge rule
+    (band and target), quotes skewed on the risk-equivalent exposure,
+    hedge PnL and costs in the exact attribution; a running loss limit,
+    a position limit with flattening, a quote-rate throttle and a kill
+    switch, read from their trigger counts and the 5% quantile.
+
 -   **Golden-value testing**
 
     ---
 
-    Eight golden files with 95 cases (19 model, 15 market, 8 impact, 11 TCA,
-    9 calibration, 8 execution, 14 market-making, 11 placement), loaded by
+    Ten golden files with 120 cases (19 model, 7 whole-trajectory, 15
+    market, 8 impact, 11 TCA, 9 calibration, 8 execution, 14 market-making,
+    11 placement, 18 hedging), loaded by
     all four suites: deterministic
     cases under a relative-or-absolute tolerance of 1e-9 to 1e-12, Monte
     Carlo cases as reference values plus standard errors. Sample values
@@ -252,8 +287,9 @@ the money went ([Learn, Sections 6.7-6.12](learn.md)).
     layer use one trading day); `sigma` is arithmetic; prices may go
     negative; AC shares are fractional, A-S fills are one unit. Ticks,
     fees, latency and informed flow are stylised switches in the
-    market-making simulator, not a matching engine. Not covered yet: venues,
-    lots, an order book, hedging and risk limits, calendars, and any fit of
+    market-making simulator, not a matching engine; the hedge instrument has
+    a fixed, known correlation. Not covered yet: venues, lots, an order
+    book, calendars, and any fit of
     the impact parameters `eta`, `alpha`, `gamma_p` and `Y` to real parent
     orders.
 
