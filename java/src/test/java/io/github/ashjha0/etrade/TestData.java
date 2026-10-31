@@ -41,7 +41,7 @@ final class TestData {
     private static Object convert(JsonNode n) {
         if (n.isObject()) {
             Map<String, Object> m = new LinkedHashMap<>();
-            n.fields().forEachRemaining(e -> m.put(e.getKey(), convert(e.getValue())));
+            n.properties().forEach(e -> m.put(e.getKey(), convert(e.getValue())));
             return m;
         }
         if (n.isArray()) {
